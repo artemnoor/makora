@@ -81,6 +81,7 @@
     const opener=document.querySelector(isTasks?'#task-diagram-expand':'#diagram-expand');
     const dialog=document.createElement('dialog');
     dialog.className='diagram-dialog';
+    dialog.style.cssText='position:fixed;inset:0;width:100vw;height:100dvh;max-width:none;max-height:none;margin:0;padding:0;border:0;box-sizing:border-box;overflow:hidden;background:#0d0d0d;color:#eee';
     dialog.setAttribute('aria-label',isTasks?'Полноэкранный просмотр декомпозиции':'Полноэкранный просмотр архитектуры');
     dialog.innerHTML=`<div class="diagram-fullscreen"><header class="diagram-toolbar"><div><strong>${isTasks?'Декомпозиция':'Архитектура'}</strong><span>ТИХИЙ КАМПУС · СХЕМА</span></div><button class="diagram-close" type="button" aria-label="Закрыть схему">✕</button></header><div class="diagram-viewport" tabindex="0" aria-label="Схема архитектуры. Перемещайте перетаскиванием или стрелками, масштабируйте колесом или кнопками"><div class="diagram-scene"></div></div><div class="diagram-bottom"><span class="diagram-instruction">Перетаскивайте схему · колесо мыши — масштаб</span><div class="diagram-controls"><button type="button" data-action="out" aria-label="Уменьшить">−</button><span class="diagram-zoom" aria-live="polite">100%</span><button type="button" data-action="in" aria-label="Увеличить">＋</button><button type="button" data-action="fit" aria-label="Показать схему целиком">⤢</button></div></div></div>`;
     document.body.append(dialog);
