@@ -1,0 +1,54 @@
+[
+  {
+    "id": "success",
+    "title": "Успешный ответ",
+    "fixture": "spaces.json",
+    "expectedStatus": 200,
+    "expectedSchema": "valid",
+    "tests": [
+      "TC-04",
+      "TC-06"
+    ]
+  },
+  {
+    "id": "empty",
+    "title": "Пустой список",
+    "fixture": "empty.json",
+    "expectedStatus": 200,
+    "expectedSchema": "valid",
+    "tests": [
+      "TC-02",
+      "TC-07"
+    ]
+  },
+  {
+    "id": "server_error",
+    "title": "Ошибка сервера",
+    "fixture": null,
+    "expectedStatus": 503,
+    "expectedSchema": "error",
+    "tests": [
+      "TC-05"
+    ]
+  },
+  {
+    "id": "invalid",
+    "title": "Невалидные данные",
+    "fixture": "invalid.json",
+    "expectedStatus": 200,
+    "expectedSchema": "invalid",
+    "tests": [
+      "TC-08"
+    ]
+  },
+  {
+    "id": "stale",
+    "title": "Устаревшая информация",
+    "fixture": "stale.json",
+    "expectedStatus": 200,
+    "expectedSchema": "valid-stale",
+    "tests": [
+      "TC-03"
+    ]
+  }
+]

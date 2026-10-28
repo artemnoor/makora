@@ -1,0 +1,21 @@
+[
+  {
+    "id": "invalid-1",
+    "name": "Некорректное пространство",
+    "building": "main",
+    "capacity": 8,
+    "availableSeats": 15,
+    "status": "available",
+    "updatedAt": "2026-10-29T09:00:00Z",
+    "source": "demo"
+  },
+  {
+    "id": "invalid-2",
+    "name": "Без корпуса",
+    "capacity": 10,
+    "availableSeats": 3,
+    "status": "unknown-status",
+    "updatedAt": null,
+    "source": "demo"
+  }
+]

@@ -1,0 +1,62 @@
+[
+  {
+    "id": "library-1",
+    "name": "Библиотека",
+    "building": "main",
+    "capacity": 20,
+    "availableSeats": 8,
+    "status": "available",
+    "updatedAt": "2025-01-01T09:00:00Z",
+    "source": "demo",
+    "hasPower": true,
+    "accessibility": "Доступно"
+  },
+  {
+    "id": "space-02",
+    "name": "Учебная зона",
+    "building": "north",
+    "capacity": 12,
+    "availableSeats": 2,
+    "status": "limited",
+    "updatedAt": "2025-01-01T09:00:00Z",
+    "source": "demo",
+    "hasPower": true,
+    "accessibility": null
+  },
+  {
+    "id": "space-03",
+    "name": "Тихий зал",
+    "building": "east",
+    "capacity": 30,
+    "availableSeats": 0,
+    "status": "full",
+    "updatedAt": "2025-01-01T09:00:00Z",
+    "source": "demo",
+    "hasPower": true,
+    "accessibility": "Доступно"
+  },
+  {
+    "id": "space-04",
+    "name": "Проектная комната",
+    "building": "main",
+    "capacity": 8,
+    "availableSeats": 5,
+    "status": "available",
+    "updatedAt": "2025-01-01T09:00:00Z",
+    "source": "demo",
+    "hasPower": false,
+    "accessibility": null
+  },
+  {
+    "id": "space-05",
+    "name": "Медиатека",
+    "building": "north",
+    "capacity": 16,
+    "availableSeats": null,
+    "status": "unknown",
+    "updatedAt": "2025-01-01T09:00:00Z",
+    "source": "demo",
+    "hasPower": true,
+    "accessibility": "Доступно"
+  }
+]
