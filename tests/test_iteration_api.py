@@ -62,12 +62,12 @@ class IterationApiTests(unittest.TestCase):
             answers={q['id']:'Reviewed' for q in questions}
             status,_,body=self.call(f'/api/iterations/{iteration}/questions',json.dumps({'answers':answers}).encode())
             self.assertEqual(status,200)
-        status,_,body=self.call(f'/api/iterations/{iteration}/approve',b'{}')
-        self.assertEqual(status,409)  # code path changes stage 03 docs; adapter must return docs first
         slip=zip_bytes({'../outside.txt':'x'})
         status,_,body=self.call(f'/api/iterations/{iteration}/result',slip,'application/zip')
         self.assertEqual(status,400)
         self.assertEqual(json.loads(body)['error']['code'],'UNSAFE_ARCHIVE_PATH')
+        status,_,body=self.call(f'/api/iterations/{iteration}/approve',b'{}')
+        self.assertEqual(status,200)  # implementation change without a confirmed document dependency
         cross_origin=urllib.request.Request(self.base+'/api/iterations/prepare',data=basezip,
             headers={'Content-Type':'application/zip','Origin':'https://untrusted.example'},method='POST')
         with self.assertRaises(urllib.error.HTTPError) as denied:

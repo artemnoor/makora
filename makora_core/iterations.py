@@ -15,6 +15,7 @@ from datetime import datetime, timezone
 from pathlib import Path, PurePosixPath
 
 from .workspace import MakoraError, atomic, checksum
+from .artifact_registry import build_registry
 
 MAX_ARCHIVE = 100 * 1024 * 1024
 MAX_TOTAL_UNPACKED = 300 * 1024 * 1024
@@ -36,7 +37,8 @@ CHANGESET_SCHEMA = {
                 "proposal_path": {"type": "string"}, "reason": {"type": "string"},
                 "related_ids": {"type": "array", "items": {"type": "string"}},
                 "requires": {"type": "array", "items": {"type": "string"}}
-            }, "additionalProperties": True
+            }, "additionalProperties": True,
+            "allOf": [{"if":{"properties":{"operation":{"const":"rename"}}},"then":{"required":["source_artifact"]}}]
         }}
     }, "additionalProperties": True
 }
@@ -137,11 +139,25 @@ def is_text(path: str, data: bytes) -> bool:
 
 def stage_hints(path):
     low=path.lower(); stages=[]
-    if low.startswith(('proposals/01/','01_')): stages.append('01')
-    if low.startswith(('proposals/02/','02_')) or 'user-flow' in low or 'task-flow' in low: stages.append('02')
-    if low.startswith(('proposals/03/','03_','src/')) or any(x in low for x in ('openapi','architecture','tasks','test_plan')): stages.append('03')
-    if low.startswith(('proposals/04/','04_','mocks/','new_mocks/')): stages.append('04')
+    if low.startswith(('proposals/01/','01_','01/','artifacts/01/')): stages.append('01')
+    if low.startswith(('proposals/02/','02_','02/','artifacts/02/')) or 'user-flow' in low or 'task-flow' in low: stages.append('02')
+    if not low.startswith(('src/','app/','components/','public/','assets/')) and (low.startswith(('proposals/03/','03_','03/','artifacts/03/')) or any(x in low for x in ('openapi','architecture','tasks','test_plan'))): stages.append('03')
+    if low.startswith(('proposals/04/','04_','04/','artifacts/04/','mocks/','new_mocks/')): stages.append('04')
     return stages
+
+
+def file_category(path):
+    low=path.lower()
+    if low.startswith(('mocks/','new_mocks/')):return 'data'
+    if low.startswith(('proposals/','01_','02_','03_','04_','01/','02/','03/','04/','artifacts/')) or low=='artifact-links.json':return 'artifact'
+    return 'application'
+
+
+def possible_stage_hints(path):
+    low=path.lower();result=set(stage_hints(path))
+    if low.startswith(('src/','app/','components/')) and Path(low).suffix not in ('.css','.scss','.sass','.svg','.png','.jpg','.gif','.webp'):
+        result.add('03')
+    return sorted(result)
 
 
 def validate_document_links(path, value):
@@ -194,6 +210,46 @@ class IterationStore:
             self._save({'schema_version': 1, 'revisions': [], 'iterations': [], 'decisions': [], 'artifact_links': []})
         self.index = json.loads(self.index_path.read_text(encoding='utf-8'))
         self.index.setdefault('artifact_links',[])
+        migrated=self._migrate_artifact_approvals()
+        for item in self.index.get('iterations',[]):
+            if item.get('status')=='approved' or item.get('analysis_version',0)>=2 or not item.get('changes'):continue
+            item.setdefault('analysis_history',[]).append({'time':timestamp(),'reason':'Обновлена оценка зависимостей',
+                'changes':copy.deepcopy(item['changes']),'impacted_artifacts':copy.deepcopy(item.get('impacted_artifacts',[]))})
+            for change in item['changes']:
+                change['category']=file_category(change['path']);change['impacted_stages']=[]
+                change['possible_stages']=possible_stage_hints(change['path'])
+            item['impacted_artifacts']=self._apply_graph(item['changes']);item['analysis_version']=2;migrated=True
+        if migrated:self._save()
+
+    def _migrate_artifact_approvals(self):
+        changed=False
+        for revision in self.index.get('revisions',[]):
+            if 'approved_artifacts' in revision:continue
+            try:files=read_project_archive(self._archive(revision))
+            except (OSError,MakoraError):continue
+            if revision.get('reason')=='initial':
+                approved={a['path'] for a in build_registry(files)['artifacts'] if a['status']=='approved'}
+            else:
+                source_id=revision.get('parent_revision')
+                if revision.get('reason','').startswith('rollback from '):source_id=revision['reason'].removeprefix('rollback from ')
+                source=next((r for r in self.index['revisions'] if r['revision_id']==source_id),{})
+                approved=set(source.get('approved_artifacts',[]))
+                iteration=next((i for i in self.index.get('iterations',[]) if i.get('approved_revision')==revision['revision_id']),None)
+                if iteration:
+                    for change in iteration.get('changes',[]):
+                        if change.get('decision')!='accepted':continue
+                        path=change.get('path','')
+                        if change.get('operation')=='delete':approved.discard(path)
+                        else:
+                            if change.get('old_path'):approved.discard(change['old_path'])
+                            if stage_hints(path) and not path.startswith('proposals/'):approved.add(path)
+                    for path,decision in iteration.get('document_decisions',{}).items():
+                        if decision=='accepted':approved.add(self._proposal_target(path))
+                    report=(iteration.get('adaptation') or {}).get('report') or {}
+                    reviewed=report.get('reviewed_unchanged',[]) if isinstance(report,dict) else []
+                    if isinstance(reviewed,list):approved.update(p for p in reviewed if isinstance(p,str))
+            revision['approved_artifacts']=sorted(p for p in approved if p in files);changed=True
+        return changed
 
     def _save(self, value=None):
         if value is not None:
@@ -255,7 +311,11 @@ class IterationStore:
             source,target=edge.get('from'),edge.get('to')
             if not all(isinstance(x,str) and x.strip() and len(x)<=300 and not any(ord(c)<32 for c in x) for x in (source,target)) or source==target:
                 raise MakoraError('INVALID_LINKS','Связь должна содержать разные непустые from и to.')
-            normalized.append({'from':source.strip(),'to':target.strip(),'kind':str(edge.get('kind','depends_on'))[:80]})
+            confidence=edge.get('confidence','confirmed')
+            if confidence not in ('confirmed','inferred'):raise MakoraError('INVALID_LINKS','Некорректная достоверность связи.')
+            normalized.append({'from':source.strip(),'to':target.strip(),'kind':str(edge.get('kind','depends_on'))[:80],
+                               'confidence':confidence,'evidence':str(edge.get('evidence',''))[:500],
+                               'origin':'generated' if edge.get('origin')=='generated' else 'manual'})
         combined=[] if replace else list(self.index.get('artifact_links',[]))
         known={(x['from'],x['to'],x['kind']) for x in combined}
         for edge in normalized:
@@ -267,22 +327,24 @@ class IterationStore:
 
     def _apply_graph(self, changes):
         graph={}
-        for edge in self.index.get('artifact_links',[]): graph.setdefault(edge['from'],[]).append(edge['to'])
+        for edge in self.index.get('artifact_links',[]): graph.setdefault(edge['from'],[]).append(edge)
         impacted={}
         for change in changes:
-            seeds=[change['path']]+[x for x in change.get('related_ids',[]) if isinstance(x,str)]
-            visited=set(seeds);queue=deque((node,0) for node in seeds);related=[]
+            seeds=[change['path']]+([change['old_path']] if change.get('old_path') else [])+[x for x in change.get('related_ids',[]) if isinstance(x,str)]
+            visited={(node,True) for node in seeds};queue=deque((node,0,True) for node in seeds);related=[]
             while queue:
-                node,depth=queue.popleft()
-                for target in graph.get(node,[]):
-                    if target in visited: continue
-                    visited.add(target);queue.append((target,depth+1))
-                    relation={'artifact':target,'distance':depth+1,'via':node,'basis':'registered'}
+                node,depth,confirmed=queue.popleft()
+                for edge in graph.get(node,[]):
+                    target=edge['to'];certain=confirmed and edge.get('confidence','confirmed')=='confirmed'
+                    if (target,certain) in visited: continue
+                    visited.add((target,certain));queue.append((target,depth+1,certain))
+                    relation={'artifact':target,'distance':depth+1,'via':node,'basis':'registered' if certain else 'inferred', 'evidence':edge.get('evidence','')}
                     related.append(relation)
-                    impacted.setdefault(target,{'artifact':target,'status':'needs_review','basis':'registered'})
-                    change['impacted_stages']=sorted(set(change['impacted_stages'])|set(stage_hints(target)))
+                    if target not in impacted or certain:impacted[target]={'artifact':target,'status':'needs_review' if certain else 'suggested','basis':'registered' if certain else 'inferred'}
+                    field='impacted_stages' if certain else 'possible_stages'
+                    change[field]=sorted(set(change.get(field,[]))|set(stage_hints(target)))
             change['related_artifacts']=related
-            change['impact_basis']='registered_and_path_heuristic' if related else 'path_heuristic'
+            change['impact_basis']='registered' if any(r['basis']=='registered' for r in related) else ('inferred' if related or change.get('possible_stages') else 'none')
         return list(impacted.values())
 
     @synchronized
@@ -290,6 +352,9 @@ class IterationStore:
         context = read_archive(package)
         current = self.current_revision()
         if not current:
+            registry=build_registry(context)
+            context['artifact-registry.json']=json.dumps(registry,ensure_ascii=False,indent=2).encode('utf-8')
+            package=zip_files(context)
             base = self._put_revision(package, reason='initial')
             base['current'] = True
             self.index['revisions'][-1] = base
@@ -298,7 +363,9 @@ class IterationStore:
                 try: document=json.loads(context['artifact-links.json'].decode('utf-8'))
                 except (UnicodeDecodeError,json.JSONDecodeError) as exc: raise MakoraError('INVALID_LINKS','artifact-links.json повреждён.') from exc
                 self.register_links(document.get('links') if isinstance(document,dict) else None,persist=False)
-                base['artifact_links']=copy.deepcopy(self.index['artifact_links'])
+            self.register_links(registry['links'],persist=False)
+            base['artifact_links']=copy.deepcopy(self.index['artifact_links'])
+            base['approved_artifacts']=[a['path'] for a in registry['artifacts'] if a['status']=='approved']
         elif base_revision is None:
             base_revision = current['revision_id']
         if base_revision and base_revision != current['revision_id']:
@@ -320,6 +387,11 @@ class IterationStore:
             package = zip_files(merged)
         iid = 'it-' + uuid.uuid4().hex[:16]
         package_files=read_archive(package)
+        approved_files=read_archive(self._archive(current))
+        registry=build_registry(approved_files,current.get('approved_artifacts'))
+        self.index['artifact_links']=[edge for edge in self.index.get('artifact_links',[]) if edge.get('origin')!='generated']
+        self.register_links(registry['links'],persist=False)
+        package_files['artifact-registry.json']=json.dumps(registry,ensure_ascii=False,indent=2).encode('utf-8')
         package_files['iteration-context.json']=json.dumps({
             'iteration_id':iid,'base_revision':current['revision_id'],
             'base_checksum':current['sha256'],
@@ -345,17 +417,29 @@ class IterationStore:
         self._save()
         return self.iteration(iid)
 
-    def _diff(self, base_data, returned_data):
+    def _diff(self, base_data, returned_data, preserve_missing_artifacts=False):
         base, returned = read_project_archive(base_data), read_project_archive(returned_data)
+        declared_deletes=set()
+        declared_renames=[]
+        try:
+            declaration=json.loads(returned.get('changeset.json',b'{}').decode('utf-8'))
+            if isinstance(declaration,dict) and isinstance(declaration.get('changes'),list):
+                declared_deletes={c.get('path') for c in declaration['changes'] if isinstance(c,dict) and c.get('operation')=='delete' and isinstance(c.get('path'),str)}
+                declared_deletes.update(c.get('source_artifact') for c in declaration['changes'] if isinstance(c,dict) and c.get('operation')=='rename' and isinstance(c.get('source_artifact'),str))
+                declared_renames=[(c.get('source_artifact'),c.get('path')) for c in declaration['changes'] if isinstance(c,dict) and c.get('operation')=='rename' and isinstance(c.get('source_artifact'),str) and isinstance(c.get('path'),str)]
+        except (UnicodeDecodeError,json.JSONDecodeError):pass
+        added_hashes={(file_category(path),checksum(data)) for path,data in returned.items() if path not in base}
         output = []
         for path in sorted(set(base) | set(returned)):
-            if path == 'iteration-context.json': continue
+            if path.startswith('makora-context/') or path in ('iteration-context.json','context-status.json','PROMPT.md','changeset.schema.json','artifact-registry.json'): continue
             before, after = base.get(path), returned.get(path)
             if before == after:
                 continue
+            if preserve_missing_artifacts and before is not None and after is None and path not in declared_deletes and (file_category(path),checksum(before)) not in added_hashes and file_category(path) in ('artifact','data'):
+                continue
             operation = 'add' if before is None else 'delete' if after is None else 'modify'
             change_id = 'chg-' + checksum(path.encode())[:10]
-            record = {'id': change_id, 'path': path, 'operation': operation,
+            record = {'id': change_id, 'path': path, 'operation': operation,'category':file_category(path),
                       'before_sha256': checksum(before) if before is not None else None,
                       'after_sha256': checksum(after) if after is not None else None,
                       'size_before': len(before) if before is not None else None,
@@ -371,9 +455,36 @@ class IterationStore:
             else:
                 record['kind'] = 'binary' if before is not None and after is not None else 'file'
             low = path.lower()
-            record['impacted_stages'] = sorted(set(stage_hints(path)))
+            record['impacted_stages'] = []
+            record['possible_stages'] = possible_stage_hints(path)
             record['mocks_changed'] = (low.startswith('mocks/') or '/mocks/' in low) and not low.startswith('proposals/')
             output.append(record)
+        additions={};deletions={}
+        for change in output:
+            if change['operation']=='add':additions.setdefault((change['category'],change['after_sha256']),[]).append(change)
+            if change['operation']=='delete':deletions.setdefault((change['category'],change['before_sha256']),[]).append(change)
+        merged=[];consumed=set()
+        def merge_rename(old,new):
+            consumed.update((old['id'],new['id']))
+            item=dict(new);item.update({'id':'chg-'+checksum((old['path']+'\0'+new['path']).encode())[:10],
+                'operation':'rename','old_path':old['path'],'before_sha256':old['before_sha256'],
+                'size_before':old['size_before'],'diff':'','mocks_changed':old['mocks_changed'] or new['mocks_changed'],
+                'impacted_stages':sorted(set(old['impacted_stages'])|set(new['impacted_stages'])),
+                'possible_stages':sorted(set(old['possible_stages'])|set(new['possible_stages']))})
+            before,after=base[old['path']],returned[new['path']]
+            if is_text(old['path'],before) and is_text(new['path'],after) and before!=after:
+                item['kind']='text';item['diff']=''.join(list(difflib.unified_diff(before.decode('utf-8',errors='replace').splitlines(keepends=True),after.decode('utf-8',errors='replace').splitlines(keepends=True),fromfile='Было: '+old['path'],tofile='Стало: '+new['path'],n=3))[:1000])
+            merged.append(item)
+        for old_path,new_path in declared_renames:
+            old=next((c for c in output if c['operation']=='delete' and c['path']==old_path and c['id'] not in consumed),None)
+            new=next((c for c in output if c['operation']=='add' and c['path']==new_path and c['id'] not in consumed),None)
+            if old and new and old['category']==new['category']:merge_rename(old,new)
+        for key,deleted in deletions.items():
+            added=additions.get(key,[])
+            if key[1] and len(deleted)==len(added)==1 and deleted[0]['id'] not in consumed and added[0]['id'] not in consumed:
+                merge_rename(deleted[0],added[0])
+        output=[c for c in output if c['id'] not in consumed]+merged
+        output.sort(key=lambda c:c['path'])
         return output, base, returned
 
     def _parse_changeset(self, files, changes):
@@ -416,6 +527,8 @@ class IterationStore:
                 if matched:
                     if matched['operation'] != entry['operation']:
                         errors.append('Заявленная операция не совпадает с фактической для '+entry['path']+'.')
+                    if entry['operation']=='rename' and entry.get('source_artifact')!=matched.get('old_path'):
+                        errors.append('Для rename укажите исходный путь в source_artifact: '+entry['path']+'.')
                     matched['reason'] = entry['reason']
                     matched['requires'] = [v for v in entry.get('requires',[]) if isinstance(v,str)] if isinstance(entry.get('requires',[]),list) else []
                     matched['related_ids'] = [v for v in entry.get('related_ids',[]) if isinstance(v,str)] if isinstance(entry.get('related_ids',[]),list) else []
@@ -463,10 +576,12 @@ class IterationStore:
             raise MakoraError('ITERATION_CLOSED','Эта итерация уже согласована. Создайте следующую итерацию.')
         files = read_project_archive(archive)
         base_revision = self._revision(item['base_revision'])
-        changes, base_files, returned_files = self._diff(self._archive_path(item['package']).read_bytes(), archive)
+        changes, base_files, returned_files = self._diff(self._archive(base_revision), archive, preserve_missing_artifacts=True)
         change_set = self._parse_changeset(returned_files, changes)
         impacted_artifacts=self._apply_graph(changes)
         prototype_report=self._prototype_report(returned_files)
+        removed_paths={c.get('old_path') if c['operation']=='rename' else c['path'] for c in changes if c['operation'] in ('rename','delete')}
+        missing_artifacts=[p for p in base_files if p not in returned_files and p not in removed_paths and file_category(p) in ('artifact','data') and not p.startswith('proposals/') and p not in ('artifact-registry.json','iteration-context.json')]
         stale = self.current_revision()['revision_id'] != item['base_revision']
         declared_base=change_set.get('base_revision')
         if declared_base and declared_base != item['base_revision']: stale=True
@@ -484,7 +599,7 @@ class IterationStore:
                 change['reason'] = change.get('reason') or 'Изменены исходные мок-данные; требуется отдельное решение.'
         item.update({'result': f"iterations/{iid}/returned-{uuid.uuid4().hex}.zip", 'result_sha256': checksum(archive),
                      'returned_at': timestamp(), 'changes': changes, 'changeset': change_set,
-                     'prototype_report':prototype_report,'impacted_artifacts':impacted_artifacts,
+                     'prototype_report':prototype_report,'impacted_artifacts':impacted_artifacts,'missing_artifacts':missing_artifacts,'analysis_version':2,
                      'status': 'stale_base' if stale else ('review' if changes else 'no_changes'),
                      'stale_base': stale, 'questions': self._questions(changes, change_set),
                      'checks': [{'id':'archive_safety','status':'passed','detail':'ZIP прочитан с ограничениями; код не запускался.'},
@@ -492,6 +607,7 @@ class IterationStore:
                                  'detail':'changeset.json проверен структурно.' if change_set['present'] else 'changeset.json отсутствует.'},
                                 {'id':'prototype_report','status':prototype_report['status'] if prototype_report['status'] in ('passed','failed','not_run') else 'passed',
                                  'detail':'Отчёт прочитан и его формат проверен.' if prototype_report['status']=='parsed' else 'Отчёт отсутствует или содержит ошибки.'},
+                                {'id':'missing_artifacts','status':'not_checked' if missing_artifacts else 'passed','detail':('Отсутствующие в ZIP документы и моки сохраняются из базы: '+', '.join(missing_artifacts[:8])) if missing_artifacts else 'Базовые документы и моки присутствуют.'},
                                 {'id':'external_code','status':'not_checked','detail':'Внешний код не запускался.'}]})
         atomic(self._archive_path(item['result']), archive)
         self._save()
@@ -591,8 +707,8 @@ class IterationStore:
             'artifact_links':self.index.get('artifact_links',[]), 'impacted_artifacts':item.get('impacted_artifacts',[]),
             'instructions':'Обнови только перечисленные затронутые документы, сохраняя ID и связи. Не переписывай исходные требования организатора и не утверждай новые требования автоматически. Верни документы в proposals/ и файл adaptation-report.json. Код не запускай.'
         }
-        affected_stages={stage for change in accepted for stage in change.get('impacted_stages',[])}
-        registered={entry['artifact'] for change in accepted for entry in change.get('related_artifacts',[])}
+        affected_stages={stage for change in accepted for stage in change.get('impacted_stages',[])+change.get('possible_stages',[])}
+        registered={entry['artifact'] for change in accepted for entry in change.get('related_artifacts',[]) if entry.get('basis')=='registered'}
         context['impacted_artifacts']=[entry for entry in item.get('impacted_artifacts',[]) if entry['artifact'] in registered]
         document_paths=[p for p in base if p in registered or
                         (p.startswith(('01_','02_','03_','04_','mocks/','new_mocks/')) and bool(set(stage_hints(p)) & affected_stages))]
@@ -705,7 +821,7 @@ class IterationStore:
         checks.append({'id':'impacted_stages','status':'failed' if missing_stages else 'passed',
                        'detail':'Нет документов для этапов: '+', '.join(missing_stages) if missing_stages else 'Для затронутых этапов возвращены документы.'})
         linked={edge['artifact'] for change in item.get('changes',[]) if change['decision']=='accepted'
-                for edge in change.get('related_artifacts',[]) if edge['artifact'] in base_files}
+                for edge in change.get('related_artifacts',[]) if edge.get('basis')=='registered' and edge['artifact'] in base_files}
         documented={self._proposal_target(path) for path in proposals}|set(p for p in reviewed_unchanged if isinstance(p,str))
         missing_linked=sorted(linked-documented)
         checks.append({'id':'linked_artifacts','status':'failed' if missing_linked else 'passed',
@@ -805,6 +921,8 @@ class IterationStore:
             raise MakoraError('ADAPTATION_REQUIRED','Принятые изменения затрагивают документы этапов 1–4. Импортируйте результат актуализации или отклоните эти изменения.')
         base_archive = self._archive(self._revision(item['base_revision']))
         base = read_project_archive(base_archive)
+        previous=self._revision(item['base_revision'])
+        approved_paths=set(previous.get('approved_artifacts',[a['path'] for a in build_registry(base)['artifacts'] if a['status']=='approved']))
         returned = read_project_archive(self._archive_path(item['result']).read_bytes()) if item.get('result') else {}
         altered_mocks=[c['path'] for c in item.get('changes',[]) if c['decision']=='accepted' and c.get('mocks_changed')]
         if altered_mocks:
@@ -813,7 +931,7 @@ class IterationStore:
         adaptation_report=(item.get('adaptation') or {}).get('report') or {}
         accepted_stages={stage for p,d in item.get('document_decisions',{}).items() if d=='accepted' for stage in self._proposal_stages(p,adaptation_report)}
         accepted_stages.update(stage for path in adaptation_report.get('reviewed_unchanged',[]) if isinstance(path,str) for stage in stage_hints(path))
-        required_linked={edge['artifact'] for c in item.get('changes',[]) if c['decision']=='accepted' for edge in c.get('related_artifacts',[]) if edge['artifact'] in base}
+        required_linked={edge['artifact'] for c in item.get('changes',[]) if c['decision']=='accepted' for edge in c.get('related_artifacts',[]) if edge.get('basis')=='registered' and edge['artifact'] in base}
         accepted_targets={self._proposal_target(path) for path,d in item.get('document_decisions',{}).items() if d=='accepted'}|set(adaptation_report.get('reviewed_unchanged',[]))
         if required_linked-accepted_targets:
             raise MakoraError('DOCUMENTS_UNRESOLVED','Не согласованы связанные документы: '+', '.join(sorted(required_linked-accepted_targets)))
@@ -823,8 +941,13 @@ class IterationStore:
         for change in item.get('changes',[]):
             if change['decision'] != 'accepted': continue
             path=change['path']
-            if change['operation'] == 'delete': base.pop(path,None)
+            if change['operation'] == 'delete': base.pop(path,None);approved_paths.discard(path)
+            elif change['operation'] == 'rename':
+                base.pop(change['old_path'],None)
+                approved_paths.discard(change['old_path'])
+                if path in returned:base[path]=returned[path]
             elif path in returned: base[path]=returned[path]
+            if change['operation']!='delete' and stage_hints(path) and not path.startswith('proposals/'):approved_paths.add(path)
         # Adapted documents override only explicitly delivered proposal files into their target paths.
         if (item.get('adaptation') or {}).get('archive'):
             adapted=read_project_archive(self._archive_path(item['adaptation']['archive']).read_bytes())
@@ -835,13 +958,20 @@ class IterationStore:
                         if target.startswith('mocks/') and base.get(target)!=content:
                             raise MakoraError('ORIGINAL_MOCKS_CHANGED','Изменённые данные и сценарии помести в new_mocks/, сохрани исходные mocks/.')
                         base[target]=content
-        archive=zip_files(base)
+                        approved_paths.add(target)
+        approved_paths.update(path for path in adaptation_report.get('reviewed_unchanged',[]) if isinstance(path,str) and path in base)
         if any(c['decision']=='accepted' and c['path']=='artifact-links.json' for c in item.get('changes',[])):
             try: link_document=json.loads(base['artifact-links.json'].decode('utf-8'))
             except (KeyError,UnicodeDecodeError,json.JSONDecodeError) as exc: raise MakoraError('INVALID_LINKS','Утверждённый artifact-links.json повреждён.') from exc
             self.register_links(link_document.get('links') if isinstance(link_document,dict) else None,replace=True,persist=False)
+        self.index['artifact_links']=[edge for edge in self.index.get('artifact_links',[]) if edge.get('origin')!='generated']
+        registry=build_registry(base,approved_paths)
+        base['artifact-registry.json']=json.dumps(registry,ensure_ascii=False,indent=2).encode('utf-8')
+        self.register_links(registry['links'],persist=False)
+        archive=zip_files(base)
         for rev in self.index['revisions']: rev['current']=False
         revision=self._put_revision(archive,parent=item['base_revision'],reason='iteration '+iid)
+        revision['approved_artifacts']=sorted(approved_paths)
         revision['current']=True; self.index['revisions'][-1]=revision
         item['approved_revision']=revision['revision_id']; item['approved_at']=timestamp(); item['status']='approved'
         self._save()
@@ -855,6 +985,7 @@ class IterationStore:
         self.index['artifact_links']=copy.deepcopy(selected.get('artifact_links',[]))
         for revision in self.index['revisions']: revision['current']=False
         new=self._put_revision(data,parent=current['revision_id'] if current else None,reason='rollback from '+rid)
+        new['approved_artifacts']=copy.deepcopy(selected.get('approved_artifacts',[]))
         new['current']=True; self.index['revisions'][-1]=new
         self._save()
         return {'revision':new,'source_revision':rid,'history_preserved':True}
@@ -884,14 +1015,19 @@ class IterationStore:
         current=self.current_revision()
         if not current: raise MakoraError('NO_PROJECT','Сначала подготовьте первый пакет проекта.')
         files=read_project_archive(self._archive(current));documents=[];omitted=[];total=0
+        initial=next((r for r in self.index['revisions'] if r.get('reason')=='initial'),None)
+        initial_files=read_project_archive(self._archive(initial)) if initial else {}
+        try:demo=json.loads(initial_files.get('context-status.json',b'{}').decode('utf-8')).get('demo') is True
+        except (UnicodeDecodeError,json.JSONDecodeError,AttributeError):demo=False
         for path,data in sorted(files.items()):
-            if not path.startswith(('01_','02_','03_','04_','mocks/','new_mocks/')) or stage not in stage_hints(path):continue
+            if not path.startswith(('01_','02_','03_','04_','01/','02/','03/','04/','artifacts/01/','artifacts/02/','artifacts/03/','artifacts/04/','mocks/','new_mocks/')) or stage not in stage_hints(path):continue
             if Path(path).suffix.lower() not in ('.md','.mmd','.json','.yaml','.yml','.txt','.csv'):continue
             if len(data)>TEXT_LIMIT or total+len(data)>5*1024*1024 or len(documents)>=100:
                 omitted.append(path);continue
             try:text=data.decode('utf-8')
             except UnicodeDecodeError:omitted.append(path);continue
-            documents.append({'path':path,'content':text,'sha256':checksum(data)})
+            documents.append({'path':path,'content':text,'sha256':checksum(data),
+                              'is_demo':bool(demo and path in initial_files and initial_files[path]==data)})
             total+=len(data)
         return {'revision_id':current['revision_id'],'reason':current['reason'],'documents':documents,'omitted':omitted}
 

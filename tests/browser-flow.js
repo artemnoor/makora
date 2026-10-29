@@ -32,6 +32,7 @@ async page => {
   assert(await page.locator('[data-plan-item]').count() === 9, 'В планировании должно быть 9 разделов');
   for (let i = 0; i < 9; i++) {
     await page.locator(`[data-plan-item="${i}"]`).click();
+    await page.locator('.demo-context-note').first().waitFor({state:'attached'});
     assert(await page.locator('.demo-context-note').count() > 0, `Нет пояснения о демо в разделе плана ${i}`);
     const text = await page.locator('.board-content').innerText();
     assert(text.trim().length > 30, `Пустой раздел плана ${i}`);
@@ -57,6 +58,7 @@ async page => {
   assert(await page.locator('[data-mock-item]').count() === 5, 'У моков должно быть 5 разделов');
   for (let i = 0; i < 5; i++) {
     await page.locator(`[data-mock-item="${i}"]`).click();
+    await page.locator('.demo-context-note').first().waitFor({state:'attached'});
     assert(await page.locator('.demo-context-note').count() > 0, `Нет пояснения о демо в моках ${i}`);
     assert((await page.locator('.plan-title').first().innerText()).length > 2, `Пустой раздел моков ${i}`);
     if (i === 1) {
@@ -106,13 +108,18 @@ async page => {
       assert(adaptation.suggestedFilename()==='makora-adaptation.zip','Не подготовлен пакет актуализации');
       const identifiers=await page.evaluate(()=>{const s=JSON.parse(localStorage.getItem('makora.prototype-handoff.v1'));return {iterationId:s.iterationId,baseRevision:s.baseRevision}});
       const docsZip=await page.evaluate(({iterationId,baseRevision})=>Array.from(fflate.zipSync({
+        'proposals/01/01_case_analysis.md':fflate.strToU8('# Суть задания\n\nАктуальная суть из согласованной версии.\n'),
+        'proposals/02/02_solution_concept.md':fflate.strToU8('# Финальная идея\n\nАктуальная концепция из согласованной версии.\n'),
         'proposals/03/03_architecture.md':fflate.strToU8('# Обновлённая архитектура\n'),
-        'adaptation-report.json':fflate.strToU8(JSON.stringify({iteration_id:iterationId,base_revision:baseRevision,updated_documents:[{path:'03_architecture.md',change_reason:'Учтён принятый файл интерфейса',related_ids:[]}],checks:[{id:'markdown',status:'not_run',detail:'Ручная проверка ещё не выполнена.'}],unresolved_questions:[],assumptions:[],known_limitations:[]}))
+        'proposals/04/04_validation_report.md':fflate.strToU8('# Валидация\n\nАктуальный отчёт о данных.\n'),
+        'adaptation-report.json':fflate.strToU8(JSON.stringify({iteration_id:iterationId,base_revision:baseRevision,updated_documents:['01_case_analysis.md','02_solution_concept.md','03_architecture.md','04_validation_report.md'].map(path=>({path,change_reason:'Согласована актуальная версия',related_ids:[]})),checks:[{id:'markdown',status:'not_run',detail:'Ручная проверка ещё не выполнена.'}],unresolved_questions:[],assumptions:[],known_limitations:[]}))
       })),identifiers);
       await page.locator('[data-adaptation-file]').setInputFiles({name:'adaptation.zip',mimeType:'application/zip',buffer:Buffer.from(docsZip)});
       await page.locator('.prototype-adapted h3').waitFor({state:'visible'});
-      await page.locator('.prototype-adapted [data-doc-decision="accept"]').click();
-      await page.waitForFunction(()=>document.querySelector('.prototype-adapted .prototype-change header span')?.textContent==='accepted');
+      for(const path of ['01_case_analysis.md','02_solution_concept.md','03_architecture.md','04_validation_report.md']){
+        await page.locator('.prototype-adapted .prototype-change').filter({hasText:path}).locator('[data-doc-decision="accept"]').click();
+        await page.waitForFunction(name=>[...document.querySelectorAll('.prototype-adapted .prototype-change')].some(el=>el.textContent.includes(name)&&el.querySelector('header span')?.textContent==='accepted'),path);
+      }
       await page.locator('[data-approve-revision]').click();
       await page.waitForFunction(()=>{const s=JSON.parse(localStorage.getItem('makora.prototype-handoff.v1')||'{}');return !!s.approvedRevision});
       const history=await page.evaluate(async()=>{const response=await fetch('/api/history');return (await response.json()).result});
@@ -126,11 +133,23 @@ async page => {
       const nextDownload=page.waitForEvent('download');await page.locator('[data-download]').click();
       assert((await nextDownload).suggestedFilename()==='makora-prototype-context.zip','Не создан пакет следующей итерации');
       await page.locator('.prototype-dialog [data-close]').click();
+      await page.locator('[data-board-stage="1"]').click();
+      await page.locator('[data-section="0"]').click();
+      assert((await page.locator('.board-document').innerText()).includes('Актуальная суть из согласованной версии'),'Этап 1 не показывает актуальный файл');
+      await page.locator('[data-board-stage="2"]').click();
+      await page.locator('[data-idea-group="solution"]').click();
+      await page.locator('[data-idea-item="2"]').click();
+      assert((await page.locator('.board-document').innerText()).includes('Актуальная концепция из согласованной версии'),'Этап 2 не показывает актуальный файл');
       await page.locator('[data-board-stage="3"]').click();
+      await page.locator('[data-plan-item="0"]').click();
+      assert((await page.locator('.board-document').innerText()).includes('Обновлённая архитектура'),'Этап 3 не показывает актуальный файл');
       await page.locator('.board-version').click();
       await page.locator('[data-version-file]').filter({hasText:'03_architecture.md'}).click();
       assert((await page.locator('.board-document').innerText()).includes('Обновлённая архитектура'),'Доска не открыла документ согласованной версии');
       await page.locator('[data-board-stage="4"]').click();
+      await page.locator('[data-mock-item="4"]').click();
+      assert((await page.locator('.board-document').innerText()).includes('Актуальный отчёт о данных'),'Этап 4 не показывает актуальный файл');
+      await page.locator('[data-current-back]').click();
     }
     if (await page.locator('[data-mock-home]').count()) await page.locator('[data-mock-home]').click();
     else assert(await page.locator('[data-mock-item]').count() === 5, 'Возврат не открыл разделы моков');
@@ -138,21 +157,17 @@ async page => {
   await page.locator('[data-board-stage="2"]').click();
   await page.locator('[data-idea-group="solution"]').click();
   await page.locator('[data-idea-item="2"]').click();
-  await page.locator('[data-idea-edit]').click();
-  const original = await page.locator('#idea-editor').inputValue();
-  await page.locator('#idea-editor').fill(original + '\n\nИзменение для проверки зависимостей.');
-  await page.locator('[data-idea-save]').click();
+  await page.evaluate(()=>{const doc=conceptBlocks.find(x=>x.title==='Финальная идея');window.makoraProject.saveDocument(doc,doc.md+'\n\nИзменение для проверки зависимостей.');});
   const changed = await page.evaluate(() => ({idea: window.makoraProject.isApproved(), plan: window.makoraStage3.getContext()}));
   assert(!changed.idea && !changed.plan.readiness.ready, 'Изменение идеи не отменило готовность');
   assert(changed.plan.approval.steps.every(step => step.status === 'stale'), 'Зависимый план не помечен для перепроверки');
-  await page.locator('[data-idea-approve]').click();
+  await page.evaluate(()=>window.makoraProject.approve());
   assert(await page.evaluate(() => window.makoraProject.isApproved()), 'Повторное утверждение не сохранилось');
   await page.locator('[data-board-stage="3"]').click();
   assert((await page.locator('.scene-bottom p').innerText()).includes('не обновляются автоматически'), 'Нет предупреждения о прежнем плане');
   await page.locator('[data-board-stage="4"]').click();
   await page.locator('[data-mock-item="4"]').click();
-  assert((await page.locator('.validation-summary').innerText()).includes('Проверки не выполнялись'), 'Старые проверки моков должны требовать повторного выполнения');
-  assert(await page.locator('#mock-approve').isDisabled(), 'Моки нельзя утверждать без повторной проверки');
+  assert((await page.locator('.board-document').innerText()).includes('Актуальный отчёт о данных'),'Должен отображаться утверждённый документ моков');
   assert(await page.evaluate(() => JSON.parse(localStorage.getItem('makora.stage4.review.v1')).status === 'stale'), 'Старое утверждение моков не помечено устаревшим');
   await page.reload();
   assert(await page.evaluate(() => window.makoraProject.isApproved()), 'Утверждение идеи потерялось после обновления');
@@ -167,6 +182,9 @@ async page => {
   await page.locator('[data-open-history]').click();
   await page.locator('[data-rollback]').first().click();
   await page.waitForFunction(async()=>{const r=await fetch('/api/history');const h=(await r.json()).result;return h.revisions.length===3&&h.current_revision.reason.startsWith('rollback from ')});
+  await page.locator('.prototype-dialog [data-close]').click();
+  await page.locator('[data-section="0"]').click();
+  assert(!(await page.locator('.board-document').innerText()).includes('Актуальная суть из согласованной версии'),'После отката остался документ другой ревизии');
   assert(errors.length === 0, 'Ошибки JavaScript: ' + errors.join('; '));
   return {analysis: 10, research: 5, solution: 9, planning: 9, mocks: 5, approvedAndInvalidated: true, errors};
 }

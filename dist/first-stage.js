@@ -103,7 +103,7 @@
   let versionDocuments=null;
   function showVersionFiles(){
     const data=versionDocuments;if(!data)return;
-    content.innerHTML=`<div class="revision-nav"><button type="button" data-version-exit>← К этапу</button><span>${esc(data.revision_id)}</span></div><div class="revision-list">${data.documents.length?data.documents.map((file,i)=>`<button type="button" data-version-file="${i}"><span>${esc(file.path)}</span><span>↗</span></button>`).join(''):'<p>Для этого этапа в текущей версии нет текстовых файлов.</p>'}</div>${data.omitted.length?`<p class="revision-note">Часть файлов не показана из-за размера или формата: ${esc(data.omitted.join(', '))}</p>`:''}`;
+    content.innerHTML=`<div class="revision-nav"><button type="button" data-version-exit>← К этапу</button><span>${esc(data.revision_id)}</span></div><div class="revision-list">${data.documents.length?data.documents.map((file,i)=>`<button type="button" data-version-file="${i}"><span>${esc(file.path)}${file.is_demo?' · демо':''}</span><span>↗</span></button>`).join(''):'<p>Для этого этапа в текущей версии нет текстовых файлов.</p>'}</div>${data.omitted.length?`<p class="revision-note">Часть файлов не показана из-за размера или формата: ${esc(data.omitted.join(', '))}</p>`:''}`;
     content.scrollTop=0;
   }
   versionButton.onclick=async()=>{
@@ -126,6 +126,7 @@
   });
   function syncBoardStage() {
     board.classList.remove('revision-view');
+    root.querySelector('.board-kicker').textContent='ДЕМО-КЕЙС / ТИХИЙ КАМПУС';
     if (stage === 4 && boardStage !== 4) { stage4DetailOpen = false; stage3DetailOpen = false; }
     boardStage = stage;
     const working = stage > 4 || (stage === 4 && stage4DetailOpen) || (stage === 3 && stage3DetailOpen);
@@ -305,6 +306,70 @@
     content.scrollTop = 0;
   }
   content.addEventListener('click', e => { const section=e.target.closest('[data-section]'); if(section) showSection(Number(section.dataset.section)); if(stage===1 && e.target.closest('.board-back')) showIndex(); });
+  // The board keeps its navigation, while approved revision files supply its content.
+  let artifactRequest=0, currentFixtureFiles=[], noRevisionUntil=0;
+  window.addEventListener('makora-revision-updated',()=>{noRevisionUntil=0;});
+  function currentFallback(s,index,group){
+    board.classList.remove('revision-view');root.querySelector('.board-kicker').textContent='ДЕМО-КЕЙС / ТИХИЙ КАМПУС';
+    root.querySelector('.scene-bottom > p').textContent=(s>=3?window.makoraDemo.notice:'Демо-анализ: показан пример, файл не анализируется.')+' Этап 06 находится в разработке.';
+    if(s===1)showSection(index);
+    else if(s===2){ideaGroup=group;showIdeaDocument(index);}
+    else if(s===3){if(index<4)showPlanningDiagram([1,2,3,0][index]);else if(index===8)showPlanningDiagram(4);else showPlanningStep(index-3);}
+    else if(s===4)showMockStep(index);
+  }
+  function sectionFromMarkdown(text,title){
+    const normalize=value=>value.toLowerCase().replace(/ё/g,'е').replace(/[^a-zа-я0-9]+/g,' ').trim().replace(/^\d+\s*/, '');
+    const wanted=normalize(title),lines=text.split('\n');let start=-1,level=0;
+    for(let i=0;i<lines.length;i++){const m=lines[i].match(/^(#{1,3})\s+(.+)$/);if(!m)continue;const heading=normalize(m[2]);if(heading===wanted||heading.startsWith(wanted+' ')||wanted.startsWith(heading+' ')){start=i;level=m[1].length;break;}}
+    if(start<0)return {text,whole:true};
+    let end=lines.length;for(let i=start+1;i<lines.length;i++){const m=lines[i].match(/^(#{1,3})\s+/);if(m&&m[1].length<=level){end=i;break;}}
+    return {text:lines.slice(start,end).join('\n').trim(),whole:false};
+  }
+  function artifactCandidates(s,index,group,files){
+    const find=pattern=>files.find(f=>pattern.test(f.path));
+    if(s===1){const specific=[/problem.statement/i,/requirements/i,/desired/i,/opportunities/i,/constraints/i,/evaluation/i,/submission/i,/resources/i,/open.questions/i,/risk/i][index];return find(specific)||find(/01.*case.analysis/i);}
+    if(s===2){const title=ideaGroups[group]?.docs[index]?.title||'';if(/user flow/i.test(title)){const f=find(/user[_-]?flow/i);if(f)return f;}if(/task flow/i.test(title)){const f=find(/task[_-]?flows?/i);if(f)return f;}return find(group==='research'?/02.*research/i:/02.*(solution|concept)/i);}
+    if(s===3){const patterns=[/c1[-_].*(context|контекст)/i,/c2[-_].*(container|контейнер)/i,/c3[-_].*(component|компонент)/i,/(data.model|er.diagram)/i,/openapi\.(yaml|yml|json)$/i,/(test.plan|test_plan)/i,/(03_tasks|tasks)\.(json|ya?ml)$/i,/(03_validation|validation.report)/i,/c4[-_].*(code|код)/i];return find(patterns[index])||(index<4||index===8?find(/03.*architecture/i):null);}
+    if(s===4){const patterns=[/(04_mock_data|data.requirements|data.needs)/i,/\/(?:fixtures)\//i,/scenarios\.json$/i,/mock.api.*readme\.md$/i,/(04_validation|mock.validation)/i];return find(patterns[index]);}
+    return null;
+  }
+  async function showRevisionArtifact(s,index,group,request){
+    if(Date.now()<noRevisionUntil)return false;
+    let data;
+    try{data=await prototypeHandoff.currentDocuments(s);}catch(error){
+      if(localStorage.getItem('makora.current-revision.v1')){stageMessage.textContent='Не удалось загрузить текущую ревизию. Проверь локальный сервер.';stageMessage.hidden=false;content.innerHTML='<button type="button" data-current-back>← К разделам</button><p>Текущая версия недоступна.</p>';return true;}
+      noRevisionUntil=Date.now()+5000;return false;
+    }
+    if(request!==artifactRequest||stage!==s)return true;
+    if(data.reason==='initial'){noRevisionUntil=Date.now()+5000;return false;}
+    try{localStorage.setItem('makora.current-revision.v1',data.revision_id);}catch{}
+    const files=(data.documents||[]).filter(f=>!f.is_demo),file=artifactCandidates(s,index,group,files);
+    if(!file){const omitted=artifactCandidates(s,index,group,(data.omitted||[]).map(path=>({path})));if(omitted){content.innerHTML=`<button type="button" data-current-back>← К разделам</button><p>Файл ${esc(omitted.path)} не показан из-за размера или формата.</p>`;return true;}return false;}
+    if(workspace.parentElement===content)workspaceHome.append(workspace);
+    board.classList.remove('workspace-board','plan-index-board','idea-board');board.classList.add('revision-view');
+    root.querySelector('.board-kicker').textContent='ТЕКУЩАЯ РЕВИЗИЯ';
+    root.querySelector('.scene-bottom > p').textContent='Показаны файлы согласованной версии '+data.revision_id+'.';
+    const title=s===1?oneTitles[index]:s===2?ideaGroups[group].docs[index].title:s===3?planItems[index]:mockItems[index];
+    const nav=`<div class="revision-nav"><button type="button" data-current-back>← К разделам</button><span>${esc(data.revision_id)}</span></div>`;
+    if(s===4&&index===1){
+      currentFixtureFiles=files.filter(f=>/\/(?:fixtures)\//i.test(f.path));
+      content.innerHTML=nav+`<div class="board-document"><h2>${esc(title)}</h2><div class="revision-list">${currentFixtureFiles.map((f,i)=>`<button type="button" data-current-fixture="${i}">${esc(f.path)} ↗</button>`).join('')}</div><pre class="case-source" data-current-preview>${esc(currentFixtureFiles[0]?.content||'')}</pre></div>`;
+    }else{
+      const selected=/\.md$/i.test(file.path)?sectionFromMarkdown(file.content,title):{text:file.content,whole:false};
+      const body=/\.md$/i.test(file.path)?render(selected.text):`<pre class="case-source">${esc(selected.text)}</pre>`;
+      content.innerHTML=nav+`<div class="board-document"><div class="board-doc-number">${esc(file.path)} · СОГЛАСОВАННАЯ ВЕРСИЯ</div>${selected.whole?'<p>Отдельный заголовок не найден — показан документ целиком.</p>':''}${body}</div>`;
+    }
+    content.scrollTop=0;return true;
+  }
+  content.addEventListener('click',event=>{
+    const back=event.target.closest('[data-current-back]');if(back){event.stopImmediatePropagation();board.classList.remove('revision-view');if(stage===1)showIndex();else if(stage===2)showIdeaGroup(ideaGroup);else if(stage===3)showPlanningIndex();else if(stage===4)showMockIndex();return;}
+    const fixture=event.target.closest('[data-current-fixture]');if(fixture){event.stopImmediatePropagation();const preview=content.querySelector('[data-current-preview]');if(preview)preview.textContent=currentFixtureFiles[Number(fixture.dataset.currentFixture)]?.content||'';return;}
+    const targets={1:'[data-section]',2:'[data-idea-item]',3:'[data-plan-item]',4:'[data-mock-item]'},target=event.target.closest(targets[stage]||'[data-never]');
+    if(!target)return;
+    event.stopImmediatePropagation();const s=stage,group=ideaGroup,index=Number(target.dataset.section??target.dataset.ideaItem??target.dataset.planItem??target.dataset.mockItem),request=++artifactRequest;
+    content.innerHTML='<p class="revision-note" role="status">Открываю документ…</p>';
+    showRevisionArtifact(s,index,group,request).then(shown=>{if(!shown&&request===artifactRequest&&stage===s)currentFallback(s,index,group);});
+  },true);
   function updateFullscreen(expanded) {
     if (expanded) settleBoard();
     board.classList.toggle('expanded', expanded);

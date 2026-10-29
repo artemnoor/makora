@@ -60,8 +60,8 @@ class IterationWorkflowTests(unittest.TestCase):
             'new_mocks/fixtures/places.json':'[2]','02_user_flow.mmd':'flow v2',
             '03_contracts/openapi.yaml':'openapi v2','prototype-report.json':'{}'},self.rev1))
         by_path={c['path']:c for c in result['changes']}
-        self.assertEqual(by_path['02_user_flow.mmd']['impacted_stages'],['02'])
-        self.assertEqual(by_path['03_contracts/openapi.yaml']['impacted_stages'],['03'])
+        self.assertEqual(by_path['02_user_flow.mmd']['possible_stages'],['02'])
+        self.assertEqual(by_path['03_contracts/openapi.yaml']['possible_stages'],['03'])
         self.assertTrue(by_path['mocks/fixtures/places.json']['mocks_changed'])
         self.assertEqual(by_path['mocks/fixtures/places.json']['decision'],'pending')
         self.assertEqual(by_path['changeset.json']['decision'],'informational')
@@ -105,10 +105,121 @@ class IterationWorkflowTests(unittest.TestCase):
         files=read_archive(self.base);files['02_user_flow.mmd']=b'flow v2'
         result=self.store.return_project(self.iid,archive(files))
         change=next(c for c in result['changes'] if c['path']=='02_user_flow.mmd')
-        self.assertEqual(change['impacted_stages'],['02','03','04'])
+        self.assertEqual(change['impacted_stages'],['03','04'])
+        self.assertEqual(change['possible_stages'],['02'])
         self.assertEqual([(x['artifact'],x['distance']) for x in change['related_artifacts']],
                          [('03_contracts/openapi.yaml',1),('mocks/fixtures/places.json',2)])
         self.assertNotIn('unrelated-test.md',{x['artifact'] for x in result['impacted_artifacts']})
+
+    def test_implementation_and_cosmetic_changes_are_not_mandatory_architecture_updates(self):
+        returned=read_archive(self.base);returned['src/app.js']=b'new';returned['src/style.css']=b'body{color:white}'
+        result=self.store.return_project(self.iid,archive(returned))
+        changes={c['path']:c for c in result['changes']}
+        self.assertEqual(changes['src/app.js']['impacted_stages'],[])
+        self.assertEqual(changes['src/app.js']['possible_stages'],['03'])
+        self.assertEqual(changes['src/style.css']['impacted_stages'],[])
+        self.assertEqual(changes['src/style.css']['possible_stages'],[])
+        self.decide_all(self.iid)
+        self.assertEqual(self.store.approve(self.iid)['status'],'approved')
+
+    def test_unlinked_document_change_is_a_suggestion_not_a_blocker(self):
+        returned=read_archive(self.base);returned['02_user_flow.mmd']=b'flow changed'
+        result=self.store.return_project(self.iid,archive(returned))
+        change=result['changes'][0]
+        self.assertEqual(change['impacted_stages'],[])
+        self.assertEqual(change['possible_stages'],['02'])
+        self.decide_all(self.iid)
+        self.assertEqual(self.store.approve(self.iid)['status'],'approved')
+
+    def test_existing_review_is_migrated_without_losing_decisions(self):
+        returned=read_archive(self.base);returned['src/app.js']=b'updated'
+        result=self.store.return_project(self.iid,archive(returned));change=result['changes'][0]
+        self.store.decide(self.iid,change['id'],'accept','Принято ранее')
+        item=self.store._iteration(self.iid);item.pop('analysis_version',None);item['changes'][0]['impacted_stages']=['03'];self.store._save()
+        restored=IterationStore(self.root);migrated=restored.iteration(self.iid)
+        self.assertEqual(migrated['changes'][0]['impacted_stages'],[])
+        self.assertEqual(migrated['changes'][0]['decision'],'accepted')
+        self.assertEqual(migrated['changes'][0]['decision_note'],'Принято ранее')
+        self.assertEqual(migrated['analysis_history'][0]['changes'][0]['impacted_stages'],['03'])
+
+    def test_omitted_context_and_documents_are_preserved(self):
+        returned=archive({'src/app.js':'v2','mocks/fixtures/places.json':'[]'})
+        result=self.store.return_project(self.iid,returned)
+        self.assertFalse(any(c['path'].startswith('makora-context/') for c in result['changes']))
+        self.assertFalse(any(c['path']=='02_user_flow.mmd' for c in result['changes']))
+        self.assertIn('02_user_flow.mmd',result['missing_artifacts'])
+        self.decide_all(self.iid);self.store.approve(self.iid)
+        self.assertEqual(read_archive(self.store.next_package())['02_user_flow.mmd'],b'flow v1')
+
+    def test_second_return_without_handoff_context_does_not_delete_it(self):
+        first=read_archive(self.base);first['src/app.js']=b'v2'
+        self.store.return_project(self.iid,archive(first));self.decide_all(self.iid);self.store.approve(self.iid)
+        current=read_archive(self.store.next_package())
+        self.store.prepare(archive({'PROMPT.md':'Новый запрос','02_solution_concept.md':'Контекст'}))
+        next_item=self.store.index['iterations'][-1]
+        sent=read_archive(self.store._archive_path(next_item['package']).read_bytes())
+        self.assertTrue(any(p.startswith('makora-context/') for p in sent))
+        current['src/app.js']=b'v3'
+        result=self.store.return_project(next_item['iteration_id'],archive(current))
+        self.assertEqual([c['path'] for c in result['changes']],['src/app.js'])
+
+    def test_unchanged_demo_documents_remain_marked_as_demo(self):
+        files=read_archive(self.base);files['context-status.json']=b'{"demo":true}'
+        store=IterationStore(self.root/'demo');store.prepare(archive(files));iid=store.index['iterations'][0]['iteration_id']
+        returned=dict(files);returned['src/style.css']=b'body{}'
+        result=store.return_project(iid,archive(returned))
+        for change in result['changes']:
+            if change['decision']=='pending':store.decide(iid,change['id'],'accept')
+        if result['questions']:store.answer_questions(iid,{q['id']:'Проверено' for q in result['questions']})
+        store.approve(iid)
+        doc=next(d for d in store.current_documents('02')['documents'] if d['path']=='02_user_flow.mmd')
+        self.assertTrue(doc['is_demo'])
+
+    def test_detect_and_apply_rename_with_changeset(self):
+        base=read_archive(self.base);base['src/old.js']=b'unique-content'
+        other=IterationStore(self.root/'rename');other.prepare(archive(base))
+        iid=other.index['iterations'][0]['iteration_id'];rev=other.current_revision()['revision_id']
+        returned=dict(base);returned['src/new.js']=returned.pop('src/old.js')
+        returned['changeset.json']=json.dumps({'base_revision':rev,'changes':[{'id':'MOVE','operation':'rename','path':'src/new.js','source_artifact':'src/old.js','reason':'Перенос модуля'}]})
+        result=other.return_project(iid,archive(returned))
+        move=next(c for c in result['changes'] if c['path']=='src/new.js')
+        self.assertEqual((move['operation'],move['old_path']),('rename','src/old.js'))
+        self.assertTrue(result['changeset']['valid'])
+        other.decide(iid,move['id'],'accept')
+        other.approve(iid)
+        current=read_archive(other.next_package())
+        self.assertNotIn('src/old.js',current);self.assertEqual(current['src/new.js'],b'unique-content')
+
+    def test_declared_rename_with_modified_content_keeps_a_text_diff(self):
+        base=read_archive(self.base);base['src/old.js']=b'old contents\n'
+        store=IterationStore(self.root/'renamed-modified');store.prepare(archive(base))
+        iid=store.index['iterations'][0]['iteration_id'];rev=store.current_revision()['revision_id']
+        returned=dict(base);returned.pop('src/old.js');returned['src/new.js']=b'updated contents\n'
+        returned['changeset.json']=json.dumps({'base_revision':rev,'changes':[{'id':'MOVE','operation':'rename','path':'src/new.js','source_artifact':'src/old.js','reason':'Перенос и правка'}]})
+        result=store.return_project(iid,archive(returned))
+        move=next(c for c in result['changes'] if c['path']=='src/new.js')
+        self.assertEqual(move['operation'],'rename');self.assertIn('+updated contents',move['diff'])
+        self.assertTrue(result['changeset']['valid'])
+        store.decide(iid,move['id'],'accept');store.approve(iid)
+        self.assertEqual(read_archive(store.next_package())['src/new.js'],b'updated contents\n')
+
+    def test_export_builds_registry_from_real_artifact_ids(self):
+        case=Path(__file__).resolve().parents[1]/'dist'/'prototype-example'
+        names=json.loads((case/'manifest.json').read_text(encoding='utf-8'))['files']
+        files={name:(case/name).read_bytes() for name in names}
+        files['context-status.json']=json.dumps({'demo':True,'ideaApproved':True,'planReady':True,'mocksApproved':True}).encode()
+        store=IterationStore(self.root/'registry');store.prepare(archive(files))
+        package=read_archive(store._archive_path(store.index['iterations'][0]['package']).read_bytes())
+        registry=json.loads(package['artifact-registry.json'])
+        self.assertTrue(any(link['from']=='REQ-001' and link['to']=='T01' and link['confidence']=='confirmed' for link in registry['links']))
+        self.assertTrue(any(link['from']=='03_tasks.json' and link['to']=='T01' and link['confidence']=='confirmed' for link in registry['links']))
+        self.assertTrue(any(link['from']=='T01' and link['to']=='TC-01' for link in registry['links']))
+        self.assertTrue(any(link['from']=='TC-01' and link['to']=='mocks/fixtures/places.json' and link['confidence']=='confirmed' for link in registry['links']))
+        self.assertTrue(any(link['confidence']=='inferred' for link in registry['links']))
+        unapproved=dict(files);unapproved['context-status.json']=b'{"demo":true,"planReady":false}'
+        from makora_core.artifact_registry import build_registry
+        tentative=build_registry(unapproved)
+        self.assertTrue(any(link['from']=='REQ-001' and link['to']=='T01' and link['confidence']=='inferred' for link in tentative['links']))
 
     def test_repeated_return_preserves_prior_archive_and_decisions(self):
         first=read_archive(self.base);first['build/a.js']=b'first'
@@ -325,7 +436,7 @@ class IterationWorkflowTests(unittest.TestCase):
         self.assertIn('src/map.js',paths)
         self.assertIn('proposals/02/02_user_flow.mmd',paths)
         self.assertIn('new_mocks/fixtures/map_places.json',paths)
-        self.assertEqual(paths['new_mocks/fixtures/map_places.json']['impacted_stages'],['04'])
+        self.assertEqual(paths['new_mocks/fixtures/map_places.json']['possible_stages'],['04'])
         self.assertEqual(review['prototype_report']['status'],'parsed')
         self.assertEqual(review['prototype_report']['checks'][0]['status'],'not_run')
         for change in review['changes']:

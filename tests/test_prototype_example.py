@@ -48,6 +48,14 @@ class PrototypeExampleTests(unittest.TestCase):
         self.assertEqual({place['id'] for place in places if place['district']=='Центральный' and place['entrance_status']=='accessible'}, {'place-001','place-003'})
         self.assertFalse([place for place in places if place['district']=='Северный' and place['entrance_status']=='accessible'])
 
+    def test_rename_changeset_requires_the_original_path(self):
+        schema=read_json('changeset.schema.json')
+        validator=jsonschema.Draft202012Validator(schema)
+        change={'id':'MOVE','operation':'rename','path':'src/new.js','reason':'Перенос'}
+        self.assertFalse(validator.is_valid({'base_revision':'v1','changes':[change]}))
+        change['source_artifact']='src/old.js'
+        self.assertTrue(validator.is_valid({'base_revision':'v1','changes':[change]}))
+
     def test_tasks_scenarios_and_plan_are_linked(self):
         plan = (CASE / '03_test_plan.md').read_text(encoding='utf-8')
         ids = set(re.findall(r'\bTC-\d+\b', plan))
