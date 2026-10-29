@@ -14,3 +14,5 @@
 @media(min-width:761px){.first-intro .mascot-area{height:155px;width:190px}.first-intro .first-form{padding:18px}.first-intro .first-form h1{font-size:26px;margin:13px 0 7px}.first-intro .pixel-drop{min-height:75px}.first-intro .first-form textarea{min-height:52px}}
 
 .first-intro .mascot-area{width:1.2em;width:228px;height:186px;margin-top:22px}@media(max-width:760px){.first-intro .mascot-area{width:216px;height:180px;margin-top:22px}}
+
+.first-intro{margin-left:auto;margin-right:auto}
