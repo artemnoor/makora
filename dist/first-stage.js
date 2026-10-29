@@ -93,11 +93,12 @@
   const stageDownloads = {main:document.querySelector('#download').onclick, concept:document.querySelector('#download-concept').onclick};
   const boardTitles = ['Анализ задания','Разработка идеи','Планирование разработки','Подготовка мок-данных','Разработка'];
   const stageMessage = root.querySelector('.board-stage-message');
-  let boardStage = 1, stageSwitchInProgress = false, stage3DetailOpen = false;
+  let boardStage = 1, stageSwitchInProgress = false, stage3DetailOpen = false, stage4DetailOpen = false;
   function syncBoardStage() {
+    if (stage === 4 && boardStage !== 4) { stage4DetailOpen = false; stage3DetailOpen = false; }
     boardStage = stage;
-    const working = stage > 3 || (stage === 3 && stage3DetailOpen);
-    board.classList.toggle('plan-index-board', stage === 3 && !stage3DetailOpen);
+    const working = stage > 4 || (stage === 4 && stage4DetailOpen) || (stage === 3 && stage3DetailOpen);
+    board.classList.toggle('plan-index-board', (stage === 3 && !stage3DetailOpen) || (stage === 4 && !stage4DetailOpen));
     board.classList.toggle('idea-board', stage === 2);
     root.querySelector('.board-footer span:last-child').textContent = String(stage).padStart(2,'0') + ' / 06';
     board.classList.toggle('workspace-board', working);
@@ -109,6 +110,7 @@
     root.querySelector('.board-bar h2').textContent = boardTitles[stage-1] || 'Рабочее пространство';
     if (stage === 2 && workspace.parentElement === content) { workspaceHome.append(workspace); showIdeaHome(); }
     if (stage === 3 && !stage3DetailOpen && workspace.parentElement === content) { workspaceHome.append(workspace); showPlanningIndex(); }
+    if (stage === 4 && !stage4DetailOpen && workspace.parentElement === content) { workspaceHome.append(workspace); showMockIndex(); }
     root.querySelector('.board-heading span:first-child').textContent = String(stage).padStart(2,'0') + ' / ' + (boardTitles[stage-1] || 'РАЗРАБОТКА').toUpperCase();
     root.querySelector('.board-heading span:last-child').textContent = stage === 1 ? '01_CASE_ANALYSIS.MD' : 'РАБОЧЕЕ ПРОСТРАНСТВО';
     root.querySelector('.scene-bottom > p').textContent = working ? 'Схемы, документы и проверки доступны внутри доски.' : 'Демо-анализ: показан пример, файл не анализируется.';
@@ -141,7 +143,7 @@
           document.querySelector('#download').onclick = stageDownloads.main;
           document.querySelector('#download-concept').onclick = stageDownloads.concept;
         } else if (number === 3) { stage3DetailOpen = false; document.querySelector('#next-stage-3').click(); }
-        else if (number === 4) await window.openMockStage();
+        else if (number === 4) { stage4DetailOpen = false; await window.openMockStage(); }
         content.scrollTop = 0;
       }
       syncBoardStage();
@@ -152,6 +154,35 @@
     if (button) openBoardStage(Number(button.dataset.boardStage));
   });
   new MutationObserver(() => { if (root.isConnected && root.classList.contains('departing')) syncBoardStage(); }).observe(document.querySelector('.page-heading'), {childList:true,subtree:true});
+
+  const mockItems = ['Потребности в данных','Наборы данных','Тестовые сценарии','API-заглушки','Валидация'];
+  function showMockIndex() {
+    stage4DetailOpen = false;
+    workspaceHome.append(workspace);
+    board.classList.remove('workspace-board');
+    board.classList.add('plan-index-board');
+    content.innerHTML = '<div class="plan-board-list">' + mockItems.map((title,i)=>`<button type="button" data-mock-item="${i}" title="${esc(title)}"><span>${String(i+1).padStart(2,'0')}</span><strong>${esc(title)}</strong><span>↗</span></button>`).join('') + '</div>';
+    content.scrollTop = 0;
+  }
+  function showMockStep(index) {
+    stage4DetailOpen = true;
+    board.classList.add('workspace-board');
+    board.classList.remove('plan-index-board');
+    const back = document.createElement('button');
+    back.type = 'button';
+    back.className = 'board-back plan-workspace-back';
+    back.dataset.mockHome = '';
+    back.textContent = '← Все разделы мок-данных';
+    content.replaceChildren(back, workspace);
+    document.querySelectorAll('#doc-content .doc-row')[index]?.click();
+    content.scrollTop = 0;
+  }
+  content.addEventListener('click', e => {
+    if (stage !== 4) return;
+    const item = e.target.closest('[data-mock-item]');
+    if (item) showMockStep(Number(item.dataset.mockItem));
+    else if (e.target.closest('[data-mock-home]')) showMockIndex();
+  });
 
   const planItems = ['ER-диаграмма','Диаграмма C1','Диаграмма C2','Диаграмма C3','Диаграмма C4','Контракты','Тестирование','Декомпозиция','Валидация'];
   const diagrams = [
