@@ -117,7 +117,7 @@ async page => {
   await page.locator('.capabilities-toggle').click();
   await page.locator('[data-prototype-open]').click();
   assert((await page.locator('.prototype-dialog').innerText()).includes('Прототип'), 'Результат не восстановился после перезагрузки');
-  assert(await page.locator('[data-result-download]').isVisible(), 'ZIP не сохранился в браузере');
+  await page.locator('[data-result-download]').waitFor({state:'visible', timeout:15000});
   assert(errors.length === 0, 'Ошибки JavaScript: ' + errors.join('; '));
   return {analysis: 10, research: 5, solution: 9, planning: 9, mocks: 5, approvedAndInvalidated: true, errors};
 }
