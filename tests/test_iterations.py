@@ -84,6 +84,19 @@ class IterationWorkflowTests(unittest.TestCase):
         self.assertIn('src/not-here.js',result['changeset']['declared_missing'])
         self.assertFalse(result['changeset']['valid'])
 
+    def test_malformed_external_json_is_reported_without_crashing(self):
+        returned=read_archive(self.base);returned['src/app.js']=b'v2'
+        returned['changeset.json']=json.dumps({'base_revision':self.rev1,'changes':[
+            {'id':'C1','operation':'modify','path':'src/app.js','reason':'Example','requires':[{'unexpected':'object'}]}]})
+        returned['prototype-report.json']=json.dumps({'features':[],'checks':[{'id':'T1','status':{},'command':'','result':''}],
+                                                        'run_commands':[],'known_limitations':[],'contradictions':[]})
+        result=self.store.return_project(self.iid,archive(returned))
+        self.assertFalse(result['changeset']['valid'])
+        self.assertEqual(result['prototype_report']['status'],'failed')
+        change=next(c for c in result['changes'] if c['path']=='src/app.js')
+        self.store.decide(self.iid,change['id'],'accept')
+        self.assertEqual(self.store.iteration(self.iid)['conflicts'],[])
+
     def test_registered_links_trace_direct_and_indirect_impacts(self):
         self.store.register_links([
             {'from':'02_user_flow.mmd','to':'03_contracts/openapi.yaml'},

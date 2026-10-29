@@ -400,8 +400,10 @@ class IterationStore:
                     continue
                 if entry['operation'] not in ('add','modify','delete','rename'):
                     errors.append('Недопустимая operation для '+entry['id']+'.')
-                if any(not isinstance(entry.get(key,[]),list) for key in ('related_ids','requires')):
-                    errors.append('related_ids и requires должны быть массивами для '+entry['id']+'.')
+                for key in ('related_ids','requires'):
+                    value_list=entry.get(key,[])
+                    if not isinstance(value_list,list) or any(not isinstance(part,str) for part in value_list):
+                        errors.append(key+' должен быть массивом строк для '+entry['id']+'.')
                 try:
                     entry['path'] = safe_name(entry['path'])
                 except MakoraError as exc:
@@ -415,8 +417,8 @@ class IterationStore:
                     if matched['operation'] != entry['operation']:
                         errors.append('Заявленная операция не совпадает с фактической для '+entry['path']+'.')
                     matched['reason'] = entry['reason']
-                    matched['requires'] = entry.get('requires', []) if isinstance(entry.get('requires', []), list) else []
-                    matched['related_ids'] = entry.get('related_ids', []) if isinstance(entry.get('related_ids', []), list) else []
+                    matched['requires'] = [v for v in entry.get('requires',[]) if isinstance(v,str)] if isinstance(entry.get('requires',[]),list) else []
+                    matched['related_ids'] = [v for v in entry.get('related_ids',[]) if isinstance(v,str)] if isinstance(entry.get('related_ids',[]),list) else []
                     matched['change_set_id'] = entry['id']
                 else: errors.append('Заявленное изменение отсутствует в файлах: ' + entry['path'])
         actual = {c['path'] for c in changes if c['path'] != 'changeset.json'}
@@ -444,7 +446,7 @@ class IterationStore:
         checks=report.get('checks',[])
         if isinstance(checks,list):
             for index,check in enumerate(checks):
-                if not isinstance(check,dict) or not isinstance(check.get('id'),str) or check.get('status') not in statuses or not isinstance(check.get('command'),str) or not isinstance(check.get('result'),str):
+                if not isinstance(check,dict) or not isinstance(check.get('id'),str) or not isinstance(check.get('status'),str) or check.get('status') not in statuses or not isinstance(check.get('command'),str) or not isinstance(check.get('result'),str):
                     errors.append(f'checks[{index}] должен содержать id, статус passed/failed/not_run, command и result.')
         for key in ('features','run_commands','known_limitations','contradictions'):
             value=report.get(key,[])
@@ -656,7 +658,7 @@ class IterationStore:
                     report_errors.append('У документа нужны path, change_reason и related_ids.')
             checks=report_value.get('checks',[])
             allowed={'passed','failed','not_run','not_checked'}
-            if not isinstance(checks,list) or any(not isinstance(check,dict) or not isinstance(check.get('id'),str) or check.get('status') not in allowed or not isinstance(check.get('detail'),str) for check in checks):
+            if not isinstance(checks,list) or any(not isinstance(check,dict) or not isinstance(check.get('id'),str) or not isinstance(check.get('status'),str) or check.get('status') not in allowed or not isinstance(check.get('detail'),str) for check in checks):
                 report_errors.append('В checks нужны id, статус и detail для каждой проверки.')
             if not isinstance(report_value.get('unresolved_questions',[]),list): report_errors.append('unresolved_questions должен быть массивом.')
             if not isinstance(report_value.get('assumptions',[]),list): report_errors.append('assumptions должен быть массивом.')
