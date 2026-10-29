@@ -25,6 +25,8 @@ class PrototypeExampleTests(unittest.TestCase):
         self.assertIn('mocks/', prompt)
         self.assertIn('new_mocks/', prompt)
         self.assertIn('не изменяй и не удаляй', prompt)
+        for required in ('mocks/fixtures/', 'не подменяй', 'параметр URL', 'prototype-report.json', 'passed', 'failed', 'not_run', 'не блокирует выполнение обязательных требований'):
+            self.assertIn(required, prompt)
 
     def test_schemas_fixtures_and_contract_agree(self):
         schema = read_json('mocks/schemas/place.schema.json')

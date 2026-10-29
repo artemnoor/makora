@@ -11,6 +11,7 @@ async page => {
   await start();
   const prompt=await page.locator('#prototype-prompt').inputValue();
   assert(prompt.includes('mocks/') && prompt.includes('new_mocks/') && prompt.includes('не изменяй'), 'В промпте отсутствуют правила сохранения моков');
+  for(const term of ['mocks/fixtures/','не подменять','ошибки источника','prototype-report.json','passed','failed','not_run','не блокируют']) assert(prompt.includes(term), 'В промпте отсутствует '+term);
   const packageDownload=page.waitForEvent('download');
   await page.locator('[data-download]').click();
   await packageDownload;

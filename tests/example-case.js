@@ -12,6 +12,7 @@ async page => {
   await page.waitForFunction(()=>!document.querySelector('[data-example-download]').disabled);
   const prompt=await page.locator('#prototype-prompt').inputValue();
   assert(prompt.includes('Доступный город') && prompt.includes('new_mocks/'), 'Не загружен промпт кейса');
+  for(const term of ['mocks/fixtures/','не подменяй','ошибки источника','prototype-report.json','passed','failed','not_run','не блокирует']) assert(prompt.includes(term), 'В промпте кейса отсутствует '+term);
   await page.evaluate(()=>{const original=fflate.zipSync;fflate.zipSync=(files,...args)=>{window.__exampleFiles=files;return original(files,...args)}});
   const event=page.waitForEvent('download');
   await page.locator('[data-example-download]').click();
