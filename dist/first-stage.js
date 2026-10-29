@@ -52,16 +52,8 @@
     root.classList.add('departing');
     root.querySelector('.board-scene').hidden = false;
     showIndex();
-    const target = root.querySelector('.board-mascot');
-    const moveMascot = () => {
-      const rect = target.getBoundingClientRect();
-      Object.assign(mascot.style, {left:rect.left+'px', top:rect.top+'px', width:rect.width+'px', height:rect.height+'px'});
-    };
-    animate('walk');
-    requestAnimationFrame(() => requestAnimationFrame(() => { root.classList.add('board-visible'); moveMascot(); }));
+    requestAnimationFrame(() => requestAnimationFrame(() => root.classList.add('board-visible')));
     setTimeout(() => { form.hidden = true; }, 650);
-    setTimeout(() => animate('idle'), 1100);
-    new ResizeObserver(() => { if (root.isConnected) moveMascot(); }).observe(target);
   });
   root.querySelector('.board-next').addEventListener('click', () => { document.querySelector('#next-stage').click(); underneath.forEach(el => el.inert = false); document.body.classList.remove('first-stage-active'); root.remove(); window.scrollTo(0,0); });
 })();
