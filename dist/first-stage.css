@@ -31,3 +31,17 @@
 @media(max-width:760px){.first-intro .first-form{padding:21px}.first-intro .first-form h1{font-size:30px}}
 
 @media(min-width:761px) and (max-height:800px){.first-intro .first-form{padding:19px 23px 16px}.first-intro .first-form h1{font-size:28px;margin:13px 0 9px}.first-intro .first-form>p:not(.first-disclaimer):not(.first-error){font-size:15px;margin-bottom:11px}.first-intro .pixel-drop{min-height:76px;padding:7px}.first-intro .pixel-plus svg{width:22px;height:22px}.first-intro .first-form textarea{min-height:46px;padding:8px 10px}.first-intro .pixel-start{padding:11px 14px}.first-intro .first-disclaimer{margin-top:9px}}
+
+/* Keep the pixel frame while using clear typography for reading and input. */
+.first-intro .first-form{font-family:Manrope,Arial,sans-serif}
+.first-intro .first-form h1{font:600 26px/1.25 Manrope,Arial,sans-serif;letter-spacing:-.035em;text-shadow:none}
+.first-intro .first-form>p:not(.first-disclaimer):not(.first-error){font:400 14px/1.5 Manrope,Arial,sans-serif;letter-spacing:0;color:#bdbdbd}
+.first-intro .file-label{font:600 14px/1.4 Manrope,Arial,sans-serif}
+.first-intro .pixel-drop small{font:400 11px/1.5 Manrope,Arial,sans-serif;color:#aaa}
+.first-intro .first-form textarea{font:400 14px/1.5 Manrope,Arial,sans-serif}
+.first-intro .first-form textarea::placeholder{color:#999}
+.first-intro .pixel-start{font:700 14px/1.4 Manrope,Arial,sans-serif}
+.first-intro .first-disclaimer{font:400 11px/1.5 Manrope,Arial,sans-serif;color:#999}
+.first-intro .first-error{font:400 13px/1.5 Manrope,Arial,sans-serif}
+.first-intro .speech-label{font-size:16px;letter-spacing:0;color:#ccc}
+.first-intro .or-line{font-size:14px;letter-spacing:0;color:#aaa}
