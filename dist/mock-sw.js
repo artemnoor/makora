@@ -13,6 +13,6 @@ self.addEventListener('fetch',event=>{
   const response=await fetch('/mocks/fixtures/'+MODELS[scenario],{cache:'no-store'});if(!response.ok)return json({code:'FIXTURE_UNAVAILABLE',message:'Файл фикстуры недоступен'},503);
   const items=await response.json();if(parts.length===3){const item=items.find(x=>x.id===decodeURIComponent(parts[2]));return item?json(item):json({code:'NOT_FOUND',message:'Пространство не найдено'},404)}
   const building=u.searchParams.get('building'),available=u.searchParams.get('available');if(available!==null&&!['true','false'].includes(available))return json({code:'BAD_REQUEST',message:'available должен быть true или false'},400);
-  return json({items:items.filter(x=>(!building||x.building===building)&&(available!=='true'||x.status==='available'))});
+  return json({items:items.filter(x=>(!building||x.building===building)&&(available!=='true'||['available','limited'].includes(x.status)))});
  })().catch(()=>new Response(JSON.stringify({code:'FIXTURE_UNAVAILABLE',message:'Ошибка чтения фикстуры'}),{status:503,headers:{'Content-Type':'application/json'}})));
 });

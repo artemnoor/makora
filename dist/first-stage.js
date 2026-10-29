@@ -113,7 +113,7 @@
     if (stage === 4 && !stage4DetailOpen && workspace.parentElement === content) { workspaceHome.append(workspace); showMockIndex(); }
     root.querySelector('.board-heading span:first-child').textContent = String(stage).padStart(2,'0') + ' / ' + (boardTitles[stage-1] || 'РАЗРАБОТКА').toUpperCase();
     root.querySelector('.board-heading span:last-child').textContent = stage === 1 ? '01_CASE_ANALYSIS.MD' : 'РАБОЧЕЕ ПРОСТРАНСТВО';
-    root.querySelector('.scene-bottom > p').textContent = working ? 'Схемы, документы и проверки доступны внутри доски.' : 'Демо-анализ: показан пример, файл не анализируется.';
+    root.querySelector('.scene-bottom > p').textContent = stage >= 3 ? window.makoraDemo.notice : 'Демо-анализ: показан пример, файл не анализируется.';
     const next = root.querySelector('.board-next');
     next.hidden = stage === 2 || stage >= 4;
     next.innerHTML = (stage === 1 ? 'Далее' : 'К мок-данным') + ' <span>→</span>';
@@ -207,7 +207,7 @@
   }
   function showPlanningDiagram(index) {
     const d=diagrams[index];
-    content.innerHTML = `<div class="plan-board-detail"><button type="button" class="board-back plan-board-back" data-plan-home>← Все разделы</button><div class="plan-board-heading"><h3>${esc(d.title)}</h3><button type="button" class="plan-diagram-expand" aria-label="Открыть схему на весь экран">⛶</button></div><p>${esc(d.note)}</p><div class="diagram-shell"><div id="plan-board-diagram" class="mermaid-diagram">${diagramSvg(d)}</div></div><button type="button" class="plan-secondary" data-plan-approval>Согласовать архитектуру →</button></div>`;
+    content.innerHTML = `<div class="plan-board-detail"><button type="button" class="board-back plan-board-back" data-plan-home>← Все разделы</button>${window.makoraDemo.markup()}<div class="plan-board-heading"><h3>${esc(d.title)}</h3><button type="button" class="plan-diagram-expand" aria-label="Открыть схему на весь экран">⛶</button></div><p>${esc(d.note)}</p><div class="diagram-shell"><div id="plan-board-diagram" class="mermaid-diagram">${diagramSvg(d)}</div></div><button type="button" class="plan-secondary" data-plan-approval>Согласовать архитектуру →</button></div>`;
     content.querySelector('.plan-diagram-expand').onclick=e=>window.makoraStage3.openDiagram(content.querySelector('#plan-board-diagram'),e.currentTarget);
     content.scrollTop = 0;
   }
