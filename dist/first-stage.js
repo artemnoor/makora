@@ -6,7 +6,7 @@
   <div class="first-intro"><div class="mascot-area"><iframe class="mascot-frame" src="mascot.html" title="Персонаж Макоры" tabindex="-1"></iframe></div>
   <form class="first-form"><div class="speech-label">ПЕРВЫЙ ШАГ <span>01 / 06</span></div><h1>Привет!<br>Давай разберём<br>твоё задание.</h1><p>Пришли условие хакатона — соберём всё важное в одном месте.</p>
   <label class="pixel-drop"><input type="file" accept=".pdf,.doc,.docx,.txt,.md" hidden><span class="pixel-plus">＋</span><strong class="file-label">Выбрать файл</strong><small>или перетащить сюда<br>PDF, DOCX, TXT, MD · до 20 МБ</small></label><div class="or-line"><span>ИЛИ ВСТАВЬ ТЕКСТ</span></div><label class="sr-only" for="first-text">Текст задания</label><textarea id="first-text" placeholder="Вставь условие задания сюда…"></textarea><p class="first-error" role="alert" hidden></p><button class="pixel-start" type="submit" disabled>Начать анализ <span>↗</span></button><p class="first-disclaimer">Демо: загрузка и анализ имитируются.</p></form></div>
-  <div class="board-scene" hidden><div class="board-heading"><span>01 / АНАЛИЗ ЗАДАНИЯ</span><span>01_CASE_ANALYSIS.MD</span></div><div class="board-stage"><div class="board-mascot" aria-hidden="true"><iframe class="mascot-frame" src="mascot.html" title="" tabindex="-1"></iframe></div><div class="board" aria-label="Доска анализа задания"><div class="board-sprite"></div><div class="board-inner"><div class="board-bar"><div><span class="board-kicker">ДЕМО-КЕЙС / ТИХИЙ КАМПУС</span><h2>Анализ задания<span>.</span></h2></div><button type="button" class="board-expand" aria-label="Развернуть доску" title="Развернуть доску">⛶</button></div><div class="board-content"></div><div class="board-footer"><span>ДВОЙНОЙ КЛИК ПО ДОСКЕ — НА ВЕСЬ ЭКРАН</span><span>01 / 06</span></div></div></div></div><div class="scene-bottom"><p>Демо-анализ: показан пример, файл не анализируется.</p><button type="button" class="board-next">Далее <span>→</span></button></div></div>`;
+  <div class="board-scene" hidden><div class="board-heading"><span>01 / АНАЛИЗ ЗАДАНИЯ</span><span>01_CASE_ANALYSIS.MD</span></div><div class="board-stage"><div class="board-mascot" aria-hidden="true"></div><div class="board" aria-label="Доска анализа задания"><div class="board-sprite"></div><div class="board-inner"><div class="board-bar"><div><span class="board-kicker">ДЕМО-КЕЙС / ТИХИЙ КАМПУС</span><h2>Анализ задания<span>.</span></h2></div><button type="button" class="board-expand" aria-label="Развернуть доску" title="Развернуть доску">⛶</button></div><div class="board-content"></div><div class="board-footer"><span>ДВОЙНОЙ КЛИК ПО ДОСКЕ — НА ВЕСЬ ЭКРАН</span><span>01 / 06</span></div></div></div></div><div class="scene-bottom"><p>Демо-анализ: показан пример, файл не анализируется.</p><button type="button" class="board-next">Далее <span>→</span></button></div></div>`;
   document.body.append(root);
   document.body.classList.add('first-stage-active');
   const underneath = document.querySelectorAll('body > header, body > main');
@@ -27,7 +27,7 @@
   drop.addEventListener('drop', e => setFile(e.dataTransfer.files[0]));
   const frame = root.querySelector('iframe');
   function animate(mode) { try { frame.contentDocument.querySelector(`[data-mode="${mode}"]`)?.click(); } catch (_) {} }
-  frame.addEventListener('load', () => { animate('wave'); setTimeout(() => animate('idle'), 1800); });
+  frame.addEventListener('load', () => animate('idle'));
   const board = root.querySelector('.board'), content = root.querySelector('.board-content');
   function showIndex() {
     content.innerHTML = '<div class="board-intro">ВЫБЕРИ РАЗДЕЛ, ЧТОБЫ ОТКРЫТЬ ЕГО</div><div class="board-list">' + oneTitles.map((title,i) => `<button type="button" data-section="${i}"><span class="board-number">${String(i+1).padStart(2,'0')}</span><span>${title}</span><span class="board-arrow">↗</span></button>`).join('') + '</div>';
@@ -41,6 +41,27 @@
   root.querySelector('.board-expand').addEventListener('click',toggleBoard);
   board.addEventListener('dblclick',e => { if(!e.target.closest('button')) toggleBoard(); });
   document.addEventListener('keydown',e => { if(e.key==='Escape' && board.classList.contains('expanded')) toggleBoard(); });
-  form.addEventListener('submit',e => { e.preventDefault(); if(start.disabled) return; animate('walk'); root.classList.add('departing'); setTimeout(() => { root.querySelector('.first-intro').hidden=true; root.querySelector('.board-scene').hidden=false; showIndex(); requestAnimationFrame(() => root.classList.add('board-visible')); setTimeout(() => animate('idle'), 200); }, 850); });
+  form.addEventListener('submit', e => {
+    e.preventDefault();
+    if (start.disabled || root.classList.contains('departing')) return;
+    const mascot = root.querySelector('.mascot-area');
+    const initial = mascot.getBoundingClientRect();
+    const formRect = form.getBoundingClientRect();
+    Object.assign(form.style, {position:'fixed', left:formRect.left+'px', top:formRect.top+'px', width:formRect.width+'px'});
+    Object.assign(mascot.style, {position:'fixed', left:initial.left+'px', top:initial.top+'px', width:initial.width+'px', height:initial.height+'px', minHeight:'0', maxWidth:'none', margin:'0'});
+    root.classList.add('departing');
+    root.querySelector('.board-scene').hidden = false;
+    showIndex();
+    const target = root.querySelector('.board-mascot');
+    const moveMascot = () => {
+      const rect = target.getBoundingClientRect();
+      Object.assign(mascot.style, {left:rect.left+'px', top:rect.top+'px', width:rect.width+'px', height:rect.height+'px'});
+    };
+    animate('walk');
+    requestAnimationFrame(() => requestAnimationFrame(() => { root.classList.add('board-visible'); moveMascot(); }));
+    setTimeout(() => { form.hidden = true; }, 650);
+    setTimeout(() => animate('idle'), 1100);
+    new ResizeObserver(() => { if (root.isConnected) moveMascot(); }).observe(target);
+  });
   root.querySelector('.board-next').addEventListener('click', () => { document.querySelector('#next-stage').click(); underneath.forEach(el => el.inert = false); document.body.classList.remove('first-stage-active'); root.remove(); window.scrollTo(0,0); });
 })();
