@@ -45,3 +45,42 @@
 .first-intro .first-error{font:400 13px/1.5 Manrope,Arial,sans-serif}
 .first-intro .speech-label{font-size:16px;letter-spacing:0;color:#ccc}
 .first-intro .or-line{font-size:14px;letter-spacing:0;color:#aaa}
+
+/* Floating reference board; its surface keeps our Markdown documents. */
+.board-stage .board:not(.expanded){position:fixed;left:0;top:0;width:var(--board-width,550px);height:auto;min-height:0;aspect-ratio:1774/887;margin:0;cursor:grab;touch-action:none;z-index:1}
+.board-stage .board.dragging{cursor:grabbing;user-select:none}
+.board-stage .board-sprite{background:none;animation:none;image-rendering:pixelated;pointer-events:none}
+.board-art,.board-shadow-art{position:absolute;inset:0;width:100%;height:100%;object-fit:contain;user-select:none;-webkit-user-drag:none;pointer-events:none;image-rendering:pixelated}
+.board-art{animation:reference-board-reveal 1.15s .55s both}
+.board-shadow-art{filter:brightness(0);transform-origin:50% 100%;animation:reference-board-shadow 1.1s both,reference-shadow-hide .3s 1.5s forwards}
+@keyframes reference-board-reveal{from{opacity:0;clip-path:inset(0 0 100% 0)}15%{opacity:1}to{opacity:1;clip-path:inset(0)}}
+@keyframes reference-board-shadow{from{opacity:0;transform:translateY(30px) scaleY(.05)}20%{opacity:1}to{opacity:1;transform:none}}
+@keyframes reference-shadow-hide{to{opacity:0}}
+.board-stage .board-inner{inset:19.6% 11.3% 24.9% 11.2%;animation-delay:1.45s;color:#fff;cursor:default}
+.board-stage .board-bar{padding-bottom:5px;border-color:#ffffff25;cursor:grab}
+.board-stage .board-kicker{font:8px/1.2 Manrope,Arial,sans-serif;color:#fff;letter-spacing:.04em}
+.board-stage .board-bar h2{font-size:18px;margin:3px 0 0;color:#fff}.board-stage .board-bar h2 span{color:#fff}
+.board-stage .board-expand{font-size:21px;color:#fff;line-height:1}
+.board-stage .board-content{padding:6px 0;touch-action:pan-y;scrollbar-width:thin;scrollbar-color:#777 #16151b;color:#fff}
+.board-stage .board-intro{font:8px/1.3 Manrope,Arial,sans-serif;color:#fff;letter-spacing:.03em;margin-bottom:4px}
+.board-stage .board-list{column-gap:12px}
+.board-stage .board-list button{grid-template-columns:18px 1fr 9px;gap:5px;padding:4px 0;min-height:22px;font:500 10px/1.3 Manrope,Arial,sans-serif;color:#fff;border-color:#ffffff20}
+.board-stage .board-list button:hover{background:#ffffff10}
+.board-stage .board-number,.board-stage .board-arrow{font-size:9px;color:#fff}
+.board-stage .board-footer{padding-top:4px;font:7px/1.2 Manrope,Arial,sans-serif;letter-spacing:0;color:#fff;border-color:#ffffff25}
+.board-stage .board-back{font:11px/1.4 Manrope,Arial,sans-serif;color:#fff;padding-bottom:8px}
+.board-stage .board-document{font:13px/1.65 Manrope,Arial,sans-serif;color:#fff;user-select:text;touch-action:pan-y}
+.board-stage .board-document h1,.board-stage .board-document h2,.board-stage .board-document h3,.board-stage .board-document blockquote,.board-stage .board-doc-number,.board-stage .board-document a{color:#fff}
+.board-stage .board-document h1{font-size:20px}.board-stage .board-document h2{font-size:16px}
+.board-stage .board-document .md-table-wrap{overflow:auto;max-width:100%}
+.board-stage .board.expanded{position:fixed;inset:0;left:0!important;top:0!important;width:100vw!important;height:100dvh;min-height:0;aspect-ratio:auto;margin:0!important;transform:none;background:#111014;z-index:30;cursor:default;touch-action:auto}
+.board-stage .board.expanded .board-sprite{display:none}
+.board-stage .board.expanded .board-inner{inset:0;max-width:1200px;padding:clamp(20px,4vw,60px);margin:auto;opacity:1;animation:none}
+.board-stage .board.expanded .board-bar{padding-bottom:18px;cursor:default}.board-stage .board.expanded .board-bar h2{font-size:30px}.board-stage .board.expanded .board-kicker{font-size:11px}
+.board-stage .board.expanded .board-content{padding:22px 0}.board-stage .board.expanded .board-intro{font-size:11px;margin-bottom:14px}.board-stage .board.expanded .board-list{gap:0 32px}
+.board-stage .board.expanded .board-list button{font-size:15px;padding:16px 0;grid-template-columns:28px 1fr 14px}.board-stage .board.expanded .board-number,.board-stage .board.expanded .board-arrow{font-size:12px}
+.board-stage .board.expanded .board-footer{font-size:10px;padding-top:12px}.board-stage .board.expanded .board-document{font-size:16px;max-width:900px}.board-stage .board.expanded .board-document h1{font-size:30px}.board-stage .board.expanded .board-document h2{font-size:23px}
+@media(max-width:760px){.board-stage .board-list{grid-template-columns:1fr 1fr}.board-stage .board-bar h2{font-size:15px}.board-stage .board-footer span:first-child{max-width:84%}.board-stage .board.expanded .board-list{grid-template-columns:1fr}}
+@media(prefers-reduced-motion:reduce){.board-art,.board-shadow-art{animation:none}.board-shadow-art{display:none}.board-stage .board-inner{animation-delay:0s}}
+
+.board-stage .board:not(.expanded) .board-intro{display:none}.board-stage .board:not(.expanded) .board-list{height:100%;grid-template-rows:repeat(5,minmax(0,1fr))}.board-stage .board:not(.expanded) .board-list button{min-height:0;padding:1px 0;font-size:9px}.board-stage .board:not(.expanded) .board-list button>span:nth-child(2){white-space:nowrap;overflow:hidden;text-overflow:ellipsis}

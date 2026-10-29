@@ -6,7 +6,7 @@
   <div class="first-intro"><div class="mascot-area"><iframe class="mascot-frame" src="mascot.html" title="Персонаж Макоры" tabindex="-1"></iframe></div>
   <form class="first-form"><div class="speech-label">ПЕРВЫЙ ШАГ <span>01 / 06</span></div><h1>Привет!<br>Разберём задание?</h1><p>Пришли условие хакатона — соберём всё важное в одном месте.</p>
   <label class="pixel-drop"><input type="file" accept=".pdf,.doc,.docx,.txt,.md" class="sr-only"><span class="pixel-plus" aria-hidden="true"><svg viewBox="0 0 24 24" width="28" height="28" shape-rendering="crispEdges"><path fill="currentColor" d="M2 5h8v2h12v14H2zm2 4v10h16V9z"/><path fill="currentColor" d="M11 11h2v2h2v2h-2v2h-2v-2H9v-2h2z"/></svg></span><strong class="file-label">Выбрать файл</strong><small>или перетащить сюда<br>PDF, DOCX, TXT, MD · до 20 МБ</small></label><div class="or-line"><span>ИЛИ ВСТАВЬ ТЕКСТ</span></div><label class="sr-only" for="first-text">Текст задания</label><textarea id="first-text" placeholder="Вставь условие задания сюда…"></textarea><p class="first-error" role="alert" hidden></p><button class="pixel-start" type="submit" disabled>Начать анализ <span aria-hidden="true">▶</span></button><p class="first-disclaimer">Демо: загрузка и анализ имитируются.</p></form></div>
-  <div class="board-scene" hidden><div class="board-heading"><span>01 / АНАЛИЗ ЗАДАНИЯ</span><span>01_CASE_ANALYSIS.MD</span></div><div class="board-stage"><div class="board-mascot" aria-hidden="true"></div><div class="board" aria-label="Доска анализа задания"><div class="board-sprite"></div><div class="board-inner"><div class="board-bar"><div><span class="board-kicker">ДЕМО-КЕЙС / ТИХИЙ КАМПУС</span><h2>Анализ задания<span>.</span></h2></div><button type="button" class="board-expand" aria-label="Развернуть доску" title="Развернуть доску">⛶</button></div><div class="board-content"></div><div class="board-footer"><span>ДВОЙНОЙ КЛИК ПО ДОСКЕ — НА ВЕСЬ ЭКРАН</span><span>01 / 06</span></div></div></div></div><div class="scene-bottom"><p>Демо-анализ: показан пример, файл не анализируется.</p><button type="button" class="board-next">Далее <span>→</span></button></div></div>`;
+  <div class="board-scene" hidden><div class="board-heading"><span>01 / АНАЛИЗ ЗАДАНИЯ</span><span>01_CASE_ANALYSIS.MD</span></div><div class="board-stage"><div class="board-mascot" aria-hidden="true"></div><div class="board" aria-label="Доска анализа задания"><div class="board-sprite"><img class="board-shadow-art" src="analysis-board.png" alt="" draggable="false"><img class="board-art" src="analysis-board.png" alt="" draggable="false"></div><div class="board-inner"><div class="board-bar"><div><span class="board-kicker">ДЕМО-КЕЙС / ТИХИЙ КАМПУС</span><h2>Анализ задания<span>.</span></h2></div><button type="button" class="board-expand" aria-label="Развернуть доску" title="Развернуть доску">⛶</button></div><div class="board-content"></div><div class="board-footer"><span>ТЯНИ ЗА РАМКУ · ДВОЙНОЙ КЛИК — НА ВЕСЬ ЭКРАН</span><span>01 / 06</span></div></div></div></div><div class="scene-bottom"><p>Демо-анализ: показан пример, файл не анализируется.</p><button type="button" class="board-next">Далее <span>→</span></button></div></div>`;
   document.body.append(root);
   document.body.classList.add('first-stage-active');
   const underneath = document.querySelectorAll('body > header, body > main');
@@ -38,14 +38,63 @@
   frame.addEventListener('load', () => animate('idle'));
   const board = root.querySelector('.board'), content = root.querySelector('.board-content');
   function showIndex() {
-    content.innerHTML = '<div class="board-intro">ВЫБЕРИ РАЗДЕЛ, ЧТОБЫ ОТКРЫТЬ ЕГО</div><div class="board-list">' + oneTitles.map((title,i) => `<button type="button" data-section="${i}"><span class="board-number">${String(i+1).padStart(2,'0')}</span><span>${title}</span><span class="board-arrow">↗</span></button>`).join('') + '</div>';
+    content.innerHTML = '<div class="board-intro">ВЫБЕРИ РАЗДЕЛ, ЧТОБЫ ОТКРЫТЬ ЕГО</div><div class="board-list">' + oneTitles.map((title,i) => `<button type="button" data-section="${i}" title="${esc(title)}"><span class="board-number">${String(i+1).padStart(2,'0')}</span><span>${title}</span><span class="board-arrow">↗</span></button>`).join('') + '</div>';
   }
   function showSection(i) {
     content.innerHTML = `<button type="button" class="board-back">← Все разделы</button><div class="board-document"><div class="board-doc-number">${String(i+1).padStart(2,'0')} / 10</div>${render(one[i])}</div>`;
     content.scrollTop = 0;
   }
   content.addEventListener('click', e => { const section=e.target.closest('[data-section]'); if(section) showSection(Number(section.dataset.section)); if(e.target.closest('.board-back')) showIndex(); });
-  function toggleBoard() { const expanded=board.classList.toggle('expanded'); root.querySelector('.board-expand').setAttribute('aria-label',expanded?'Свернуть доску':'Развернуть доску'); }
+  function updateFullscreen(expanded) {
+    board.classList.toggle('expanded', expanded);
+    const button = root.querySelector('.board-expand');
+    button.textContent = expanded ? '×' : '⛶';
+    button.setAttribute('aria-label', expanded ? 'Свернуть доску' : 'Развернуть доску');
+    button.setAttribute('aria-pressed', String(expanded));
+  }
+  async function toggleBoard() {
+    const expanded = !board.classList.contains('expanded');
+    updateFullscreen(expanded);
+    if (expanded && board.requestFullscreen) await board.requestFullscreen().catch(() => {});
+    else if (!expanded && document.fullscreenElement === board) await document.exitFullscreen().catch(() => {});
+  }
+  document.addEventListener('fullscreenchange', () => { if (!document.fullscreenElement) updateFullscreen(false); });
+  let dragging = null;
+  const limit = (n, min, max) => Math.max(min, Math.min(n, Math.max(min, max)));
+  function moveBoard(left, top) {
+    const rect = board.getBoundingClientRect();
+    board.style.left = limit(left, 8, window.innerWidth - rect.width - 8) + 'px';
+    board.style.top = limit(top, 8, window.innerHeight - Math.min(rect.height, window.innerHeight - 16) - 8) + 'px';
+  }
+  function placeBoard(mascotRect) {
+    const narrow = window.innerWidth < 900;
+    const width = narrow ? Math.min(620, window.innerWidth - 24) : Math.min(620, window.innerWidth - mascotRect.right - 26);
+    board.style.setProperty('--board-width', width + 'px');
+    moveBoard(narrow ? (window.innerWidth - width) / 2 : mascotRect.right + 18,
+      narrow ? mascotRect.bottom + 12 : mascotRect.top + mascotRect.height / 2 - width / 4);
+  }
+  board.addEventListener('pointerdown', e => {
+    if (e.button !== 0 || board.classList.contains('expanded') || e.target.closest('button,.board-content')) return;
+    const rect = board.getBoundingClientRect();
+    dragging = {id:e.pointerId, x:e.clientX, y:e.clientY, left:rect.left, top:rect.top};
+    board.classList.add('dragging');
+    board.setPointerCapture(e.pointerId);
+    e.preventDefault();
+  });
+  board.addEventListener('pointermove', e => {
+    if (!dragging || dragging.id !== e.pointerId) return;
+    moveBoard(dragging.left + e.clientX - dragging.x, dragging.top + e.clientY - dragging.y);
+  });
+  function stopDrag(e) {
+    if (!dragging || dragging.id !== e.pointerId) return;
+    dragging = null;
+    board.classList.remove('dragging');
+    if (board.hasPointerCapture(e.pointerId)) board.releasePointerCapture(e.pointerId);
+  }
+  ['pointerup','pointercancel','lostpointercapture'].forEach(type => board.addEventListener(type, stopDrag));
+  window.addEventListener('resize', () => {
+    if (root.isConnected && root.classList.contains('departing') && !board.classList.contains('expanded')) placeBoard(root.querySelector('.mascot-area').getBoundingClientRect());
+  });
   root.querySelector('.board-expand').addEventListener('click',toggleBoard);
   board.addEventListener('dblclick',e => { if(!e.target.closest('button')) toggleBoard(); });
   document.addEventListener('keydown',e => { if(e.key==='Escape' && board.classList.contains('expanded')) toggleBoard(); });
@@ -61,6 +110,7 @@
     root.classList.add('departing');
     root.querySelector('.board-scene').hidden = false;
     showIndex();
+    placeBoard(initial);
     requestAnimationFrame(() => requestAnimationFrame(() => root.classList.add('board-visible')));
     setTimeout(() => { form.hidden = true; }, 650);
   });
