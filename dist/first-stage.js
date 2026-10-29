@@ -27,6 +27,14 @@
   drop.addEventListener('drop', e => setFile(e.dataTransfer.files[0]));
   const frame = root.querySelector('iframe');
   function animate(mode) { try { frame.contentDocument.querySelector(`[data-mode="${mode}"]`)?.click(); } catch (_) {} }
+  function spinWheel(duration = 2200) {
+    try {
+      const wheel = frame.contentDocument.querySelector('[data-action="wheel"]');
+      if (!wheel || wheel.classList.contains('active')) return;
+      wheel.click();
+      setTimeout(() => { if (wheel.isConnected && wheel.classList.contains('active')) wheel.click(); }, duration);
+    } catch (_) {}
+  }
   frame.addEventListener('load', () => animate('idle'));
   const board = root.querySelector('.board'), content = root.querySelector('.board-content');
   function showIndex() {
@@ -49,6 +57,7 @@
     const formRect = form.getBoundingClientRect();
     Object.assign(form.style, {position:'fixed', left:formRect.left+'px', top:formRect.top+'px', width:formRect.width+'px'});
     Object.assign(mascot.style, {position:'fixed', left:initial.left+'px', top:initial.top+'px', width:initial.width+'px', height:initial.height+'px', minHeight:'0', maxWidth:'none', margin:'0'});
+    spinWheel();
     root.classList.add('departing');
     root.querySelector('.board-scene').hidden = false;
     showIndex();
