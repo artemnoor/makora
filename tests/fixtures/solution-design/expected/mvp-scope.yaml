@@ -1,0 +1,18 @@
+features:
+  - id: F-001
+    name: Список учреждений
+    requirement_ids: [REQ-001]
+    priority: must
+    included_in_mvp: true
+    acceptance: [Список показывает название и доступность входа]
+  - id: F-002
+    name: Фильтр по району
+    requirement_ids: [REQ-002]
+    priority: must
+    included_in_mvp: true
+    acceptance: [Результаты относятся к выбранному району]
+roles: [пешеход]
+screens: [список, фильтр]
+states: [загрузка, результат, пустой список, ошибка]
+excluded: [учётная запись, карта]
+blockers: [Доступ к реальному API не подтверждён]

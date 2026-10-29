@@ -1,0 +1,16 @@
+scenarios:
+  - id: success
+    fixture: fixtures/places.json
+    expected_status: 200
+    expected_schema: valid
+    tests: [TC-01, TC-02]
+  - id: empty
+    fixture: fixtures/empty.json
+    expected_status: 200
+    expected_schema: valid
+    tests: [TC-03]
+  - id: invalid
+    fixture: fixtures/invalid.json
+    expected_status: null
+    expected_schema: invalid
+    tests: [TC-01]

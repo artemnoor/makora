@@ -22,8 +22,11 @@ python -m http.server 8000 --directory dist --bind 127.0.0.1
 
 ```sh
 python -m pip install -r requirements-dev.txt
+python scripts/check_skills.py
 python -m unittest discover -s tests -v
 ```
+
+В `tests/fixtures/` находятся учебные входы и вручную подготовленные ожидаемые результаты для каждого из шести скиллов. Тесты проверяют форматы и связи между этапами; примеры не являются результатами выполнения ИИ. GitHub Actions запускает проверку структуры скиллов и Python-тесты при push и pull request. Браузерная проверка запускается отдельно.
 
 Скрипт [`tests/browser-flow.js`](tests/browser-flow.js) проверяет демонстрационный маршрут в отдельном браузерном профиле через Playwright CLI. Запустите сайт, затем:
 

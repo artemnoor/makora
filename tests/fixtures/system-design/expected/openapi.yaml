@@ -1,0 +1,32 @@
+openapi: 3.1.1
+info:
+  title: Учебный каталог учреждений
+  version: 0.1.0
+paths:
+  /places:
+    get:
+      summary: Список учреждений с фильтром по району
+      parameters:
+        - name: district
+          in: query
+          required: false
+          schema: {type: string}
+      responses:
+        '200':
+          description: Учреждения
+          content:
+            application/json:
+              schema:
+                type: array
+                items: {$ref: '#/components/schemas/Place'}
+components:
+  schemas:
+    Place:
+      type: object
+      required: [id, name, district, entrance_accessible]
+      additionalProperties: false
+      properties:
+        id: {type: string}
+        name: {type: string}
+        district: {type: string}
+        entrance_accessible: {type: boolean}

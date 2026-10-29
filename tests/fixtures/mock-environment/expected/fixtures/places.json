@@ -1,0 +1,4 @@
+[
+  {"id":"p-001","name":"Библиотека","district":"Центр","entrance_accessible":true},
+  {"id":"p-002","name":"Музей","district":"Север","entrance_accessible":false}
+]

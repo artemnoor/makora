@@ -1,0 +1,5 @@
+metrics:
+  - name: Успешность поиска
+    target: 4 из 5 участников
+    method: Тест задания без подсказок
+    status: hypothesis

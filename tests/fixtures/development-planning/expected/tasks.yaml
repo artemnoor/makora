@@ -1,0 +1,23 @@
+tasks:
+  - id: TASK-001
+    title: Реализовать список учреждений
+    goal: Показать названия и доступность входа.
+    depends_on: []
+    requirement_ids: [REQ-001]
+    feature_ids: [F-001]
+    inputs: [openapi.yaml]
+    scope: src/catalog
+    acceptance: [Данные отображаются согласно контракту]
+    verification: [TC-01]
+    deliverables: [код, тесты, отчёт]
+  - id: TASK-002
+    title: Реализовать фильтр по району
+    goal: Отображать только учреждения выбранного района.
+    depends_on: [TASK-001]
+    requirement_ids: [REQ-002]
+    feature_ids: [F-002]
+    inputs: [openapi.yaml]
+    scope: src/filter
+    acceptance: [Выбранный район ограничивает результаты, Пустой результат отображается]
+    verification: [TC-02, TC-03]
+    deliverables: [код, тесты, отчёт]
