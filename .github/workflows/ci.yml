@@ -56,3 +56,4 @@ jobs:
           curl -fsS http://127.0.0.1:8000/ > /dev/null
           npx --yes --package @playwright/cli@0.1.22 playwright-cli -s=makora-ci open http://127.0.0.1:8000/
           npx --yes --package @playwright/cli@0.1.22 playwright-cli -s=makora-ci run-code --filename tests/browser-flow.js
+          npx --yes --package @playwright/cli@0.1.22 playwright-cli -s=makora-ci run-code --filename tests/handoff-wait.js

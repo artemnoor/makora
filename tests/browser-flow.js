@@ -4,7 +4,7 @@ async page => {
   page.on('pageerror', error => errors.push(error.message));
   await page.evaluate(() => localStorage.clear());
   await page.reload();
-  assert((await page.locator('.first-disclaimer').innerText()).includes('Этапы 05–06 находятся в разработке'), 'Будущие этапы не отмечены');
+  assert((await page.locator('.first-disclaimer').innerText()).includes('Этап 06 находится в разработке'), 'Будущий этап не отмечен');
   await page.locator('.pixel-drop input').setInputFiles({name: 'brief.txt', mimeType: 'text/plain', buffer: Buffer.from('Учебное условие хакатона')});
   await page.locator('.pixel-start').click();
   await page.waitForTimeout(1800);
@@ -71,9 +71,21 @@ async page => {
       await page.locator('#mock-approve').click();
       await page.locator('#to-development').waitFor({state:'visible'});
       await page.locator('#to-development').click();
-      await page.locator('#back-mocks').waitFor({state:'visible'});
-      assert((await page.locator('.main-panel').innerText()).includes('этап 06 «Интеграция и проверка» находятся в разработке'), 'Этапы 5–6 не обозначены будущими');
-      await page.locator('#back-mocks').click();
+      await page.locator('.prototype-dialog').waitFor({state:'visible'});
+      await page.evaluate(() => {const original=fflate.zipSync; fflate.zipSync=(files,...args)=>{window.__prototypeFiles=files;return original(files,...args)}});
+      const downloadPromise=page.waitForEvent('download');
+      await page.locator('[data-download]').click();
+      const archive=await downloadPromise;
+      assert(archive.suggestedFilename()==='makora-prototype-context.zip', 'Не создан архив с контекстом');
+      const packed=await page.evaluate(()=>Object.keys(window.__prototypeFiles));
+      for(const file of ['input/brief.txt','PROMPT.md','01_case_analysis_DEMO.md','02_research.md','02_solution_concept.md','03_architecture.md','03_contracts/openapi.yaml','03_test_plan.md','03_tasks.json','mocks/fixtures/spaces.json','04_validation_report.md']) assert(packed.includes(file), 'В архиве отсутствует '+file);
+      assert(await page.evaluate(()=>fflate.strFromU8(window.__prototypeFiles['input/brief.txt']).includes('Учебное условие хакатона')), 'Не передан исходный файл');
+      await page.locator('[data-sent]').click();
+      assert((await page.locator('.prototype-dialog').innerText()).includes('ОЖИДАЮ РЕЗУЛЬТАТ'), 'Нет состояния ожидания');
+      await page.locator('.prototype-drop input').setInputFiles({name:'prototype.zip',mimeType:'application/zip',buffer:Buffer.from('PK\x05\x06' + '\x00'.repeat(18))});
+      await page.locator('[data-receive]').click();
+      await page.locator('.prototype-result').waitFor({state:'visible'});
+      await page.locator('.prototype-dialog [data-close]').click();
     }
     if (await page.locator('[data-mock-home]').count()) await page.locator('[data-mock-home]').click();
     else assert(await page.locator('[data-mock-item]').count() === 5, 'Возврат не открыл разделы моков');
@@ -100,6 +112,12 @@ async page => {
   await page.reload();
   assert(await page.evaluate(() => window.makoraProject.isApproved()), 'Утверждение идеи потерялось после обновления');
   assert(await page.evaluate(() => window.makoraProject.context().concept.find(x => x.title === 'Финальная идея').md.includes('Изменение для проверки зависимостей')), 'Изменённая идея не восстановилась');
+  await page.locator('#first-text').fill('Новое условие после перезагрузки');
+  await page.locator('.pixel-start').click();
+  await page.locator('.capabilities-toggle').click();
+  await page.locator('[data-prototype-open]').click();
+  assert((await page.locator('.prototype-dialog').innerText()).includes('Прототип'), 'Результат не восстановился после перезагрузки');
+  assert(await page.locator('[data-result-download]').isVisible(), 'ZIP не сохранился в браузере');
   assert(errors.length === 0, 'Ошибки JavaScript: ' + errors.join('; '));
   return {analysis: 10, research: 5, solution: 9, planning: 9, mocks: 5, approvedAndInvalidated: true, errors};
 }

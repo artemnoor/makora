@@ -12,6 +12,8 @@ python -m http.server 8000 --directory dist --bind 127.0.0.1
 
 Откройте [localhost:8000](http://localhost:8000/). Браузерная API-заглушка использует Service Worker на localhost или HTTPS. Прогресс утверждений и изменения идеи сохраняются в локальном хранилище браузера.
 
+После появления доски под Макорой находится меню **«Возможности» → «Рабочий прототип»**. Оно позволяет скопировать промпт, скачать ZIP с текущими материалами и отметить передачу внешнему ИИ. Затем можно вернуть ZIP проекта или ссылку; ожидание сохраняется в localStorage, а ZIP — в IndexedDB текущего браузера. Автоматическая отправка ИИ, запуск и проверка возвращённого проекта не выполняются. После перезагрузки для доступа к меню снова начните анализ; оригинальный PDF/DOCX после перезагрузки может потребоваться приложить к пакету отдельно.
+
 ## Скиллы и артефакты
 
 В `skills/` находятся шесть самостоятельных инструкций для этапов 1–4. Они описывают работу агента, но сайт и `makora_core` пока не подключены к модели. Локальное ядро управляет версиями и утверждениями файлов, а также формирует пакет контекста; инструкция — в [docs/agent-foundation.md](docs/agent-foundation.md). Рабочий каталог `workspace/` исключён из Git: не помещайте конфиденциальные документы в публичный репозиторий.
@@ -33,6 +35,7 @@ python -m unittest discover -s tests -v
 ```sh
 npx --yes --package @playwright/cli playwright-cli -s=makora-smoke open http://127.0.0.1:8000/
 npx --yes --package @playwright/cli playwright-cli -s=makora-smoke run-code --filename tests/browser-flow.js
+npx --yes --package @playwright/cli playwright-cli -s=makora-smoke run-code --filename tests/handoff-wait.js
 npx --yes --package @playwright/cli playwright-cli -s=makora-smoke close
 ```
 
