@@ -767,6 +767,21 @@ function beginCoderSpawn() {
     if (a === 'jump') jump();
     if (a === 'reset') resetPosition();
   });
+  // The parent moves the iframe while these original physics animate its sprite.
+  window.addEventListener('makora-drag', e => {
+    const {phase, x, y} = e.detail || {};
+    if (phase === 'start') {
+      dragging = {id:'parent', x, y, frameX:x, frameY:y};
+      mascot.classList.add('grabbing');
+    } else if (phase === 'move' && dragging?.id === 'parent') {
+      dragging.x = x;
+      dragging.y = y;
+    } else if (phase === 'end' && dragging?.id === 'parent') {
+      dragging = null;
+      motion.releaseTime = performance.now();
+      mascot.classList.remove('grabbing');
+    }
+  });
   // Pointer Capture supports mouse, touch, and stylus, even outside the sprite.
   mascot.addEventListener('pointerdown', e => {
     if (dragging || (e.button !== 0 && e.pointerType === 'mouse')) return;
