@@ -1,7 +1,7 @@
 // Stage 5 is a manual handoff: no external AI is contacted by this page.
 window.createPrototypeHandoff = function(root, mascot, getSourceFile) {
   const key = 'makora.prototype-handoff.v1';
-  const prompt = 'Создай запускаемый рабочий прототип по приложенным материалам. Реализуй основной сценарий MVP на мок-данных, соблюдай требования и контракты, обработай пустые состояния и ошибки. Учебные примеры не выдавай за требования; сообщи о противоречиях. Отметь демо-данные, добавь инструкцию запуска и перечисли выполненные проверки. Верни проект ZIP-архивом.';
+  const prompt = 'Создай запускаемый рабочий прототип по приложенным материалам. Вся разработка строится вокруг исходной папки mocks/: обязательно сохрани её целиком, без изменений, с исходными путями. Если нужны изменения или дополнительные моки, создай отдельную папку new_mocks/ и положи их туда; исходную mocks/ не изменяй и не удаляй. Реализуй основной сценарий MVP, соблюдай контракты, обработай ошибки и пустые состояния. Учебные примеры не выдавай за требования, отметь демо-данные, добавь инструкцию запуска и результаты проверок. Верни проект ZIP-архивом.';
   let state;
   try { state = JSON.parse(localStorage.getItem(key)) || {}; } catch { state = {}; }
   let selected = null, sourceFile = null, prepared = false;
@@ -55,6 +55,24 @@ window.createPrototypeHandoff = function(root, mascot, getSourceFile) {
   function contextSignature() {
     const c = window.makoraStage3.getContext();
     return JSON.stringify({project:c.project.signature, openapi:c.openapi, tasks:c.tasks, approval:c.approval});
+  }
+  async function inspectZip(file) {
+    const bytes = new Uint8Array(await file.arrayBuffer());
+    const paths = [], originals = []; let count = 0;
+    try {
+      fflate.unzipSync(bytes, {filter: entry => {
+        if (++count > 50000) throw new Error('В архиве слишком много файлов.');
+        const name = entry.name.replace(/\\/g, '/');
+        const parts = name.split('/').filter(Boolean);
+        if (name.startsWith('/') || /^[A-Za-z]:/.test(name) || parts.includes('..') || parts.includes('.') || name.includes('\0')) throw new Error('В архиве обнаружен небезопасный путь.');
+        const newIndex=parts.indexOf('new_mocks'), oldIndex=parts.indexOf('mocks');
+        const isDirectoryPart=index=>index >= 0 && (index < parts.length-1 || name.endsWith('/'));
+        if (isDirectoryPart(newIndex) && paths.length < 100) paths.push(name);
+        if (isDirectoryPart(oldIndex) && (newIndex < 0 || oldIndex < newIndex) && originals.length < 100) originals.push(name);
+        return false;
+      }});
+    } catch (error) { throw new Error(error.message?.includes('небезопасный путь') || error.message?.includes('слишком много') ? error.message : 'Не удалось прочитать ZIP. Выбери корректный архив.'); }
+    return {hasNewMocks:paths.length > 0, newMocksPaths:paths, originalMocksPresent:originals.length > 0};
   }
   async function createPackage() {
     const ctx = window.makoraStage3.getContext();
@@ -124,20 +142,42 @@ window.createPrototypeHandoff = function(root, mascot, getSourceFile) {
       const link=panel.querySelector('#prototype-link').value.trim();
       if (!selected && !link) { feedback('Прикрепи ZIP или вставь ссылку на проект.'); return; }
       if (link) { try { const url=new URL(link); if (!['http:','https:'].includes(url.protocol)) throw new Error(); } catch { feedback('Укажи ссылку, начинающуюся с http:// или https://.'); return; } }
-      e.currentTarget.disabled=true;
+      const button=e.currentTarget; button.disabled=true;
       try {
+        const inspection=selected ? await inspectZip(selected) : {hasNewMocks:false,newMocksPaths:[],originalMocksPresent:null};
         if (selected) await fileStore('put', {name:selected.name, file:selected}); else { try { await fileStore('delete'); } catch (_) {} }
-        state.status='received'; state.resultName=selected?.name||''; state.resultLink=link; state.receivedAt=new Date().toISOString();
+        state.status=inspection.hasNewMocks?'questions':'received'; state.resultName=selected?.name||''; state.resultLink=link; state.receivedAt=new Date().toISOString();
+        state.inspection=inspection; state.mockAnswers=null;
         if (!save()) { state.status='waiting'; throw new Error('Не удалось сохранить состояние на устройстве.'); }
-        selected=null; showReceived();
-      } catch (error) { feedback('Не удалось сохранить результат: ' + (error.message || 'хранилище недоступно')); if(e.currentTarget.isConnected)e.currentTarget.disabled=false; }
+        selected=null; if(state.status==='questions')showQuestions();else showReceived();
+      } catch (error) { feedback('Не удалось сохранить результат: ' + (error.message || 'хранилище недоступно')); if(button.isConnected)button.disabled=false; }
+    };
+  }
+  function adaptationRequest() {
+    const answers=state.mockAnswers||{};
+    const paths=(state.inspection?.newMocksPaths||[]).join('\n');
+    return `# Запрос на анализ изменений моков\n\nПроект вернулся от внешнего ИИ. В архиве найдена папка new_mocks/. Сохрани исходную папку mocks/ без изменений. До применения изменений сравни файлы, схемы, контракты, тесты и сценарии; опиши влияние и предложи план адаптации. Не запускай код из архива автоматически и не изменяй утверждённые материалы без согласования.\n\n## Найденные пути\n\n${paths}\n\n## Ответы пользователя\n\nЧто изменилось и почему: ${answers.reason||'не указано'}\n\nКак использовать старые и новые данные: ${answers.strategy||'не указано'}\n\nКакие сценарии и контракты сохранить: ${answers.preserve||'не указано'}\n\n## Статус\n\nСравнение и адаптация ещё не выполнялись. Исходные материалы и ZIP проекта нужно приложить отдельно.\n`;
+  }
+  function showQuestions() {
+    shell(`<h2>Вижу новые<br>мок-данные.</h2><p>В ZIP найдена папка <strong>new_mocks/</strong>. Прежде чем готовить адаптацию, помоги понять изменения.</p><label for="mock-reason">ЧТО ИЗМЕНИЛОСЬ И ПОЧЕМУ?</label><textarea id="mock-reason" placeholder="Например: добавились поля карточки…"></textarea><label for="mock-strategy">КАК ИСПОЛЬЗОВАТЬ СТАРЫЕ И НОВЫЕ МОКИ?</label><textarea id="mock-strategy" placeholder="Например: сохранить старые, новые сначала проверить…"></textarea><label for="mock-preserve">ЧТО ОБЯЗАТЕЛЬНО СОХРАНИТЬ И ПРОВЕРИТЬ?</label><textarea id="mock-preserve" placeholder="Сценарии, требования или контракты…"></textarea><button class="prototype-primary" type="button" data-save-answers>Сохранить ответы <span>→</span></button><p class="prototype-note">Сейчас я проверил только имена файлов. Сравнение содержимого, адаптация и запуск ещё не выполнялись.</p>`);
+    const prior=state.mockAnswers||{};
+    for(const [id,value] of [['mock-reason',prior.reason],['mock-strategy',prior.strategy],['mock-preserve',prior.preserve]])panel.querySelector('#'+id).value=value||'';
+    panel.querySelector('[data-save-answers]').onclick=()=>{
+      const answers={reason:panel.querySelector('#mock-reason').value.trim(),strategy:panel.querySelector('#mock-strategy').value.trim(),preserve:panel.querySelector('#mock-preserve').value.trim()};
+      if(Object.values(answers).some(value=>!value)){feedback('Ответь на все три вопроса, чтобы подготовить адаптацию.');return;}
+      state.mockAnswers=answers;state.status='received';state.answersAt=new Date().toISOString();
+      if(!save()){state.status='questions';feedback('Не удалось сохранить ответы на устройстве.');return;}showReceived();
     };
   }
   async function showReceived() {
-    shell(`<h2>Прототип<br>получен.</h2><p>Результат сохранён на этом устройстве. Запуск и проверка проекта пока не выполнялись.</p><div class="prototype-result"></div><button class="prototype-primary" type="button" data-result-download hidden>Скачать сохранённый ZIP ↓</button><button class="prototype-text-button" type="button" data-replace>Заменить результат</button>`);
+    shell(`<h2>Прототип<br>получен.</h2><p>Результат сохранён на этом устройстве. Запуск и проверка проекта пока не выполнялись.</p><div class="prototype-result"></div>${state.inspection?.hasNewMocks?'<button class="prototype-text-button" type="button" data-adaptation>Скачать запрос на адаптацию ↓</button><button class="prototype-text-button" type="button" data-edit-answers>Изменить ответы</button>':''}<button class="prototype-primary" type="button" data-result-download hidden>Скачать сохранённый ZIP ↓</button><button class="prototype-text-button" type="button" data-replace>Заменить результат</button>`);
     const result=panel.querySelector('.prototype-result');
     if (state.resultName) { const item=document.createElement('p'); item.textContent='ZIP: '+state.resultName; result.append(item); }
     if (state.resultLink) { const link=document.createElement('a'); link.href=state.resultLink; link.textContent=state.resultLink; link.target='_blank'; link.rel='noopener noreferrer'; result.append(link); }
+    if(state.inspection?.hasNewMocks){const note=document.createElement('p');note.textContent='Найдена new_mocks/. Ответы сохранены; сравнение и адаптация ещё не выполнялись.';result.append(note);panel.querySelector('[data-adaptation]').onclick=()=>download('mock-adaptation-request.md',adaptationRequest(),'text/markdown;charset=utf-8');panel.querySelector('[data-edit-answers]').onclick=()=>{state.status='questions';if(!save()){feedback('Не удалось сохранить состояние.');return}showQuestions()};}
+    else if(state.resultName && state.inspection){const note=document.createElement('p');note.textContent='Папка new_mocks/ не найдена. Сохранность исходных моков не проверялась.';result.append(note);}
+    else if(state.resultLink){const note=document.createElement('p');note.textContent='Ссылка не проверялась. Чтобы обнаружить new_mocks/, загрузи ZIP.';result.append(note);}
+    if(state.resultName && state.inspection?.originalMocksPresent===false){const note=document.createElement('p');note.textContent='Папка mocks/ в ZIP не найдена. Уточни у автора проекта, где исходные данные.';result.append(note);}
     if (state.packageSignature && state.packageSignature!==contextSignature()) { const note=document.createElement('p');note.textContent='Материалы изменились после передачи: перед повторной работой собери пакет заново.';result.append(note); }
     if (state.resultName) {
       try {
@@ -149,7 +189,7 @@ window.createPrototypeHandoff = function(root, mascot, getSourceFile) {
     }
     const replace=panel.querySelector('[data-replace]'); if(replace)replace.onclick=()=>{state.status='waiting';if(!save()){feedback('Не удалось сохранить состояние.');return}showWaiting()};
   }
-  function open() { panel.hidden=false; if(state.status==='waiting')showWaiting();else if(state.status==='received')showReceived();else showPackage(); panel.querySelector('[data-close]')?.focus(); }
+  function open() { panel.hidden=false; if(state.status==='waiting')showWaiting();else if(state.status==='questions')showQuestions();else if(state.status==='received')showReceived();else showPackage(); panel.querySelector('[data-close]')?.focus(); }
   function close() { panel.hidden=true; toggle.focus(); }
   window.addEventListener('makora-open-prototype', open);
   window.addEventListener('resize', updatePosition);

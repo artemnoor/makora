@@ -7,6 +7,7 @@ import json
 import re
 import unittest
 from pathlib import Path
+from zipfile import ZipFile
 
 import jsonschema
 import yaml
@@ -30,6 +31,7 @@ class SkillCaseTests(unittest.TestCase):
             'system-design': {'c1-context.md', 'c2-containers.md', 'c3-components.md', 'data-model.md', 'openapi.yaml', 'c4-code.md', 'architecture-decisions.md', 'contract-validation.md'},
             'development-planning': {'test-plan.md', 'tasks.yaml', 'plan-validation.md'},
             'mock-environment': {'data-requirements.md', 'scenarios.yaml', 'mock-validation.md', 'fixtures/places.json', 'fixtures/empty.json', 'fixtures/invalid.json', 'mock-server/README.md'},
+            'prototype-handoff': {'prototype-prompt.md', 'prototype-context.zip', 'handoff-status.json', 'mock-change-questions.md', 'mock-adaptation-report.md'},
         }
         for skill, filenames in outputs.items():
             with self.subTest(skill=skill):
@@ -38,6 +40,11 @@ class SkillCaseTests(unittest.TestCase):
                 self.assertEqual({p.relative_to(case / 'expected').as_posix() for p in (case / 'expected').rglob('*') if p.is_file()}, filenames)
                 for name in filenames:
                     path = case / 'expected' / name
+                    if path.suffix == '.zip':
+                        with ZipFile(path) as archive:
+                            self.assertIsNone(archive.testzip(), name)
+                            self.assertTrue(archive.namelist(), name)
+                        continue
                     self.assertTrue(path.read_text(encoding='utf-8').strip(), name)
                     if path.suffix == '.yaml':
                         self.assertIsNotNone(read_yaml(path))
@@ -92,6 +99,19 @@ class SkillCaseTests(unittest.TestCase):
         for relative in ('system-design/expected/contract-validation.md', 'mock-environment/expected/mock-validation.md'):
             self.assertIn('not_checked', (ROOT / relative).read_text(encoding='utf-8'))
         self.assertIn('skipped', (ROOT / 'mock-environment/expected/mock-server/README.md').read_text(encoding='utf-8'))
+
+    def test_prototype_case_preserves_mocks_and_flags_new_data(self):
+        case = ROOT / 'prototype-handoff'
+        expected = case / 'expected'
+        status = json.loads((expected / 'handoff-status.json').read_text(encoding='utf-8'))
+        self.assertEqual(status['status'], 'questions')
+        self.assertEqual(status['content_comparison'], 'not_checked')
+        self.assertIn('not_checked', (expected / 'mock-adaptation-report.md').read_text(encoding='utf-8'))
+        with ZipFile(expected / 'prototype-context.zip') as context, ZipFile(case / 'input/returned-project.zip') as result:
+            self.assertEqual(context.read('mocks/fixtures/places.json'), result.read('mocks/fixtures/places.json'))
+            self.assertIn('new_mocks/fixtures/places.json', result.namelist())
+            self.assertIn('mocks/', context.read('PROMPT.md').decode('utf-8'))
+            self.assertIn('new_mocks/', context.read('PROMPT.md').decode('utf-8'))
 
 
 if __name__ == '__main__':

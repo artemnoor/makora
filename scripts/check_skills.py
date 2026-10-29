@@ -13,6 +13,7 @@ CONTRACTS = {
     'system-design': (('требован', 'mvp'), ('c1-context.md', 'c2-containers.md', 'c3-components.md', 'data-model.md', 'openapi.yaml', 'c4-code.md', 'architecture-decisions.md', 'contract-validation.md')),
     'development-planning': (('требован', 'контракт'), ('test-plan.md', 'tasks.yaml', 'plan-validation.md')),
     'mock-environment': (('контракт', 'тест-план'), ('data-requirements.md', 'fixtures/', 'scenarios.yaml', 'mock-server/', 'mock-validation.md')),
+    'prototype-handoff': (('контракт', 'мок'), ('prototype-prompt.md', 'prototype-context.zip', 'handoff-status.json', 'mock-change-questions.md', 'mock-adaptation-report.md')),
 }
 
 
