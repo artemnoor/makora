@@ -114,6 +114,33 @@ conceptBlocks.push(
 Это один конкретный успешный сценарий внутри общего User flow. Значения в демонстрации синтетические.`}
 );
 
+// Arrange the concept around the user's journey before the presentation plan.
+conceptBlocks.sort((a,b)=>['Альтернативные концепции','Обоснование выбора','Финальная идея','Состав MVP','User flow','Task flow','Демо сценарий','Метрики успеха','Риски и гипотезы'].indexOf(a.title)-['Альтернативные концепции','Обоснование выбора','Финальная идея','Состав MVP','User flow','Task flow','Демо сценарий','Метрики успеха','Риски и гипотезы'].indexOf(b.title));
+conceptBlocks.find(x=>x.title==='Состав MVP').md += `\n\n## Экраны и состояния MVP\n\n- Каталог: загрузка, результаты, отсутствие совпадений и ошибка источника.\n- Карточка места: условия, время обновления, неизвестные и устаревшие данные.\n- Демо-данные: заметная пометка источника и отсутствие обещания актуальной занятости.\n\nСостояния проверяются по плану тестирования этапа 3; данные для них готовятся на этапе 4.`;
+conceptBlocks.find(x=>x.title==='User flow').md += `\n\n## Связь с проверками\n\nОсновной путь — TC-06 и сценарий success; пустой список — TC-07 и empty; устаревшие данные — TC-03 и stale; ошибка источника — TC-05 и server_error. Это план проверок, а не результаты выполнения.`;
+for (const doc of [...researchBlocks,...conceptBlocks]) {
+  doc.md = doc.md.replace('CSV на 12 пространств', 'демонстрационный каталог на 20 пространств').replace('предоставленном наборе данных', 'синтетическом демонстрационном наборе данных');
+}
+one[7]=one[7].replace('CSV на 12 записей','демонстрационный набор на 20 записей');
+
+// Project inputs and edited concept documents are kept locally on this device.
+const projectKey='makora.project.context.v1';
+let projectData; try { projectData=JSON.parse(localStorage.getItem(projectKey))||{}; } catch { projectData={}; }
+projectData.documents=projectData.documents||{};
+for(const doc of [...researchBlocks,...conceptBlocks]) if(typeof projectData.documents[doc.title]==='string') doc.md=projectData.documents[doc.title];
+function saveProject(){try{localStorage.setItem(projectKey,JSON.stringify(projectData));return true}catch{return false}}
+function projectSignature(){const value=JSON.stringify({source:projectData.source||null,research:researchBlocks,concept:conceptBlocks});let h=2166136261;for(const c of value)h=Math.imul(h^c.charCodeAt(0),16777619);return (h>>>0).toString(16)}
+window.makoraProject={
+  source:()=>projectData.source||null,
+  signature:projectSignature,
+  isApproved:()=>!!projectData.approved&&projectData.approved.signature===projectSignature(),
+  approve:()=>{const previous=projectData.approved;projectData.approved={signature:projectSignature(),time:new Date().toISOString()};if(saveProject())return true;projectData.approved=previous;return false},
+  saveDocument:(doc,value)=>{const old=doc.md,stored=projectData.documents[doc.title];doc.md=value;projectData.documents[doc.title]=value;if(saveProject())return true;doc.md=old;if(stored===undefined)delete projectData.documents[doc.title];else projectData.documents[doc.title]=stored;return false},
+  setSource:(source)=>{const old=projectData.source;projectData.source=source;if(saveProject())return true;projectData.source=old;return false},
+  context:()=>({source:projectData.source||null,research:researchBlocks.map(x=>({...x})),concept:conceptBlocks.map(x=>({...x})),approved:window.makoraProject.isApproved(),signature:projectSignature()})
+};
+
+
 function getDocs(){if(stage===1)return blocks||one.map((md,i)=>({title:oneTitles[i],md}));return blocks||researchBlocks.concat(conceptBlocks)}
 function groupedNav(){let all=getDocs(),a=document.querySelector('#doc-content'),b=document.querySelector('#concept-content');a.innerHTML='';b.innerHTML='';const add=(target,item,index)=>{let x=document.createElement('button');x.type='button';x.className='doc-row';x.innerHTML=`<span>${String(index+1).padStart(2,'0')}</span><strong>${esc(item.title)}</strong><b>↗</b>`;x.onclick=()=>show(index);target.append(x)};if(stage===1)all.forEach((x,i)=>add(a,x,i));else{all.slice(0,5).forEach((x,i)=>add(a,x,i));all.slice(5).forEach((x,i)=>add(b,x,i+5))}}
 document.querySelector('#download').innerHTML='Скачать исследование <span>↓</span>';

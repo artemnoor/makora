@@ -177,13 +177,13 @@
     else if (e.target.closest('[data-mock-home]')) showMockIndex();
   });
 
-  const planItems = ['ER-диаграмма','Диаграмма C1','Диаграмма C2','Диаграмма C3','Диаграмма C4','Контракты','Тестирование','Декомпозиция','Валидация'];
+  const planItems = ['Диаграмма C1','Диаграмма C2','Диаграмма C3','Модель данных · ER','Контракты','План тестирования','Декомпозиция','Валидация','Диаграмма C4 · при необходимости'];
   const diagrams = [
-    {title:'ER-диаграмма', note:'Логическая модель демонстрационных данных. Модель не утверждает наличие базы данных.', nodes:[['Space','id · name · building','capacity · availableSeats','status · updatedAt · source'],['SpacesResponse','items: Space[]'],['Фикстура','JSON · 0..* Space'],['Error','code · message']], edges:[[1,0,'1 → 0..*'],[2,0,'1 → 0..*']]},
+    {title:'Модель данных · ER', note:'Логическая модель демонстрационных данных. Диаграмма при необходимости; наличие базы данных не предполагается.', nodes:[['Space','id · name · building','capacity · availableSeats','status · updatedAt · source'],['SpacesResponse','items: Space[]'],['Фикстура','JSON · 0..* Space'],['Error','code · message']], edges:[[1,0,'1 → 0..*'],[2,0,'1 → 0..*']]},
     {title:'C1 · Контекст', note:'Граница системы и внешние участники. Источник актуальной занятости не подтверждён.', nodes:[['Студент','ищет свободное место'],['Тихий кампус','сервис поиска мест'],['Источник занятости','внешний API · не подтверждён'],['Демо-данные','резервный источник']], edges:[[0,1],[1,2],[1,3]]},
     {title:'C2 · Контейнеры', note:'Предварительная структура приложения; выбранный стек и источник необходимо согласовать.', nodes:[['Веб-интерфейс','каталог · фильтры · карточка'],['API пространств','HTTP · модель Space'],['Источник занятости','данные извне · не подтверждён'],['Каталог и фикстуры','локальные CSV / JSON']], edges:[[0,1],[1,2],[1,3]]},
     {title:'C3 · Компоненты', note:'Планируемые компоненты API; границы модулей уточняются при разработке.', nodes:[['API маршруты','список · карточка'],['Сервис каталога','нормализация · фильтрация'],['Адаптер занятости','статусы · время обновления'],['Адаптер фикстур','резерв · source=demo']], edges:[[0,1],[1,2],[1,3]]},
-    {title:'C4 · Код', note:'Иллюстрация планируемых элементов кода, не существующая реализация.', nodes:[['spaces route','GET список / карточка'],['SpaceService','фильтрация · получение'],['OccupancyAdapter','загрузка статуса'],['Space / Error','модели контракта']], edges:[[0,1],[1,2],[1,3]]}
+    {title:'C4 · Код (при необходимости)', note:'Необязательная иллюстрация планируемого кода; уточняется во время разработки.', nodes:[['spaces route','GET список / карточка'],['SpaceService','фильтрация · получение'],['OccupancyAdapter','загрузка статуса'],['Space / Error','модели контракта']], edges:[[0,1],[1,2],[1,3]]}
   ];
   function diagramSvg(d) {
     const locations = [[20,50],[345,50],[670,50],[345,240]], w=210, h=90;
@@ -224,7 +224,7 @@
   content.addEventListener('click', e => {
     if (stage !== 3) return;
     const item=e.target.closest('[data-plan-item]');
-    if (item) {const i=Number(item.dataset.planItem);if(i<5)showPlanningDiagram(i);else showPlanningStep(i-4);}
+    if (item) {const i=Number(item.dataset.planItem);if(i<4)showPlanningDiagram([1,2,3,0][i]);else if(i===8)showPlanningDiagram(4);else showPlanningStep(i-3);}
     else if(e.target.closest('[data-plan-home]')) showPlanningIndex();
     else if(e.target.closest('[data-plan-approval]')) showPlanningStep(0);
   });
@@ -248,7 +248,8 @@
   function showIdeaDocument(index) {
     const item = ideaGroups[ideaGroup], doc = item?.docs[index];
     if (!doc) return;
-    content.innerHTML = `<div class="idea-breadcrumb"><button type="button" class="board-back" data-idea-back>← ${item.title}</button><button type="button" class="board-back" data-idea-home>Все части</button></div><div class="board-document"><div class="board-doc-number">${String(index+1).padStart(2,'0')} / ${String(item.docs.length).padStart(2,'0')} · ${item.file}</div>${render(doc.md)}</div>`;
+    const approval=ideaGroup==='solution'&&doc.title==='Финальная идея' ? `<div class="idea-approval"><p>${window.makoraProject.isApproved()?'Идея утверждена. Изменение исходных материалов или идеи потребует перепроверки плана.':'Идея не утверждена. План и данные ниже пока являются примером для «Тихого кампуса».'}</p><button type="button" class="plan-primary" data-idea-approve>Утвердить идею</button></div>` : '';
+    content.innerHTML = `<div class="idea-breadcrumb"><button type="button" class="board-back" data-idea-back>← ${item.title}</button><button type="button" class="board-back" data-idea-home>Все части</button></div><div class="board-document"><div class="board-doc-number">${String(index+1).padStart(2,'0')} / ${String(item.docs.length).padStart(2,'0')} · ${item.file}</div>${render(doc.md)}<button type="button" class="plan-secondary" data-idea-edit="${index}">Изменить Markdown</button>${approval}</div>`;
     content.scrollTop = 0;
   }
   content.addEventListener('click', e => {
@@ -259,12 +260,17 @@
     else if (e.target.closest('[data-idea-home]')) showIdeaHome();
     else if (e.target.closest('[data-idea-back]')) showIdeaGroup(ideaGroup);
     else if (e.target.closest('[data-idea-export]')) exportMarkdown(ideaGroups[ideaGroup].file, ideaGroups[ideaGroup].docs);
+    else if (e.target.closest('[data-idea-approve]')) { if(!window.makoraProject.approve()){stageMessage.textContent='Не удалось сохранить утверждение на устройстве.';stageMessage.hidden=false;} showIdeaDocument(ideaGroups.solution.docs.findIndex(x=>x.title==='Финальная идея')); }
+    else if (e.target.closest('[data-idea-edit]')) {const i=Number(e.target.closest('[data-idea-edit]').dataset.ideaEdit),doc=ideaGroups[ideaGroup].docs[i];content.innerHTML=`<div class="idea-breadcrumb"><button type="button" class="board-back" data-idea-back>← ${ideaGroups[ideaGroup].title}</button></div><label class="idea-editor-label" for="idea-editor">${esc(doc.title)} · Markdown</label><textarea id="idea-editor" class="idea-editor"></textarea><button type="button" class="plan-primary" data-idea-save="${i}">Сохранить</button><p class="idea-editor-status" role="status"></p>`;content.querySelector('#idea-editor').value=doc.md;content.querySelector('#idea-editor').focus();}
+    else if (e.target.closest('[data-idea-save]')) {const i=Number(e.target.closest('[data-idea-save]').dataset.ideaSave),value=content.querySelector('#idea-editor').value.trim();if(!value){content.querySelector('.idea-editor-status').textContent='Введите текст раздела.';return;}if(!window.makoraProject.saveDocument(ideaGroups[ideaGroup].docs[i],value)){content.querySelector('.idea-editor-status').textContent='Не удалось сохранить данные на устройстве.';return;}showIdeaDocument(i);}
   });
   function showIndex() {
     content.innerHTML = '<div class="board-intro">ВЫБЕРИ РАЗДЕЛ, ЧТОБЫ ОТКРЫТЬ ЕГО</div><div class="board-list">' + oneTitles.map((title,i) => `<button type="button" data-section="${i}" title="${esc(title)}"><span class="board-number">${String(i+1).padStart(2,'0')}</span><span>${title}</span><span class="board-arrow">↗</span></button>`).join('') + '</div>';
   }
   function showSection(i) {
-    content.innerHTML = `<button type="button" class="board-back">← Все разделы</button><div class="board-document"><div class="board-doc-number">${String(i+1).padStart(2,'0')} / 10</div>${render(one[i])}</div>`;
+    const source=window.makoraProject.source();
+    const original=i===0&&source?`<h2>Ваше исходное условие</h2><p>${esc(source.name)}. ${source.text?'Текст сохранён на этом устройстве и передаётся в контекст задания агенту.':'Файл выбран, но извлечение текста этого формата не подключено.'}</p>${source.text?`<pre class="case-source">${esc(source.text)}</pre>`:''}<p>Ниже показан учебный пример: автоматический анализ вашего условия пока не подключён.</p>`:'';
+    content.innerHTML = `<button type="button" class="board-back">← Все разделы</button><div class="board-document"><div class="board-doc-number">${String(i+1).padStart(2,'0')} / 10</div>${original}${render(one[i])}</div>`;
     content.scrollTop = 0;
   }
   content.addEventListener('click', e => { const section=e.target.closest('[data-section]'); if(section) showSection(Number(section.dataset.section)); if(stage===1 && e.target.closest('.board-back')) showIndex(); });
@@ -374,9 +380,11 @@
   root.querySelector('.board-expand').addEventListener('click',toggleBoard);
   board.addEventListener('dblclick',e => { if(!e.target.closest('button')) toggleBoard(); });
   document.addEventListener('keydown',e => { if(e.key==='Escape' && board.classList.contains('expanded')) toggleBoard(); });
-  form.addEventListener('submit', e => {
+  form.addEventListener('submit', async e => {
     e.preventDefault();
     if (start.disabled || root.classList.contains('departing')) return;
+    const sourceText=textarea.value.trim() || (selectedFile && /\.(txt|md)$/i.test(selectedFile.name) ? await selectedFile.text() : '');
+    if(!window.makoraProject.setSource({name:textarea.value.trim()?'Вставленный текст':selectedFile?.name||'Условие',text:sourceText})){error.textContent='Не удалось сохранить условие на устройстве. Попробуй более короткий текст.';error.hidden=false;return;}
     const mascot = root.querySelector('.mascot-area');
     const initial = mascot.getBoundingClientRect();
     const formRect = form.getBoundingClientRect();
