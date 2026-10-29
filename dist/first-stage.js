@@ -93,10 +93,11 @@
   const stageDownloads = {main:document.querySelector('#download').onclick, concept:document.querySelector('#download-concept').onclick};
   const boardTitles = ['Анализ задания','Разработка идеи','Планирование разработки','Подготовка мок-данных','Разработка'];
   const stageMessage = root.querySelector('.board-stage-message');
-  let boardStage = 1, stageSwitchInProgress = false;
+  let boardStage = 1, stageSwitchInProgress = false, stage3DetailOpen = false;
   function syncBoardStage() {
     boardStage = stage;
-    const working = stage > 2;
+    const working = stage > 3 || (stage === 3 && stage3DetailOpen);
+    board.classList.toggle('plan-index-board', stage === 3 && !stage3DetailOpen);
     board.classList.toggle('idea-board', stage === 2);
     root.querySelector('.board-footer span:last-child').textContent = String(stage).padStart(2,'0') + ' / 06';
     board.classList.toggle('workspace-board', working);
@@ -107,6 +108,7 @@
     });
     root.querySelector('.board-bar h2').textContent = boardTitles[stage-1] || 'Рабочее пространство';
     if (stage === 2 && workspace.parentElement === content) { workspaceHome.append(workspace); showIdeaHome(); }
+    if (stage === 3 && !stage3DetailOpen && workspace.parentElement === content) { workspaceHome.append(workspace); showPlanningIndex(); }
     root.querySelector('.board-heading span:first-child').textContent = String(stage).padStart(2,'0') + ' / ' + (boardTitles[stage-1] || 'РАЗРАБОТКА').toUpperCase();
     root.querySelector('.board-heading span:last-child').textContent = stage === 1 ? '01_CASE_ANALYSIS.MD' : 'РАБОЧЕЕ ПРОСТРАНСТВО';
     root.querySelector('.scene-bottom > p').textContent = working ? 'Схемы, документы и проверки доступны внутри доски.' : 'Демо-анализ: показан пример, файл не анализируется.';
@@ -119,7 +121,7 @@
     stageMessage.hidden = true;
     if (number === 4 && !window.makoraStage3?.getContext().readiness.ready) {
       await openBoardStage(3);
-      document.querySelectorAll('#doc-content .doc-row')[4]?.click();
+      showPlanningStep(4);
       stageMessage.textContent = 'Для перехода к мок-данным утвердите шаги плана и завершите валидацию.';
       stageMessage.hidden = false;
       return;
@@ -138,7 +140,7 @@
           document.querySelector('#next-stage').click();
           document.querySelector('#download').onclick = stageDownloads.main;
           document.querySelector('#download-concept').onclick = stageDownloads.concept;
-        } else if (number === 3) document.querySelector('#next-stage-3').click();
+        } else if (number === 3) { stage3DetailOpen = false; document.querySelector('#next-stage-3').click(); }
         else if (number === 4) await window.openMockStage();
         content.scrollTop = 0;
       }
@@ -150,6 +152,58 @@
     if (button) openBoardStage(Number(button.dataset.boardStage));
   });
   new MutationObserver(() => { if (root.isConnected && root.classList.contains('departing')) syncBoardStage(); }).observe(document.querySelector('.page-heading'), {childList:true,subtree:true});
+
+  const planItems = ['ER-диаграмма','Диаграмма C1','Диаграмма C2','Диаграмма C3','Диаграмма C4','Контракты','Тестирование','Декомпозиция','Валидация'];
+  const diagrams = [
+    {title:'ER-диаграмма', note:'Логическая модель демонстрационных данных. Модель не утверждает наличие базы данных.', nodes:[['Space','id · name · building','capacity · availableSeats','status · updatedAt · source'],['SpacesResponse','items: Space[]'],['Фикстура','JSON · 0..* Space'],['Error','code · message']], edges:[[1,0,'1 → 0..*'],[2,0,'1 → 0..*']]},
+    {title:'C1 · Контекст', note:'Граница системы и внешние участники. Источник актуальной занятости не подтверждён.', nodes:[['Студент','ищет свободное место'],['Тихий кампус','сервис поиска мест'],['Источник занятости','внешний API · не подтверждён'],['Демо-данные','резервный источник']], edges:[[0,1],[1,2],[1,3]]},
+    {title:'C2 · Контейнеры', note:'Предварительная структура приложения; выбранный стек и источник необходимо согласовать.', nodes:[['Веб-интерфейс','каталог · фильтры · карточка'],['API пространств','HTTP · модель Space'],['Источник занятости','данные извне · не подтверждён'],['Каталог и фикстуры','локальные CSV / JSON']], edges:[[0,1],[1,2],[1,3]]},
+    {title:'C3 · Компоненты', note:'Планируемые компоненты API; границы модулей уточняются при разработке.', nodes:[['API маршруты','список · карточка'],['Сервис каталога','нормализация · фильтрация'],['Адаптер занятости','статусы · время обновления'],['Адаптер фикстур','резерв · source=demo']], edges:[[0,1],[1,2],[1,3]]},
+    {title:'C4 · Код', note:'Иллюстрация планируемых элементов кода, не существующая реализация.', nodes:[['spaces route','GET список / карточка'],['SpaceService','фильтрация · получение'],['OccupancyAdapter','загрузка статуса'],['Space / Error','модели контракта']], edges:[[0,1],[1,2],[1,3]]}
+  ];
+  function diagramSvg(d) {
+    const locations = [[20,50],[345,50],[670,50],[345,240]], w=210, h=90;
+    const rects = locations.map(([x,y])=>({x,y,cx:x+w/2,cy:y+h/2}));
+    const links=d.edges.map(([a,b,label])=>{
+      const p=rects[a], q=rects[b], dx=q.cx-p.cx, dy=q.cy-p.cy;
+      const from=Math.min(dx ? (w/2)/Math.abs(dx) : Infinity,dy ? (h/2)/Math.abs(dy) : Infinity);
+      const to=Math.min(dx ? (w/2+5)/Math.abs(dx) : Infinity,dy ? (h/2+5)/Math.abs(dy) : Infinity);
+      return `<line x1="${p.cx+dx*from}" y1="${p.cy+dy*from}" x2="${q.cx-dx*to}" y2="${q.cy-dy*to}" stroke="#bcbcbc" stroke-width="2" marker-end="url(#board-diagram-arrow)"/>${label?`<text x="${(p.cx+q.cx)/2}" y="${(p.cy+q.cy)/2-8}" text-anchor="middle" fill="#fff" font-size="12">${esc(label)}</text>`:''}`;
+    }).join('');
+    const nodes=d.nodes.map((lines,i)=>{const {x,y}=rects[i];return `<g><rect x="${x}" y="${y}" width="${w}" height="${h}" rx="3" fill="#1d1d24" stroke="#a59caf" stroke-width="2"/><text x="${x+w/2}" y="${y+29}" text-anchor="middle" fill="#fff" font-size="16" font-weight="700">${esc(lines[0])}</text>${lines.slice(1).map((line,j)=>`<text x="${x+w/2}" y="${y+51+j*16}" text-anchor="middle" fill="#ddd" font-size="12">${esc(line)}</text>`).join('')}</g>`}).join('');
+    return `<svg viewBox="0 0 900 380" role="img" aria-label="${esc(d.title)}"><defs><marker id="board-diagram-arrow" markerWidth="8" markerHeight="8" refX="7" refY="4" orient="auto"><path d="M0 0 L8 4 L0 8Z" fill="#bcbcbc"/></marker></defs>${links}${nodes}</svg>`;
+  }
+  function showPlanningIndex() {
+    stage3DetailOpen = false;
+    workspaceHome.append(workspace);
+    board.classList.remove('workspace-board');
+    board.classList.add('plan-index-board');
+    content.innerHTML = '<div class="plan-board-list">'+planItems.map((title,i)=>`<button type="button" data-plan-item="${i}" title="${esc(title)}"><span>${String(i+1).padStart(2,'0')}</span><strong>${esc(title)}</strong><span>↗</span></button>`).join('')+'</div>';
+    content.scrollTop = 0;
+  }
+  function showPlanningDiagram(index) {
+    const d=diagrams[index];
+    content.innerHTML = `<div class="plan-board-detail"><button type="button" class="board-back plan-board-back" data-plan-home>← Все разделы</button><div class="plan-board-heading"><h3>${esc(d.title)}</h3><button type="button" class="plan-diagram-expand" aria-label="Открыть схему на весь экран">⛶</button></div><p>${esc(d.note)}</p><div class="diagram-shell"><div id="plan-board-diagram" class="mermaid-diagram">${diagramSvg(d)}</div></div><button type="button" class="plan-secondary" data-plan-approval>Согласовать архитектуру →</button></div>`;
+    content.querySelector('.plan-diagram-expand').onclick=e=>window.makoraStage3.openDiagram(content.querySelector('#plan-board-diagram'),e.currentTarget);
+    content.scrollTop = 0;
+  }
+  function showPlanningStep(index) {
+    stage3DetailOpen = true;
+    board.classList.add('workspace-board');
+    board.classList.remove('plan-index-board');
+    const back=document.createElement('button');
+    back.type='button';back.className='board-back plan-workspace-back';back.dataset.planHome='';back.textContent='← Все разделы планирования';
+    content.replaceChildren(back,workspace);
+    document.querySelectorAll('#doc-content .doc-row')[index]?.click();
+    content.scrollTop=0;
+  }
+  content.addEventListener('click', e => {
+    if (stage !== 3) return;
+    const item=e.target.closest('[data-plan-item]');
+    if (item) {const i=Number(item.dataset.planItem);if(i<5)showPlanningDiagram(i);else showPlanningStep(i-4);}
+    else if(e.target.closest('[data-plan-home]')) showPlanningIndex();
+    else if(e.target.closest('[data-plan-approval]')) showPlanningStep(0);
+  });
 
   let ideaGroup = null;
   const ideaGroups = {

@@ -7,7 +7,70 @@
   const stageTwoConceptDownload = downloadConcept.onclick;
   document.querySelector('#next-stage').addEventListener('click', () => { next.hidden = false; });
   const diagram = `flowchart LR\n    User[Студент] --> UI[Веб-интерфейс]\n    UI --> API[API пространств]\n    API --> Catalog[Каталог CSV / JSON]\n    API --> Occupancy[Источник занятости]\n    Occupancy -. недоступен .-> Fixtures[Демо-фикстуры]\n    Fixtures --> API`;
-  const arch = `# Архитектура · Тихий кампус\n\n> Демонстрационный план. Доступность внешнего API и технологий требует проверки.\n\n## Компоненты и связи\n\n\`\`\`mermaid\n${diagram}\n\`\`\`\n\n## Стек и решения\n\n- Веб-интерфейс: адаптивный HTML / CSS / JavaScript; выводит каталог, фильтры и карточку.\n- API: лёгкий HTTP-сервис, который нормализует данные каталога и занятости; предлагаемый стек — Python / FastAPI.\n- Каталог: CSV или JSON с пространствами и условиями; персональные данные не хранятся.\n- Занятость: адаптер для предполагаемого API; при недоступности демонстрация использует помеченные фикстуры.\n- Актуальность: интерфейс показывает updatedAt; порог устаревания и правило расчёта статуса нужно согласовать.\n\n## Решения и границы\n\nБронирование, аккаунты, карта и прогноз исключены из MVP. Доступность API, его лицензия и стек до разработки не подтверждены.\n`;
+  let arch = `# Архитектура · Тихий кампус\n\n> Демонстрационный план. Доступность внешнего API и технологий требует проверки.\n\n## Компоненты и связи\n\n\`\`\`mermaid\n${diagram}\n\`\`\`\n\n## Стек и решения\n\n- Веб-интерфейс: адаптивный HTML / CSS / JavaScript; выводит каталог, фильтры и карточку.\n- API: лёгкий HTTP-сервис, который нормализует данные каталога и занятости; предлагаемый стек — Python / FastAPI.\n- Каталог: CSV или JSON с пространствами и условиями; персональные данные не хранятся.\n- Занятость: адаптер для предполагаемого API; при недоступности демонстрация использует помеченные фикстуры.\n- Актуальность: интерфейс показывает updatedAt; порог устаревания и правило расчёта статуса нужно согласовать.\n\n## Решения и границы\n\nБронирование, аккаунты, карта и прогноз исключены из MVP. Доступность API, его лицензия и стек до разработки не подтверждены.\n`;
+  arch += `
+## ER · логическая модель данных
+
+Отношения отражают структуру ответов и фикстур, а не схему базы данных. Error — отдельная модель ответа об ошибке.
+
+\`\`\`mermaid
+erDiagram
+    SPACES_RESPONSE ||--o{ SPACE : содержит
+    FIXTURE ||--o{ SPACE : содержит
+    SPACE {
+      string id
+      string name
+      string building
+      integer capacity
+      integer availableSeats
+      string status
+      string updatedAt
+      string source
+    }
+    ERROR {
+      string code
+      string message
+    }
+\`\`\`
+
+## C1 · Контекст
+
+\`\`\`mermaid
+flowchart LR
+    Student[Студент] --> System[Тихий кампус]
+    System --> Source[Источник занятости: не подтверждён]
+    System --> Fixtures[Демо-данные]
+\`\`\`
+
+## C2 · Контейнеры
+
+\`\`\`mermaid
+flowchart LR
+    UI[Веб-интерфейс] --> API[API пространств]
+    API --> Source[Источник занятости: не подтверждён]
+    API --> Catalog[Каталог и фикстуры CSV / JSON]
+\`\`\`
+
+## C3 · Компоненты API
+
+\`\`\`mermaid
+flowchart LR
+    Routes[API маршруты] --> Catalog[Сервис каталога]
+    Catalog --> Occupancy[Адаптер занятости]
+    Catalog --> Fixtures[Адаптер фикстур]
+\`\`\`
+
+## C4 · Предполагаемые элементы кода
+
+Это пример структуры, а не уже существующая реализация.
+
+\`\`\`mermaid
+flowchart LR
+    Route[spaces route] --> Service[SpaceService]
+    Service --> Adapter[OccupancyAdapter]
+    Service --> Models[Модели Space и Error]
+\`\`\`
+`;
   const openapi = `openapi: 3.0.3\ninfo:\n  title: Quiet Campus API\n  version: 0.1.0\n  description: Демонстрационный контракт; источник данных не подтверждён.\nservers:\n  - url: /api\npaths:\n  /spaces:\n    get:\n      summary: Список пространств\n      parameters:\n        - in: query\n          name: building\n          schema: { type: string }\n          description: Идентификатор корпуса.\n        - in: query\n          name: available\n          schema: { type: boolean }\n          description: При true только пространства со статусом available.\n      responses:\n        '200':\n          description: Список найденных пространств\n          content:\n            application/json:\n              schema:\n                type: object\n                required: [items]\n                properties:\n                  items:\n                    type: array\n                    items: { $ref: '#/components/schemas/Space' }\n        '400':\n          $ref: '#/components/responses/BadRequest'\n        '503':\n          $ref: '#/components/responses/Unavailable'\n  /spaces/{id}:\n    get:\n      summary: Карточка пространства\n      parameters:\n        - in: path\n          name: id\n          required: true\n          schema: { type: string }\n      responses:\n        '200':\n          description: Пространство найдено\n          content:\n            application/json:\n              schema: { $ref: '#/components/schemas/Space' }\n        '404':\n          description: Пространство не найдено\n          content:\n            application/json:\n              schema: { $ref: '#/components/schemas/Error' }\n        '503':\n          $ref: '#/components/responses/Unavailable'\ncomponents:\n  schemas:\n    Space:\n      type: object\n      required: [id, name, building, capacity, status, updatedAt, source]\n      properties:\n        id: { type: string, example: library-1 }\n        name: { type: string, example: Библиотека }\n        building: { type: string, example: main }\n        capacity: { type: integer, minimum: 1, example: 20 }\n        availableSeats: { type: integer, nullable: true, minimum: 0, example: 8 }\n        status: { type: string, enum: [available, limited, full, unknown] }\n        updatedAt: { type: string, format: date-time, nullable: true }\n        source: { type: string, enum: [api, demo] }\n        hasPower: { type: boolean, nullable: true }\n        accessibility: { type: string, nullable: true }\n    Error:\n      type: object\n      required: [code, message]\n      properties:\n        code: { type: string, example: NOT_FOUND }\n        message: { type: string, example: Пространство не найдено }\n  responses:\n    BadRequest:\n      description: Некорректный параметр фильтра\n      content:\n        application/json:\n          schema: { $ref: '#/components/schemas/Error' }\n    Unavailable:\n      description: Источник данных недоступен и резерв отсутствует\n      content:\n        application/json:\n          schema: { $ref: '#/components/schemas/Error' }\n`;
   const testRows = [
     ['Каталог','Unit','Нормализация CSV','Поля валидны; некорректная запись не ломает список'],
@@ -98,15 +161,15 @@
   function validationView(){return ''}
   const views=[architecture,contracts,testing,decomposition,validationView];
   const planner=window.createPlanningSystem({files,arch,openapi,tasks,testRows,testLinks,esc,code});
-  window.makoraStage3={getContext:()=>({openapi,tasks,testLinks,readiness:planner.getReadiness(),approval:planner.getState()}),returnToPlanning:()=>next.click()};
+  window.makoraStage3={getContext:()=>({openapi,tasks,testLinks,readiness:planner.getReadiness(),approval:planner.getState()}),returnToPlanning:()=>next.click(),openDiagram:(source,opener)=>openDiagram('architecture',source,opener)};
   function nav(){const list=document.querySelector('#doc-content');list.innerHTML='';files.forEach((f,i)=>{const b=document.createElement('button');b.type='button';b.className='doc-row'+(i===selectedStep?' active':'');b.setAttribute('aria-current',i===selectedStep?'true':'false');b.innerHTML=`<span>${String(i+1).padStart(2,'0')}</span><strong>${esc(f.title)}</strong><small class="nav-review">${esc(planner.status(i))}</small><b>↗</b>`;b.onclick=()=>showPlan(i);list.append(b)});}
   function showPlan(i){selectedStep=i;const f=files[i];document.querySelector('#document-name').textContent=f.name;download.innerHTML='Скачать файл <span>↓</span>';panel.innerHTML=`<div class="detail-top"><button class="detail-back back-button" id="back-stage2">← К разработке идеи</button><span class="detail-label">ЭТАП 03 / 06</span></div><article class="markdown-document plan-document"><div class="md-fileline"><span class="md-file-icon">${i===1?'Y':i===3?'{}':'M↓'}</span><span>${esc(f.name)}</span><span class="md-file-state">ДЕМО</span></div><div class="detail-body"><div class="detail-index">ШАГ ${String(i+1).padStart(2,'0')} <span>/ 05</span></div><h2 class="plan-title">${esc(f.title)}</h2>${views[i]()}<div id="planning-controls"></div><div class="source-note"><span>ⓘ</span><p>Демонстрационный план для вымышленного кейса «Тихий кампус». Доступы и технические решения требуют проверки.</p></div></div></article>`;document.querySelector('#back-stage2').onclick=backToStage2;nav();planner.mount(i,showPlan);if(i===0){renderMermaid();document.querySelector('#diagram-expand').onclick=()=>openDiagram('architecture');}if(i===3){bindTasks();renderTaskDiagram();document.querySelector('#task-diagram-expand').onclick=()=>openDiagram('tasks')}}
-  function openDiagram(kind){
+  function openDiagram(kind,source,sourceOpener){
     const isTasks=kind==='tasks';
-    const diagramRoot=document.querySelector(isTasks?'#task-diagram':'#mermaid-diagram');
+    const diagramRoot=source||document.querySelector(isTasks?'#task-diagram':'#mermaid-diagram');
     const originalGraphic=diagramRoot?.querySelector('svg')||diagramRoot?.querySelector('.task-flow-fallback');
     if(!originalGraphic)return;
-    const opener=document.querySelector(isTasks?'#task-diagram-expand':'#diagram-expand');
+    const opener=sourceOpener||document.querySelector(isTasks?'#task-diagram-expand':'#diagram-expand');
     const dialog=document.createElement('dialog');
     dialog.className='diagram-dialog';
     dialog.style.cssText='position:fixed;inset:0;width:100vw;height:100dvh;max-width:none;max-height:none;margin:0;padding:0;border:0;box-sizing:border-box;overflow:hidden;background:#0d0d0d;color:#eee';
