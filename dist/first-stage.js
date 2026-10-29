@@ -121,13 +121,6 @@
   async function openBoardStage(number) {
     if (stageSwitchInProgress) return;
     stageMessage.hidden = true;
-    if (number === 4 && !window.makoraStage3?.getContext().readiness.ready) {
-      await openBoardStage(3);
-      showPlanningStep(4);
-      stageMessage.textContent = 'Для перехода к мок-данным утвердите шаги плана и завершите валидацию.';
-      stageMessage.hidden = false;
-      return;
-    }
     stageSwitchInProgress = true;
     try {
       if (number === 1) {
@@ -143,7 +136,7 @@
           document.querySelector('#download').onclick = stageDownloads.main;
           document.querySelector('#download-concept').onclick = stageDownloads.concept;
         } else if (number === 3) { stage3DetailOpen = false; document.querySelector('#next-stage-3').click(); }
-        else if (number === 4) { stage4DetailOpen = false; await window.openMockStage(); }
+        else if (number === 4) { stage4DetailOpen = false; await window.openMockStage({preview:true}); }
         content.scrollTop = 0;
       }
       syncBoardStage();
