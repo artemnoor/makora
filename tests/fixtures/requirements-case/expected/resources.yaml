@@ -1,0 +1,7 @@
+resources:
+  - name: Тестовый API
+    address: null
+    source: brief.txt, абзац 8
+    status: confirmed
+    availability: not_checked
+    note: Адрес обещан отдельно, доступность и условия неизвестны.

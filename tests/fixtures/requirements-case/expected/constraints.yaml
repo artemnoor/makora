@@ -1,0 +1,5 @@
+constraints: []
+prohibitions:
+  - description: Не собирать персональные данные посетителей.
+    source: brief.txt, абзац 6
+    status: confirmed

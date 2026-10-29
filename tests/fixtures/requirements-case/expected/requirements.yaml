@@ -1,0 +1,30 @@
+mandatory:
+  - id: REQ-001
+    title: Список учреждений
+    description: Показывать список учреждений с признаками доступности входа.
+    source:
+      document: brief.txt
+      locator: абзац 3
+      quote: Прототип должен показывать список учреждений с признаками доступности входа.
+    verification: В демонстрации список содержит признак доступности входа.
+    status: confirmed
+  - id: REQ-002
+    title: Фильтр по району
+    description: Позволять фильтровать список по району.
+    source:
+      document: brief.txt
+      locator: абзац 4
+      quote: Прототип должен позволять фильтровать список по району.
+    verification: При выборе района список фильтруется.
+    status: confirmed
+optional:
+  - id: REQ-003
+    title: Время обновления
+    description: Показывать время последнего обновления записи.
+    source:
+      document: brief.txt
+      locator: абзац 5
+      quote: Приветствуется отображение времени последнего обновления записи.
+    verification: Проверить отображение времени в записи.
+    status: confirmed
+unspecified: []
