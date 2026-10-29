@@ -1,0 +1,8 @@
+{
+  "iteration_id": "it-001",
+  "base_revision": "rev-001",
+  "accepted_change_ids": ["MAP-01", "FLOW-01", "MOCK-01"],
+  "documents_to_update": ["02_solution_concept.md", "02_user_flow.mmd", "03_contracts/openapi.yaml", "03_test_plan.md", "mocks/scenarios.json"],
+  "decisions": ["API-MAP отклонён; требуется разрешить конфликт с FLOW-01"],
+  "unresolved_conflicts": [{"change_id": "FLOW-01", "requires": "API-MAP"}]
+}

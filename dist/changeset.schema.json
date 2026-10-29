@@ -1,0 +1,29 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://makora.local/schemas/changeset.schema.json",
+  "title": "Makora returned-project changeset",
+  "type": "object",
+  "required": ["base_revision", "changes"],
+  "properties": {
+    "base_revision": {"type": "string", "minLength": 1},
+    "changes": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["id", "operation", "path", "reason"],
+        "properties": {
+          "id": {"type": "string", "minLength": 1},
+          "operation": {"enum": ["add", "modify", "delete", "rename"]},
+          "path": {"type": "string", "minLength": 1},
+          "source_artifact": {"type": "string"},
+          "proposal_path": {"type": "string"},
+          "reason": {"type": "string", "minLength": 1},
+          "related_ids": {"type": "array", "items": {"type": "string"}},
+          "requires": {"type": "array", "items": {"type": "string"}}
+        },
+        "additionalProperties": true
+      }
+    }
+  },
+  "additionalProperties": true
+}

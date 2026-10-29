@@ -1,0 +1,18 @@
+{
+  "base_revision": "rev-001",
+  "returned_files": [
+    "src/map.js",
+    "proposals/02/02_user_flow.mmd",
+    "proposals/03/03_contracts/openapi.yaml",
+    "new_mocks/fixtures/places.json"
+  ],
+  "changeset": {
+    "base_revision": "rev-001",
+    "changes": [
+      {"id": "MAP-01", "operation": "add", "path": "src/map.js", "reason": "Показать места на карте", "related_ids": ["FEAT-MAP"]},
+      {"id": "FLOW-01", "operation": "modify", "path": "proposals/02/02_user_flow.mmd", "reason": "Добавить переход к карте", "requires": ["API-MAP"]},
+      {"id": "API-MAP", "operation": "modify", "path": "proposals/03/03_contracts/openapi.yaml", "reason": "Добавить координаты учреждения"}
+    ]
+  },
+  "decisions": {"MAP-01": "accept", "FLOW-01": "accept", "API-MAP": "reject", "MOCK-01": "accept"}
+}

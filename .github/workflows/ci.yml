@@ -42,7 +42,7 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          python -m http.server 8000 --directory dist --bind 127.0.0.1 > /tmp/makora-http.log 2>&1 &
+          python -m makora_core.server --static dist --workspace "$RUNNER_TEMP/makora-workspace" --host 127.0.0.1 --port 8000 > /tmp/makora-http.log 2>&1 &
           server_pid=$!
           cleanup() {
             npx --yes --package @playwright/cli@0.1.22 playwright-cli -s=makora-ci close || true

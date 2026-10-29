@@ -12,14 +12,14 @@ async page => {
   await page.waitForFunction(()=>!document.querySelector('[data-example-download]').disabled);
   const prompt=await page.locator('#prototype-prompt').inputValue();
   assert(prompt.includes('Доступный город') && prompt.includes('new_mocks/'), 'Не загружен промпт кейса');
-  for(const term of ['mocks/fixtures/','не подменяй','ошибки источника','prototype-report.json','passed','failed','not_run','не блокирует']) assert(prompt.includes(term), 'В промпте кейса отсутствует '+term);
+  for(const term of ['mocks/fixtures/','не подменяй','ошибки источника','prototype-report.json','passed','failed','not_run','changeset.json','changeset.schema.json','base_revision','не блокирует']) assert(prompt.includes(term), 'В промпте кейса отсутствует '+term);
   await page.evaluate(()=>{const original=fflate.zipSync;fflate.zipSync=(files,...args)=>{window.__exampleFiles=files;return original(files,...args)}});
   const event=page.waitForEvent('download');
   await page.locator('[data-example-download]').click();
   const zip=await event;
   assert(zip.suggestedFilename()==='dostupny-gorod-test-case.zip', 'Не скачан архив кейса');
   const files=await page.evaluate(()=>Object.keys(window.__exampleFiles));
-  for(const name of ['PROMPT.md','01_case_analysis.md','02_user_flow.mmd','02_task_flow.mmd','03_architecture.md','03_contracts/openapi.yaml','03_test_plan.md','03_tasks.json','04_mock_data.md','mocks/validate.py','mocks/schemas/place.schema.json','mocks/fixtures/places.json','mocks/fixtures/empty.json','mocks/fixtures/invalid.json','mocks/fixtures/error.json']) assert(files.includes(name),'Нет файла '+name);
+  for(const name of ['PROMPT.md','context-status.json','changeset.schema.json','01_case_analysis.md','02_user_flow.mmd','02_task_flow.mmd','03_architecture.md','03_contracts/openapi.yaml','03_test_plan.md','03_tasks.json','04_mock_data.md','mocks/validate.py','mocks/schemas/place.schema.json','mocks/fixtures/places.json','mocks/fixtures/empty.json','mocks/fixtures/invalid.json','mocks/fixtures/error.json']) assert(files.includes(name),'Нет файла '+name);
   assert(await page.evaluate(()=>JSON.parse(fflate.strFromU8(window.__exampleFiles['mocks/fixtures/places.json'])).length===8), 'В архиве нет набора данных');
   await page.locator('[data-example-sent]').click();
   assert((await page.locator('.prototype-dialog').innerText()).includes('ОЖИДАЮ РЕЗУЛЬТАТ'), 'Кейс не перешёл в ожидание');

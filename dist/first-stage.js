@@ -96,7 +96,36 @@
   const boardTitles = ['Анализ задания','Разработка идеи','Планирование разработки','Подготовка мок-данных','Разработка'];
   const stageMessage = root.querySelector('.board-stage-message');
   let boardStage = 1, stageSwitchInProgress = false, stage3DetailOpen = false, stage4DetailOpen = false;
+  const boardBar=root.querySelector('.board-bar'),expandButton=boardBar.querySelector('.board-expand');
+  const boardActions=document.createElement('div');boardActions.className='board-actions';
+  const versionButton=document.createElement('button');versionButton.type='button';versionButton.className='board-version';versionButton.textContent='Файлы версии';
+  expandButton.replaceWith(boardActions);boardActions.append(versionButton,expandButton);
+  let versionDocuments=null;
+  function showVersionFiles(){
+    const data=versionDocuments;if(!data)return;
+    content.innerHTML=`<div class="revision-nav"><button type="button" data-version-exit>← К этапу</button><span>${esc(data.revision_id)}</span></div><div class="revision-list">${data.documents.length?data.documents.map((file,i)=>`<button type="button" data-version-file="${i}"><span>${esc(file.path)}</span><span>↗</span></button>`).join(''):'<p>Для этого этапа в текущей версии нет текстовых файлов.</p>'}</div>${data.omitted.length?`<p class="revision-note">Часть файлов не показана из-за размера или формата: ${esc(data.omitted.join(', '))}</p>`:''}`;
+    content.scrollTop=0;
+  }
+  versionButton.onclick=async()=>{
+    const requestedStage=stage;
+    try{
+      const data=await prototypeHandoff.currentDocuments(requestedStage);
+      if(stage!==requestedStage)return;
+      versionDocuments=data;stageMessage.hidden=true;
+      if(workspace.parentElement===content)workspaceHome.append(workspace);
+      board.classList.remove('workspace-board','plan-index-board','idea-board');board.classList.add('revision-view');
+      showVersionFiles();
+    }catch(error){stageMessage.textContent=error.message||'Не удалось открыть файлы версии.';stageMessage.hidden=false;}
+  };
+  content.addEventListener('click',event=>{
+    if(!board.classList.contains('revision-view'))return;
+    const fileButton=event.target.closest('[data-version-file]');
+    if(fileButton){const file=versionDocuments?.documents[Number(fileButton.dataset.versionFile)];if(!file)return;const body=/\.md$/i.test(file.path)?render(file.content):`<pre class="case-source">${esc(file.content)}</pre>`;content.innerHTML=`<div class="revision-nav"><button type="button" data-version-list>← Все файлы</button><span>${esc(versionDocuments.revision_id)}</span></div><div class="board-document"><div class="board-doc-number">${esc(file.path)}</div>${body}</div>`;content.scrollTop=0;return;}
+    if(event.target.closest('[data-version-list]'))showVersionFiles();
+    if(event.target.closest('[data-version-exit]')){board.classList.remove('revision-view');openBoardStage(boardStage);}
+  });
   function syncBoardStage() {
+    board.classList.remove('revision-view');
     if (stage === 4 && boardStage !== 4) { stage4DetailOpen = false; stage3DetailOpen = false; }
     boardStage = stage;
     const working = stage > 4 || (stage === 4 && stage4DetailOpen) || (stage === 3 && stage3DetailOpen);

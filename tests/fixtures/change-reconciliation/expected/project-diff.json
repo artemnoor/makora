@@ -1,0 +1,11 @@
+{
+  "base_revision": "rev-001",
+  "changes": [
+    {"path": "src/map.js", "operation": "add", "decision": "accepted", "sha256": "example-only"},
+    {"path": "proposals/02/02_user_flow.mmd", "operation": "modify", "decision": "accepted", "sha256": "example-only"},
+    {"path": "proposals/03/03_contracts/openapi.yaml", "operation": "modify", "decision": "rejected", "sha256": "example-only"},
+    {"path": "new_mocks/fixtures/places.json", "operation": "add", "decision": "accepted", "sha256": "example-only"}
+  ],
+  "changeset": {"present": true, "valid": true, "undeclared": ["new_mocks/fixtures/places.json"], "declared_missing": []},
+  "checks": [{"id": "archive_safety", "status": "passed"}, {"id": "external_code", "status": "not_checked"}]
+}

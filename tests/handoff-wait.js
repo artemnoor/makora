@@ -11,6 +11,7 @@ async page => {
   await download;
   assert((await page.locator('.prototype-feedback').innerText()).includes('черновик'), 'Не показан статус черновика');
   await page.locator('[data-sent]').click();
+  await page.locator('.prototype-waiting').waitFor({state:'visible'});
   assert((await page.locator('.prototype-dialog').innerText()).includes('ОЖИДАЮ РЕЗУЛЬТАТ'), 'Ожидание не началось');
   await page.reload();
   await page.locator('#first-text').fill('Учебное условие');

@@ -3,6 +3,8 @@
   "files": [
     "README.md",
     "PROMPT.md",
+    "context-status.json",
+    "changeset.schema.json",
     "01_case_analysis.md",
     "02_solution_concept.md",
     "02_user_flow.mmd",

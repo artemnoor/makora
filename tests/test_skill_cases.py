@@ -32,6 +32,7 @@ class SkillCaseTests(unittest.TestCase):
             'development-planning': {'test-plan.md', 'tasks.yaml', 'plan-validation.md'},
             'mock-environment': {'data-requirements.md', 'scenarios.yaml', 'mock-validation.md', 'fixtures/places.json', 'fixtures/empty.json', 'fixtures/invalid.json', 'mock-server/README.md'},
             'prototype-handoff': {'prototype-prompt.md', 'prototype-context.zip', 'handoff-status.json', 'mock-change-questions.md', 'mock-adaptation-report.md'},
+            'change-reconciliation': {'project-diff.json', 'impact-map.json', 'adaptation-context.json', 'adaptation-report.json', 'changeset.schema.json'},
         }
         for skill, filenames in outputs.items():
             with self.subTest(skill=skill):
@@ -49,7 +50,8 @@ class SkillCaseTests(unittest.TestCase):
                     if path.suffix == '.yaml':
                         self.assertIsNotNone(read_yaml(path))
                     elif path.suffix == '.json':
-                        json.loads(path.read_text(encoding='utf-8'))
+                        value=json.loads(path.read_text(encoding='utf-8'))
+                        if name == 'changeset.schema.json': jsonschema.Draft202012Validator.check_schema(value)
                     elif path.suffix == '.mmd':
                         self.assertTrue(path.read_text(encoding='utf-8').lstrip().startswith('flowchart '))
 

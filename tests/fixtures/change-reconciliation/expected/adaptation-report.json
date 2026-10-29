@@ -1,0 +1,9 @@
+{
+  "iteration_id": "it-001",
+  "base_revision": "rev-001",
+  "updated_documents": [{"path": "02_user_flow.mmd", "change_reason": "Добавлен переход к карте", "related_ids": ["FEAT-MAP"]}],
+  "checks": [{"id": "flow-syntax", "status": "passed", "detail": "Синтаксис схемы проверен."}, {"id": "api-compatibility", "status": "not_run", "detail": "API предложение отклонено."}],
+  "unresolved_questions": ["Нужно ли вернуть API-MAP на доработку?"],
+  "assumptions": [],
+  "known_limitations": ["Смысловая совместимость не проверялась моделью."]
+}

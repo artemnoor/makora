@@ -1,0 +1,6 @@
+{
+  "edges": [{"from": "REQ-01", "to": "FEAT-MAP", "basis": "registered"}, {"from": "FEAT-MAP", "to": "FLOW-01", "basis": "registered"}],
+  "impacted_artifacts": ["02_user_flow.mmd", "03_contracts/openapi.yaml", "03_test_plan.md", "mocks/fixtures/places.json"],
+  "independent_approved_artifacts": ["01_case_analysis.md"],
+  "basis": "mixed"
+}

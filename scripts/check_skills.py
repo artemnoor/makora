@@ -14,6 +14,7 @@ CONTRACTS = {
     'development-planning': (('требован', 'контракт'), ('test-plan.md', 'tasks.yaml', 'plan-validation.md')),
     'mock-environment': (('контракт', 'тест-план'), ('data-requirements.md', 'fixtures/', 'scenarios.yaml', 'mock-server/', 'mock-validation.md')),
     'prototype-handoff': (('контракт', 'мок'), ('prototype-prompt.md', 'prototype-context.zip', 'handoff-status.json', 'mock-change-questions.md', 'mock-adaptation-report.md')),
+    'change-reconciliation': (('ревиз', 'возвращён'), ('project-diff.json', 'impact-map.json', 'adaptation-context.json', 'adaptation-report.json', 'changeset.schema.json')),
 }
 
 
