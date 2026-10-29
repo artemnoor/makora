@@ -115,8 +115,8 @@
     root.querySelector('.board-heading span:last-child').textContent = stage === 1 ? '01_CASE_ANALYSIS.MD' : 'РАБОЧЕЕ ПРОСТРАНСТВО';
     root.querySelector('.scene-bottom > p').textContent = working ? 'Схемы, документы и проверки доступны внутри доски.' : 'Демо-анализ: показан пример, файл не анализируется.';
     const next = root.querySelector('.board-next');
-    next.hidden = stage >= 4;
-    next.innerHTML = (stage === 1 ? 'Далее' : stage === 2 ? 'К планированию' : 'К мок-данным') + ' <span>→</span>';
+    next.hidden = stage === 2 || stage >= 4;
+    next.innerHTML = (stage === 1 ? 'Далее' : 'К мок-данным') + ' <span>→</span>';
   }
   async function openBoardStage(number) {
     if (stageSwitchInProgress) return;
