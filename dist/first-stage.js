@@ -96,7 +96,8 @@
   let boardStage = 1, stageSwitchInProgress = false;
   function syncBoardStage() {
     boardStage = stage;
-    const working = stage > 1;
+    const working = stage > 2;
+    board.classList.toggle('idea-board', stage === 2);
     root.querySelector('.board-footer span:last-child').textContent = String(stage).padStart(2,'0') + ' / 06';
     board.classList.toggle('workspace-board', working);
     root.querySelectorAll('[data-board-stage]').forEach(button => {
@@ -105,6 +106,7 @@
       if (active) button.setAttribute('aria-current','step'); else button.removeAttribute('aria-current');
     });
     root.querySelector('.board-bar h2').textContent = boardTitles[stage-1] || 'Рабочее пространство';
+    if (stage === 2 && workspace.parentElement === content) { workspaceHome.append(workspace); showIdeaHome(); }
     root.querySelector('.board-heading span:first-child').textContent = String(stage).padStart(2,'0') + ' / ' + (boardTitles[stage-1] || 'РАЗРАБОТКА').toUpperCase();
     root.querySelector('.board-heading span:last-child').textContent = stage === 1 ? '01_CASE_ANALYSIS.MD' : 'РАБОЧЕЕ ПРОСТРАНСТВО';
     root.querySelector('.scene-bottom > p').textContent = working ? 'Схемы, документы и проверки доступны внутри доски.' : 'Демо-анализ: показан пример, файл не анализируется.';
@@ -149,6 +151,37 @@
   });
   new MutationObserver(() => { if (root.isConnected && root.classList.contains('departing')) syncBoardStage(); }).observe(document.querySelector('.page-heading'), {childList:true,subtree:true});
 
+  let ideaGroup = null;
+  const ideaGroups = {
+    research:{title:'Исследование', file:'02_research.md', docs:researchBlocks},
+    solution:{title:'Решение', file:'02_solution_concept.md', docs:conceptBlocks}
+  };
+  function showIdeaHome() {
+    ideaGroup = null;
+    content.innerHTML = `<div class="idea-groups"><button type="button" data-idea-group="research"><span class="idea-card-number">01 / 02</span><strong>Исследование</strong><span class="idea-card-caption">5 разделов</span><span class="idea-card-arrow">↗</span></button><button type="button" data-idea-group="solution"><span class="idea-card-number">02 / 02</span><strong>Решение</strong><span class="idea-card-caption">9 разделов</span><span class="idea-card-arrow">↗</span></button></div>`;
+    content.scrollTop = 0;
+  }
+  function showIdeaGroup(group) {
+    ideaGroup = group;
+    const item = ideaGroups[group];
+    content.innerHTML = `<div class="idea-breadcrumb"><button type="button" class="board-back" data-idea-home>← Исследование и решение</button><span>${item.file}</span></div><h3 class="idea-group-title">${item.title}</h3><div class="idea-sections">${item.docs.map((doc,i)=>`<button type="button" data-idea-item="${i}"><span>${String(i+1).padStart(2,'0')}</span><strong>${esc(doc.title)}</strong><span>↗</span></button>`).join('')}</div><button type="button" class="idea-export" data-idea-export>Скачать ${item.file} ↓</button>`;
+    content.scrollTop = 0;
+  }
+  function showIdeaDocument(index) {
+    const item = ideaGroups[ideaGroup], doc = item?.docs[index];
+    if (!doc) return;
+    content.innerHTML = `<div class="idea-breadcrumb"><button type="button" class="board-back" data-idea-back>← ${item.title}</button><button type="button" class="board-back" data-idea-home>Все части</button></div><div class="board-document"><div class="board-doc-number">${String(index+1).padStart(2,'0')} / ${String(item.docs.length).padStart(2,'0')} · ${item.file}</div>${render(doc.md)}</div>`;
+    content.scrollTop = 0;
+  }
+  content.addEventListener('click', e => {
+    if (stage !== 2) return;
+    const group = e.target.closest('[data-idea-group]'), item = e.target.closest('[data-idea-item]');
+    if (group) showIdeaGroup(group.dataset.ideaGroup);
+    else if (item) showIdeaDocument(Number(item.dataset.ideaItem));
+    else if (e.target.closest('[data-idea-home]')) showIdeaHome();
+    else if (e.target.closest('[data-idea-back]')) showIdeaGroup(ideaGroup);
+    else if (e.target.closest('[data-idea-export]')) exportMarkdown(ideaGroups[ideaGroup].file, ideaGroups[ideaGroup].docs);
+  });
   function showIndex() {
     content.innerHTML = '<div class="board-intro">ВЫБЕРИ РАЗДЕЛ, ЧТОБЫ ОТКРЫТЬ ЕГО</div><div class="board-list">' + oneTitles.map((title,i) => `<button type="button" data-section="${i}" title="${esc(title)}"><span class="board-number">${String(i+1).padStart(2,'0')}</span><span>${title}</span><span class="board-arrow">↗</span></button>`).join('') + '</div>';
   }
@@ -156,7 +189,7 @@
     content.innerHTML = `<button type="button" class="board-back">← Все разделы</button><div class="board-document"><div class="board-doc-number">${String(i+1).padStart(2,'0')} / 10</div>${render(one[i])}</div>`;
     content.scrollTop = 0;
   }
-  content.addEventListener('click', e => { const section=e.target.closest('[data-section]'); if(section) showSection(Number(section.dataset.section)); if(e.target.closest('.board-back')) showIndex(); });
+  content.addEventListener('click', e => { const section=e.target.closest('[data-section]'); if(section) showSection(Number(section.dataset.section)); if(stage===1 && e.target.closest('.board-back')) showIndex(); });
   function updateFullscreen(expanded) {
     if (expanded) settleBoard();
     board.classList.toggle('expanded', expanded);
