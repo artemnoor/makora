@@ -6,7 +6,7 @@
   <div class="first-intro"><div class="mascot-area" tabindex="0" role="img" aria-label="Макора. Перетащите мышью или перемещайте стрелками." title="Перетащить Макору"><iframe class="mascot-frame" src="mascot.html" title="Персонаж Макоры" tabindex="-1"></iframe></div>
   <form class="first-form"><div class="speech-label">ПЕРВЫЙ ШАГ <span>01 / 06</span></div><h1>Привет!<br>Разберём задание?</h1><p>Пришли условие хакатона — соберём всё важное в одном месте.</p>
   <label class="pixel-drop"><input type="file" accept=".pdf,.doc,.docx,.txt,.md" class="sr-only"><span class="pixel-plus" aria-hidden="true"><svg viewBox="0 0 24 24" width="28" height="28" shape-rendering="crispEdges"><path fill="currentColor" d="M2 5h8v2h12v14H2zm2 4v10h16V9z"/><path fill="currentColor" d="M11 11h2v2h2v2h-2v2h-2v-2H9v-2h2z"/></svg></span><strong class="file-label">Выбрать файл</strong><small>или перетащить сюда<br>PDF, DOCX, TXT, MD · до 20 МБ</small></label><div class="or-line"><span>ИЛИ ВСТАВЬ ТЕКСТ</span></div><label class="sr-only" for="first-text">Текст задания</label><textarea id="first-text" placeholder="Вставь условие задания сюда…"></textarea><p class="first-error" role="alert" hidden></p><button class="pixel-start" type="submit" disabled>Начать анализ <span aria-hidden="true">▶</span></button><p class="first-disclaimer">Демо: загрузка и анализ имитируются.</p></form></div>
-  <div class="board-scene" hidden><div class="board-heading"><span>01 / АНАЛИЗ ЗАДАНИЯ</span><span>01_CASE_ANALYSIS.MD</span></div><div class="board-stage"><div class="board-mascot" aria-hidden="true"></div><div class="board" aria-label="Доска анализа задания"><div class="board-sprite"><img class="board-shadow-art" src="analysis-board.png" alt="" draggable="false"><img class="board-art" src="analysis-board.png" alt="" draggable="false"></div><div class="board-inner"><div class="board-bar"><div><span class="board-kicker">ДЕМО-КЕЙС / ТИХИЙ КАМПУС</span><h2>Анализ задания<span>.</span></h2></div><button type="button" class="board-expand" aria-label="Развернуть доску" title="Развернуть доску">⛶</button></div><div class="board-content"></div><div class="board-footer"><span>ТЯНИ ЗА РАМКУ · ДВОЙНОЙ КЛИК — НА ВЕСЬ ЭКРАН</span><span>01 / 06</span></div></div></div></div><div class="scene-bottom"><p>Демо-анализ: показан пример, файл не анализируется.</p><button type="button" class="board-next">Далее <span>→</span></button></div></div>`;
+  <div class="board-scene" hidden><div class="board-heading"><span>01 / АНАЛИЗ ЗАДАНИЯ</span><span>01_CASE_ANALYSIS.MD</span></div><div class="board-stage"><div class="board-mascot" aria-hidden="true"></div><div class="board" aria-label="Доска рабочего пространства"><nav class="board-stages" aria-label="Этапы проекта"><button type="button" data-board-stage="1">01 <span>Анализ</span></button><button type="button" data-board-stage="2">02 <span>Идея</span></button><button type="button" data-board-stage="3">03 <span>План</span></button><button type="button" data-board-stage="4">04 <span>Мок-данные</span></button></nav><div class="board-stage-message" role="status" hidden></div><div class="board-sprite"><img class="board-shadow-art" src="analysis-board.png" alt="" draggable="false"><img class="board-art" src="analysis-board.png" alt="" draggable="false"></div><div class="board-inner"><div class="board-bar"><div><span class="board-kicker">ДЕМО-КЕЙС / ТИХИЙ КАМПУС</span><h2>Анализ задания<span>.</span></h2></div><button type="button" class="board-expand" aria-label="Развернуть доску" title="Развернуть доску">⛶</button></div><div class="board-content"></div><div class="board-footer"><span>ТЯНИ ЗА РАМКУ · ДВОЙНОЙ КЛИК — НА ВЕСЬ ЭКРАН</span><span>01 / 06</span></div></div></div></div><div class="scene-bottom"><p>Демо-анализ: показан пример, файл не анализируется.</p><button type="button" class="board-next">Далее <span>→</span></button></div></div>`;
   document.body.append(root);
   document.body.classList.add('first-stage-active');
   const underneath = document.querySelectorAll('body > header, body > main');
@@ -88,6 +88,67 @@
   });
 
   const board = root.querySelector('.board'), content = root.querySelector('.board-content');
+  const workspace = document.querySelector('body > main .layout');
+  const workspaceHome = workspace.parentElement;
+  const stageDownloads = {main:document.querySelector('#download').onclick, concept:document.querySelector('#download-concept').onclick};
+  const boardTitles = ['Анализ задания','Разработка идеи','Планирование разработки','Подготовка мок-данных','Разработка'];
+  const stageMessage = root.querySelector('.board-stage-message');
+  let boardStage = 1, stageSwitchInProgress = false;
+  function syncBoardStage() {
+    boardStage = stage;
+    const working = stage > 1;
+    root.querySelector('.board-footer span:last-child').textContent = String(stage).padStart(2,'0') + ' / 06';
+    board.classList.toggle('workspace-board', working);
+    root.querySelectorAll('[data-board-stage]').forEach(button => {
+      const active = Number(button.dataset.boardStage) === stage;
+      button.classList.toggle('active', active);
+      if (active) button.setAttribute('aria-current','step'); else button.removeAttribute('aria-current');
+    });
+    root.querySelector('.board-bar h2').textContent = boardTitles[stage-1] || 'Рабочее пространство';
+    root.querySelector('.board-heading span:first-child').textContent = String(stage).padStart(2,'0') + ' / ' + (boardTitles[stage-1] || 'РАЗРАБОТКА').toUpperCase();
+    root.querySelector('.board-heading span:last-child').textContent = stage === 1 ? '01_CASE_ANALYSIS.MD' : 'РАБОЧЕЕ ПРОСТРАНСТВО';
+    root.querySelector('.scene-bottom > p').textContent = working ? 'Схемы, документы и проверки доступны внутри доски.' : 'Демо-анализ: показан пример, файл не анализируется.';
+    const next = root.querySelector('.board-next');
+    next.hidden = stage >= 4;
+    next.innerHTML = (stage === 1 ? 'Далее' : stage === 2 ? 'К планированию' : 'К мок-данным') + ' <span>→</span>';
+  }
+  async function openBoardStage(number) {
+    if (stageSwitchInProgress) return;
+    stageMessage.hidden = true;
+    if (number === 4 && !window.makoraStage3?.getContext().readiness.ready) {
+      await openBoardStage(3);
+      document.querySelectorAll('#doc-content .doc-row')[4]?.click();
+      stageMessage.textContent = 'Для перехода к мок-данным утвердите шаги плана и завершите валидацию.';
+      stageMessage.hidden = false;
+      return;
+    }
+    stageSwitchInProgress = true;
+    try {
+      if (number === 1) {
+        workspaceHome.append(workspace);
+        stage = 1;
+        showIndex();
+      } else {
+        content.replaceChildren(workspace);
+        document.querySelector('#empty').hidden = true;
+        if (number < 4) document.querySelector('#stage4-files')?.remove();
+        if (number === 2) {
+          document.querySelector('#next-stage').click();
+          document.querySelector('#download').onclick = stageDownloads.main;
+          document.querySelector('#download-concept').onclick = stageDownloads.concept;
+        } else if (number === 3) document.querySelector('#next-stage-3').click();
+        else if (number === 4) await window.openMockStage();
+        content.scrollTop = 0;
+      }
+      syncBoardStage();
+    } finally { stageSwitchInProgress = false; }
+  }
+  root.querySelector('.board-stages').addEventListener('click', e => {
+    const button = e.target.closest('[data-board-stage]');
+    if (button) openBoardStage(Number(button.dataset.boardStage));
+  });
+  new MutationObserver(() => { if (root.isConnected && root.classList.contains('departing')) syncBoardStage(); }).observe(document.querySelector('.page-heading'), {childList:true,subtree:true});
+
   function showIndex() {
     content.innerHTML = '<div class="board-intro">ВЫБЕРИ РАЗДЕЛ, ЧТОБЫ ОТКРЫТЬ ЕГО</div><div class="board-list">' + oneTitles.map((title,i) => `<button type="button" data-section="${i}" title="${esc(title)}"><span class="board-number">${String(i+1).padStart(2,'0')}</span><span>${title}</span><span class="board-arrow">↗</span></button>`).join('') + '</div>';
   }
@@ -214,9 +275,10 @@
     root.classList.add('departing');
     root.querySelector('.board-scene').hidden = false;
     showIndex();
+    syncBoardStage();
     placeBoard(initial);
     requestAnimationFrame(() => requestAnimationFrame(() => root.classList.add('board-visible')));
     setTimeout(() => { form.hidden = true; }, 650);
   });
-  root.querySelector('.board-next').addEventListener('click', () => { document.querySelector('#next-stage').click(); underneath.forEach(el => el.inert = false); document.body.classList.remove('first-stage-active'); root.remove(); window.scrollTo(0,0); });
+  root.querySelector('.board-next').addEventListener('click', () => openBoardStage(Math.min(boardStage + 1, 4)));
 })();
