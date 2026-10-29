@@ -84,3 +84,5 @@
 @media(prefers-reduced-motion:reduce){.board-art,.board-shadow-art{animation:none}.board-shadow-art{display:none}.board-stage .board-inner{animation-delay:0s}}
 
 .board-stage .board:not(.expanded) .board-intro{display:none}.board-stage .board:not(.expanded) .board-list{height:100%;grid-template-rows:repeat(5,minmax(0,1fr))}.board-stage .board:not(.expanded) .board-list button{min-height:0;padding:1px 0;font-size:9px}.board-stage .board:not(.expanded) .board-list button>span:nth-child(2){white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+
+.board-stage .board:not(.expanded){transform:rotate(var(--board-tilt,0deg));transform-origin:50% 50%;will-change:left,top,transform}@media(prefers-reduced-motion:reduce){.board-stage .board:not(.expanded){transform:none;will-change:auto}}

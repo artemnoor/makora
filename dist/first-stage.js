@@ -46,6 +46,7 @@
   }
   content.addEventListener('click', e => { const section=e.target.closest('[data-section]'); if(section) showSection(Number(section.dataset.section)); if(e.target.closest('.board-back')) showIndex(); });
   function updateFullscreen(expanded) {
+    if (expanded) settleBoard();
     board.classList.toggle('expanded', expanded);
     const button = root.querySelector('.board-expand');
     button.textContent = expanded ? '×' : '⛶';
@@ -60,11 +61,55 @@
   }
   document.addEventListener('fullscreenchange', () => { if (!document.fullscreenElement) updateFullscreen(false); });
   let dragging = null;
+  const reduceMotion = window.matchMedia('(prefers-reduced-motion: reduce)');
+  const motion = {x:0, y:0, targetX:0, targetY:0, velocityX:0, rotation:0, last:0, frame:0};
   const limit = (n, min, max) => Math.max(min, Math.min(n, Math.max(min, max)));
+  function boardTarget(left, top) {
+    return {x:limit(left, 8, window.innerWidth - board.offsetWidth - 8),
+      y:limit(top, 8, window.innerHeight - Math.min(board.offsetHeight, window.innerHeight - 16) - 8)};
+  }
+  function paintBoard() {
+    board.style.left = motion.x + 'px';
+    board.style.top = motion.y + 'px';
+    board.style.setProperty('--board-tilt', motion.rotation.toFixed(3) + 'deg');
+  }
+  function settleBoard() {
+    cancelAnimationFrame(motion.frame);
+    motion.frame = 0;
+    motion.x = motion.targetX;
+    motion.y = motion.targetY;
+    motion.velocityX = motion.rotation = 0;
+    paintBoard();
+  }
+  function animateBoard(now) {
+    motion.frame = 0;
+    if (!root.isConnected) return;
+    if (reduceMotion.matches || board.classList.contains('expanded')) { settleBoard(); return; }
+    const dt = Math.min(.06, Math.max(0, (now - motion.last) / 1000));
+    motion.last = now;
+    const smooth = 1 - Math.exp(-dt * 11);
+    motion.x += (motion.targetX - motion.x) * smooth;
+    motion.y += (motion.targetY - motion.y) * smooth;
+    const tilt = limit(motion.velocityX * .006, -3, 3);
+    motion.rotation += (tilt - motion.rotation) * (1 - Math.exp(-dt * 7));
+    if (!dragging) {
+      motion.velocityX *= Math.exp(-dt * 7);
+      motion.rotation *= Math.exp(-dt * 2.3);
+    }
+    paintBoard();
+    if (dragging || Math.abs(motion.targetX - motion.x) > .1 || Math.abs(motion.targetY - motion.y) > .1 || Math.abs(motion.velocityX) > .1 || Math.abs(motion.rotation) > .01) {
+      motion.frame = requestAnimationFrame(animateBoard);
+    } else settleBoard();
+  }
+  function startBoardMotion() {
+    if (reduceMotion.matches) { settleBoard(); return; }
+    if (!motion.frame) { motion.last = performance.now(); motion.frame = requestAnimationFrame(animateBoard); }
+  }
   function moveBoard(left, top) {
-    const rect = board.getBoundingClientRect();
-    board.style.left = limit(left, 8, window.innerWidth - rect.width - 8) + 'px';
-    board.style.top = limit(top, 8, window.innerHeight - Math.min(rect.height, window.innerHeight - 16) - 8) + 'px';
+    const target = boardTarget(left, top);
+    motion.targetX = target.x;
+    motion.targetY = target.y;
+    settleBoard();
   }
   function placeBoard(mascotRect) {
     const narrow = window.innerWidth < 900;
@@ -75,20 +120,28 @@
   }
   board.addEventListener('pointerdown', e => {
     if (e.button !== 0 || board.classList.contains('expanded') || e.target.closest('button,.board-content')) return;
-    const rect = board.getBoundingClientRect();
-    dragging = {id:e.pointerId, x:e.clientX, y:e.clientY, left:rect.left, top:rect.top};
+    dragging = {id:e.pointerId, x:e.clientX, y:e.clientY, left:motion.targetX, top:motion.targetY, previousX:e.clientX, last:performance.now()};
     board.classList.add('dragging');
     board.setPointerCapture(e.pointerId);
     e.preventDefault();
   });
   board.addEventListener('pointermove', e => {
     if (!dragging || dragging.id !== e.pointerId) return;
-    moveBoard(dragging.left + e.clientX - dragging.x, dragging.top + e.clientY - dragging.y);
+    const target = boardTarget(dragging.left + e.clientX - dragging.x, dragging.top + e.clientY - dragging.y);
+    motion.targetX = target.x;
+    motion.targetY = target.y;
+    const now = performance.now();
+    const dt = Math.max(.016, (now - dragging.last) / 1000);
+    motion.velocityX = limit((e.clientX - dragging.previousX) / dt, -1000, 1000);
+    dragging.previousX = e.clientX;
+    dragging.last = now;
+    startBoardMotion();
   });
   function stopDrag(e) {
     if (!dragging || dragging.id !== e.pointerId) return;
     dragging = null;
     board.classList.remove('dragging');
+    startBoardMotion();
     if (board.hasPointerCapture(e.pointerId)) board.releasePointerCapture(e.pointerId);
   }
   ['pointerup','pointercancel','lostpointercapture'].forEach(type => board.addEventListener(type, stopDrag));
