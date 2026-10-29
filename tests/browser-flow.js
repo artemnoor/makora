@@ -4,6 +4,7 @@ async page => {
   page.on('pageerror', error => errors.push(error.message));
   await page.evaluate(() => localStorage.clear());
   await page.reload();
+  assert((await page.locator('.first-disclaimer').innerText()).includes('Этапы 05–06 находятся в разработке'), 'Будущие этапы не отмечены');
   await page.locator('.pixel-drop input').setInputFiles({name: 'brief.txt', mimeType: 'text/plain', buffer: Buffer.from('Учебное условие хакатона')});
   await page.locator('.pixel-start').click();
   await page.waitForTimeout(1800);
@@ -69,8 +70,13 @@ async page => {
       assert((await page.locator('.check-list').innerText()).includes('Mock API'), 'Запросы к заглушке не проверены');
       await page.locator('#mock-approve').click();
       await page.locator('#to-development').waitFor({state:'visible'});
+      await page.locator('#to-development').click();
+      await page.locator('#back-mocks').waitFor({state:'visible'});
+      assert((await page.locator('.main-panel').innerText()).includes('этап 06 «Интеграция и проверка» находятся в разработке'), 'Этапы 5–6 не обозначены будущими');
+      await page.locator('#back-mocks').click();
     }
-    await page.locator('[data-mock-home]').click();
+    if (await page.locator('[data-mock-home]').count()) await page.locator('[data-mock-home]').click();
+    else assert(await page.locator('[data-mock-item]').count() === 5, 'Возврат не открыл разделы моков');
   }
   await page.locator('[data-board-stage="2"]').click();
   await page.locator('[data-idea-group="solution"]').click();
