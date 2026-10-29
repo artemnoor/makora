@@ -1,0 +1,17 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "Place",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["id", "name", "district", "address", "entrance_status", "entrance_description", "updated_at", "source"],
+  "properties": {
+    "id": {"type":"string", "minLength":1},
+    "name": {"type":"string", "minLength":1},
+    "district": {"type":"string", "minLength":1},
+    "address": {"type":"string", "minLength":1},
+    "entrance_status": {"type":"string", "enum":["accessible","limited","inaccessible","unknown"]},
+    "entrance_description": {"type":"string"},
+    "updated_at": {"type":"string", "format":"date-time"},
+    "source": {"type":"string", "enum":["demo"]}
+  }
+}

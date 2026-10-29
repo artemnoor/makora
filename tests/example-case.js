@@ -1,0 +1,33 @@
+async page => {
+  const assert=(ok,message)=>{if(!ok)throw new Error(message)};
+  const errors=[];
+  page.on('pageerror', error=>errors.push(error.message));
+  await page.evaluate(()=>{localStorage.clear();localStorage.setItem('makora.prototype-handoff.v1',JSON.stringify({status:'waiting',sentinel:'original'}))});
+  await page.reload();
+  await page.locator('#first-text').fill('Пример для открытия доски');
+  await page.locator('.pixel-start').click();
+  await page.locator('.capabilities-toggle').click();
+  await page.locator('[data-example-open]').click();
+  await page.locator('[data-example-download]').waitFor({state:'visible'});
+  await page.waitForFunction(()=>!document.querySelector('[data-example-download]').disabled);
+  const prompt=await page.locator('#prototype-prompt').inputValue();
+  assert(prompt.includes('Доступный город') && prompt.includes('new_mocks/'), 'Не загружен промпт кейса');
+  await page.evaluate(()=>{const original=fflate.zipSync;fflate.zipSync=(files,...args)=>{window.__exampleFiles=files;return original(files,...args)}});
+  const event=page.waitForEvent('download');
+  await page.locator('[data-example-download]').click();
+  const zip=await event;
+  assert(zip.suggestedFilename()==='dostupny-gorod-test-case.zip', 'Не скачан архив кейса');
+  const files=await page.evaluate(()=>Object.keys(window.__exampleFiles));
+  for(const name of ['PROMPT.md','01_case_analysis.md','02_user_flow.mmd','02_task_flow.mmd','03_architecture.md','03_contracts/openapi.yaml','03_test_plan.md','03_tasks.json','04_mock_data.md','mocks/validate.py','mocks/schemas/place.schema.json','mocks/fixtures/places.json','mocks/fixtures/empty.json','mocks/fixtures/invalid.json','mocks/fixtures/error.json']) assert(files.includes(name),'Нет файла '+name);
+  assert(await page.evaluate(()=>JSON.parse(fflate.strFromU8(window.__exampleFiles['mocks/fixtures/places.json'])).length===8), 'В архиве нет набора данных');
+  await page.locator('[data-example-sent]').click();
+  assert((await page.locator('.prototype-dialog').innerText()).includes('ОЖИДАЮ РЕЗУЛЬТАТ'), 'Кейс не перешёл в ожидание');
+  const result=await page.evaluate(()=>Array.from(fflate.zipSync({'mocks/fixtures/places.json':window.__exampleFiles['mocks/fixtures/places.json'],'new_mocks/proposal.json':fflate.strToU8('{}')})));
+  await page.locator('.prototype-drop input').setInputFiles({name:'prototype.zip',mimeType:'application/zip',buffer:Buffer.from(result)});
+  await page.locator('[data-receive]').click();
+  await page.locator('#mock-reason').waitFor({state:'visible'});
+  assert((await page.locator('.prototype-dialog').innerText()).includes('new_mocks/'), 'Нет вопросов о новых моках');
+  assert(await page.evaluate(()=>JSON.parse(localStorage.getItem('makora.prototype-handoff.v1')).sentinel==='original'), 'Тестовый кейс изменил состояние основного проекта');
+  assert(errors.length===0, 'Ошибка JavaScript: '+errors.join('; '));
+  return {exampleDownloaded:true,fixtures:8,newMocksQuestions:true,mainStatePreserved:true,errors};
+}

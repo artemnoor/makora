@@ -1,0 +1,10 @@
+[
+  {"id":"place-001","name":"Центральная библиотека","district":"Центральный","address":"ул. Учебная, 1","entrance_status":"accessible","entrance_description":"Вход без ступеней, автоматическая дверь.","updated_at":"2026-01-15T10:00:00Z","source":"demo"},
+  {"id":"place-002","name":"Городской музей","district":"Центральный","address":"ул. Учебная, 8","entrance_status":"limited","entrance_description":"Пандус у бокового входа; нужна помощь персонала.","updated_at":"2026-01-14T09:00:00Z","source":"demo"},
+  {"id":"place-003","name":"Дом культуры","district":"Центральный","address":"пл. Примерная, 3","entrance_status":"accessible","entrance_description":"Пологий пандус у главного входа.","updated_at":"2026-01-13T11:30:00Z","source":"demo"},
+  {"id":"place-004","name":"Северный архив","district":"Северный","address":"ул. Северная, 4","entrance_status":"inaccessible","entrance_description":"К главному входу ведут ступени.","updated_at":"2026-01-12T08:00:00Z","source":"demo"},
+  {"id":"place-005","name":"Северный центр","district":"Северный","address":"ул. Северная, 12","entrance_status":"unknown","entrance_description":"Сведения о входе отсутствуют.","updated_at":"2026-01-11T10:00:00Z","source":"demo"},
+  {"id":"place-006","name":"Южный читальный зал","district":"Южный","address":"ул. Южная, 2","entrance_status":"accessible","entrance_description":"Вход на уровне земли.","updated_at":"2026-01-10T12:00:00Z","source":"demo"},
+  {"id":"place-007","name":"Южный театр","district":"Южный","address":"ул. Южная, 7","entrance_status":"limited","entrance_description":"Есть подъёмник; время работы необходимо уточнить.","updated_at":"2026-01-09T10:00:00Z","source":"demo"},
+  {"id":"place-008","name":"Музыкальная школа","district":"Западный","address":"ул. Западная, 5","entrance_status":"unknown","entrance_description":"Данные не предоставлены.","updated_at":"2026-01-08T09:00:00Z","source":"demo"}
+]

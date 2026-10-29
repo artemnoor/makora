@@ -1,0 +1,92 @@
+openapi: 3.1.1
+info:
+  title: Доступный город — учебный контракт
+  version: 1.0.0
+  description: Синтетические данные; HTTP-заглушка для демонстрации необязательна.
+servers:
+  - url: /api
+    description: Пример пути, используется только если реализована HTTP-заглушка.
+security: []
+paths:
+  /places:
+    get:
+      summary: Каталог с фильтрами
+      operationId: listPlaces
+      parameters:
+        - name: district
+          in: query
+          required: false
+          schema: {type: string}
+        - name: status
+          in: query
+          required: false
+          schema: {type: string, enum: [accessible, limited, inaccessible, unknown]}
+      responses:
+        '200':
+          description: Список учреждений, включая пустой список
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [items]
+                properties:
+                  items:
+                    type: array
+                    items: {$ref: '#/components/schemas/Place'}
+        '400': {$ref: '#/components/responses/BadRequest'}
+        '503': {$ref: '#/components/responses/Unavailable'}
+  /places/{id}:
+    get:
+      summary: Карточка учреждения
+      operationId: getPlace
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema: {type: string}
+      responses:
+        '200':
+          description: Учреждение
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/Place'}
+        '404': {$ref: '#/components/responses/NotFound'}
+        '503': {$ref: '#/components/responses/Unavailable'}
+components:
+  schemas:
+    Place:
+      type: object
+      additionalProperties: false
+      required: [id, name, district, address, entrance_status, entrance_description, updated_at, source]
+      properties:
+        id: {type: string, minLength: 1}
+        name: {type: string, minLength: 1}
+        district: {type: string, minLength: 1}
+        address: {type: string, minLength: 1}
+        entrance_status: {type: string, enum: [accessible, limited, inaccessible, unknown]}
+        entrance_description: {type: string}
+        updated_at: {type: string, format: date-time}
+        source: {type: string, enum: [demo]}
+    Error:
+      type: object
+      additionalProperties: false
+      required: [code, message]
+      properties:
+        code: {type: string}
+        message: {type: string}
+  responses:
+    BadRequest:
+      description: Некорректный параметр запроса
+      content:
+        application/json:
+          schema: {$ref: '#/components/schemas/Error'}
+    Unavailable:
+      description: Источник недоступен
+      content:
+        application/json:
+          schema: {$ref: '#/components/schemas/Error'}
+    NotFound:
+      description: Учреждение не найдено
+      content:
+        application/json:
+          schema: {$ref: '#/components/schemas/Error'}

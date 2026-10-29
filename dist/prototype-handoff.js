@@ -1,21 +1,22 @@
 // Stage 5 is a manual handoff: no external AI is contacted by this page.
 window.createPrototypeHandoff = function(root, mascot, getSourceFile) {
   const key = 'makora.prototype-handoff.v1';
+  const sampleKey = 'makora.prototype-example.v1';
   const prompt = 'Создай запускаемый рабочий прототип по приложенным материалам. Вся разработка строится вокруг исходной папки mocks/: обязательно сохрани её целиком, без изменений, с исходными путями. Если нужны изменения или дополнительные моки, создай отдельную папку new_mocks/ и положи их туда; исходную mocks/ не изменяй и не удаляй. Реализуй основной сценарий MVP, соблюдай контракты, обработай ошибки и пустые состояния. Учебные примеры не выдавай за требования, отметь демо-данные, добавь инструкцию запуска и результаты проверок. Верни проект ZIP-архивом.';
-  let state;
-  try { state = JSON.parse(localStorage.getItem(key)) || {}; } catch { state = {}; }
+  let state, activeKey = key;
+  function switchMode(sample) { activeKey=sample?sampleKey:key; try { state=JSON.parse(localStorage.getItem(activeKey))||{}; } catch { state={}; } selected=null; prepared=false; }
   let selected = null, sourceFile = null, prepared = false;
   const dock = document.createElement('div');
   dock.className = 'mascot-capabilities';
   dock.hidden = true;
-  dock.innerHTML = `<button type="button" class="capabilities-toggle" aria-expanded="false">✳ Возможности</button><div class="capabilities-menu" hidden><button type="button" data-prototype-open><span>01</span><strong>Рабочий прототип</strong><span>↗</span></button></div>`;
+  dock.innerHTML = `<button type="button" class="capabilities-toggle" aria-expanded="false">✳ Возможности</button><div class="capabilities-menu" hidden><button type="button" data-prototype-open><span>01</span><strong>Рабочий прототип</strong><span>↗</span></button><button type="button" data-example-open><span>02</span><strong>Тестовый кейс</strong><span>↗</span></button></div>`;
   root.append(dock);
   const panel = document.createElement('section');
   panel.className = 'prototype-dialog';
   panel.hidden = true;
   panel.setAttribute('aria-label', 'Рабочий прототип с внешним ИИ');
   root.append(panel);
-  function save() { try { localStorage.setItem(key, JSON.stringify(state)); return true; } catch { return false; } }
+  function save() { try { localStorage.setItem(activeKey, JSON.stringify(state)); return true; } catch { return false; } }
   function updatePosition() {
     if (dock.hidden) return;
     const rect = mascot.getBoundingClientRect();
@@ -30,6 +31,7 @@ window.createPrototypeHandoff = function(root, mascot, getSourceFile) {
   const toggle = dock.querySelector('.capabilities-toggle'), menu = dock.querySelector('.capabilities-menu');
   toggle.onclick = () => { menu.hidden = !menu.hidden; toggle.setAttribute('aria-expanded', String(!menu.hidden)); };
   dock.querySelector('[data-prototype-open]').onclick = () => { menu.hidden = true; toggle.setAttribute('aria-expanded', 'false'); open(); };
+  dock.querySelector('[data-example-open]').onclick = () => { menu.hidden = true; toggle.setAttribute('aria-expanded', 'false'); openExample(); };
   const dbOpen = () => new Promise((resolve, reject) => {
     const request = indexedDB.open('makora-prototype-result', 1);
     request.onupgradeneeded = () => request.result.createObjectStore('files');
@@ -38,11 +40,12 @@ window.createPrototypeHandoff = function(root, mascot, getSourceFile) {
     request.onblocked = () => reject(new Error('Хранилище занято другой вкладкой'));
   });
   async function fileStore(mode, value) {
+    const fileKey = activeKey===sampleKey?'sample-result':'result';
     const db = await dbOpen();
     try { return await new Promise((resolve, reject) => {
       const tx = db.transaction('files', mode === 'get' ? 'readonly' : 'readwrite');
       const store = tx.objectStore('files');
-      const req = mode === 'get' ? store.get('result') : mode === 'delete' ? store.delete('result') : store.put(value, 'result');
+      const req = mode === 'get' ? store.get(fileKey) : mode === 'delete' ? store.delete(fileKey) : store.put(value, fileKey);
       let result; req.onsuccess = () => { result = req.result; };
       tx.oncomplete = () => resolve(result); tx.onerror = () => reject(tx.error); tx.onabort = () => reject(tx.error || new Error('Сохранение отменено'));
     }); } finally { db.close(); }
@@ -105,14 +108,48 @@ window.createPrototypeHandoff = function(root, mascot, getSourceFile) {
     panel.querySelector('[data-close]').onclick = close;
   }
   function feedback(message) { const el = panel.querySelector('.prototype-feedback'); if(el) el.textContent = message; }
+  async function exampleFiles() {
+    const rootUrl=new URL('./prototype-example/', location.href);
+    const response=await fetch(new URL('manifest.json',rootUrl),{cache:'no-store'});
+    if(!response.ok)throw new Error('Не удалось открыть тестовый кейс.');
+    const manifest=await response.json();
+    if(!Array.isArray(manifest.files) || !manifest.files.length)throw new Error('Список файлов кейса повреждён.');
+    const items=await Promise.all(manifest.files.map(async name=>{
+      if(typeof name!=='string'||name.startsWith('/')||name.includes('..')||name.includes('\\'))throw new Error('Некорректный путь в кейсе.');
+      const result=await fetch(new URL(name,rootUrl),{cache:'no-store'});
+      if(!result.ok)throw new Error('Не удалось прочитать '+name);
+      return [name,new Uint8Array(await result.arrayBuffer())];
+    }));
+    return Object.fromEntries(items);
+  }
+  async function showExample() {
+    shell(`<h2>Проверим на<br>реальном примере.</h2><p>Вымышленный кейс «Доступный город»: каталог учреждений, фильтры и карточки на мок-данных.</p><label for="prototype-prompt">ПРОМПТ ДЛЯ ИИ</label><textarea id="prototype-prompt" readonly>Загружаю промпт…</textarea><div class="prototype-actions"><button type="button" data-example-copy disabled>Скопировать промпт</button><button type="button" data-example-download disabled>Скачать кейс ↓</button></div><p class="prototype-note">В архиве: подробное ТЗ, идея, User flow и Task flow, C1–C3 и ER, OpenAPI, задачи, тесты, JSON Schema и моки. Данные вымышлены.</p><button class="prototype-primary" type="button" data-example-sent disabled>Я передал кейс ИИ <span>→</span></button>`);
+    try {
+      const response=await fetch('./prototype-example/PROMPT.md',{cache:'no-store'});
+      if(!response.ok)throw new Error('Не удалось загрузить промпт.');
+      const text=await response.text();
+      if(panel.hidden||!panel.querySelector('[data-example-copy]'))return;
+      panel.querySelector('#prototype-prompt').value=text;
+      panel.querySelector('[data-example-copy]').disabled=false;
+      panel.querySelector('[data-example-download]').disabled=false;
+      panel.querySelector('[data-example-copy]').onclick=async()=>{try{await navigator.clipboard.writeText(text);feedback('Промпт скопирован.')}catch{const el=panel.querySelector('#prototype-prompt');el.focus();el.select();feedback('Выдели текст и скопируй его.')}};
+      panel.querySelector('[data-example-download]').onclick=async e=>{
+        const button=e.currentTarget;button.disabled=true;feedback('Собираю тестовый кейс…');
+        try{const files=await exampleFiles();if(activeKey!==sampleKey||!button.isConnected)return;download('dostupny-gorod-test-case.zip',fflate.zipSync(files),'application/zip');prepared=true;panel.querySelector('[data-example-sent]').disabled=false;feedback('Кейс готов. Прикрепи архив и промпт к своему ИИ.');}
+        catch(error){feedback(error.message||'Не удалось собрать кейс.');}finally{if(button.isConnected)button.disabled=false;}
+      };
+      panel.querySelector('[data-example-sent]').onclick=()=>{if(!prepared)return;state.status='waiting';state.sentAt=new Date().toISOString();state.packageSignature=null;if(!save()){feedback('Не удалось сохранить состояние.');return}showWaiting();};
+    } catch(error) { feedback(error.message||'Не удалось загрузить кейс.'); }
+  }
   async function showPackage() {
     shell(`<h2>Давай создадим<br>рабочую версию.</h2><p>Я соберу короткое задание и файлы. Передай их своему ИИ, а готовый прототип принеси сюда.</p><label for="prototype-prompt">ПРОМПТ ДЛЯ ИИ</label><textarea id="prototype-prompt" readonly></textarea><div class="prototype-actions"><button type="button" data-copy>Скопировать промпт</button><button type="button" data-download>Скачать файлы ↓</button></div><p class="prototype-note">В архиве: исходное условие, анализ, идея, план, контракты, задачи и мок-данные. Учебные материалы помечены как демо.</p><button class="prototype-primary" type="button" data-sent disabled>Я передал пакет ИИ <span>→</span></button>`);
     panel.querySelector('#prototype-prompt').value = prompt;
     panel.querySelector('[data-copy]').onclick = async () => { try { await navigator.clipboard.writeText(prompt); feedback('Промпт скопирован.'); } catch { const el=panel.querySelector('#prototype-prompt'); el.focus(); el.select(); feedback('Выдели текст и скопируй его.'); } };
     panel.querySelector('[data-download]').onclick = async e => {
-      const button = e.currentTarget; button.disabled = true; feedback('Собираю файлы…');
+      const button = e.currentTarget, mode = activeKey; button.disabled = true; feedback('Собираю файлы…');
       try {
         const result = await createPackage();
+        if(activeKey!==mode||!button.isConnected)return;
         download('makora-prototype-context.zip', result.bytes, 'application/zip');
         state.packageSignature = result.signature; state.packageStatus = result.status;
         if (!save()) throw new Error('Не удалось сохранить состояние на устройстве.');
@@ -137,15 +174,17 @@ window.createPrototypeHandoff = function(root, mascot, getSourceFile) {
     ['dragenter','dragover'].forEach(type => drop.addEventListener(type, e => {e.preventDefault();drop.classList.add('dragging')}));
     ['dragleave','drop'].forEach(type => drop.addEventListener(type, e => {e.preventDefault();drop.classList.remove('dragging')}));
     drop.addEventListener('drop', e => select(e.dataTransfer.files[0]));
-    panel.querySelector('[data-package]').onclick = () => { prepared=false; showPackage(); };
+    panel.querySelector('[data-package]').onclick = () => { prepared=false; activeKey===sampleKey?showExample():showPackage(); };
     panel.querySelector('[data-receive]').onclick = async e => {
       const link=panel.querySelector('#prototype-link').value.trim();
       if (!selected && !link) { feedback('Прикрепи ZIP или вставь ссылку на проект.'); return; }
       if (link) { try { const url=new URL(link); if (!['http:','https:'].includes(url.protocol)) throw new Error(); } catch { feedback('Укажи ссылку, начинающуюся с http:// или https://.'); return; } }
-      const button=e.currentTarget; button.disabled=true;
+      const button=e.currentTarget, mode=activeKey; button.disabled=true;
       try {
         const inspection=selected ? await inspectZip(selected) : {hasNewMocks:false,newMocksPaths:[],originalMocksPresent:null};
+        if(activeKey!==mode||!button.isConnected)return;
         if (selected) await fileStore('put', {name:selected.name, file:selected}); else { try { await fileStore('delete'); } catch (_) {} }
+        if(activeKey!==mode||!button.isConnected)return;
         state.status=inspection.hasNewMocks?'questions':'received'; state.resultName=selected?.name||''; state.resultLink=link; state.receivedAt=new Date().toISOString();
         state.inspection=inspection; state.mockAnswers=null;
         if (!save()) { state.status='waiting'; throw new Error('Не удалось сохранить состояние на устройстве.'); }
@@ -182,14 +221,16 @@ window.createPrototypeHandoff = function(root, mascot, getSourceFile) {
     if (state.resultName) {
       try {
         const stored=await fileStore('get');
-        if (!panel.isConnected || panel.hidden || !panel.querySelector('[data-result-download]')) return;
+        if (!panel.isConnected || panel.hidden || panel.querySelector('.prototype-result') !== result || !panel.querySelector('[data-result-download]')) return;
         if (!stored?.file) { feedback('Сохранённый ZIP недоступен. Прикрепи его заново.'); }
         else { const b=panel.querySelector('[data-result-download]');b.hidden=false;b.onclick=()=>download(stored.name,stored.file,'application/zip'); }
       } catch { feedback('Не удалось открыть сохранённый ZIP.'); }
     }
     const replace=panel.querySelector('[data-replace]'); if(replace)replace.onclick=()=>{state.status='waiting';if(!save()){feedback('Не удалось сохранить состояние.');return}showWaiting()};
   }
-  function open() { panel.hidden=false; if(state.status==='waiting')showWaiting();else if(state.status==='questions')showQuestions();else if(state.status==='received')showReceived();else showPackage(); panel.querySelector('[data-close]')?.focus(); }
+  function showMode() { panel.hidden=false; if(state.status==='waiting')showWaiting();else if(state.status==='questions')showQuestions();else if(state.status==='received')showReceived();else if(activeKey===sampleKey)showExample();else showPackage(); panel.querySelector('[data-close]')?.focus(); }
+  function open() { switchMode(false); showMode(); }
+  function openExample() { switchMode(true); showMode(); }
   function close() { panel.hidden=true; toggle.focus(); }
   window.addEventListener('makora-open-prototype', open);
   window.addEventListener('resize', updatePosition);

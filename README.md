@@ -14,6 +14,8 @@ python -m http.server 8000 --directory dist --bind 127.0.0.1
 
 После появления доски под Макорой находится меню **«Возможности» → «Рабочий прототип»**. Оно позволяет скопировать промпт, скачать ZIP с текущими материалами и отметить передачу внешнему ИИ. Затем можно вернуть ZIP проекта или ссылку; ожидание сохраняется в localStorage, а ZIP — в IndexedDB текущего браузера. Автоматическая отправка ИИ, запуск и проверка возвращённого проекта не выполняются. После перезагрузки для доступа к меню снова начните анализ; оригинальный PDF/DOCX после перезагрузки может потребоваться приложить к пакету отдельно.
 
+В меню **«Возможности» → «Тестовый кейс»** доступен отдельный учебный пакет «Доступный город» с промптом, схемами, контрактом, тест-планом и синтетическими фикстурами. Его состояние хранится отдельно от основного проекта. Скачанный пакет можно передать внешнему ИИ и вернуть результат в тот же пункт меню.
+
 Промпт требует сохранить исходную `mocks/` и помещать изменения отдельно в `new_mocks/`. При загрузке ZIP Макора просматривает имена записей без распаковки и, обнаружив `new_mocks/`, задаёт три вопроса. Ответы сохраняются локально, после чего можно скачать запрос на анализ адаптации. Содержимое, сохранность оригиналов и совместимость контрактов автоматически не сравниваются; ссылка на проект также не проверяется.
 
 ## Скиллы и артефакты
@@ -39,6 +41,7 @@ npx --yes --package @playwright/cli playwright-cli -s=makora-smoke open http://1
 npx --yes --package @playwright/cli playwright-cli -s=makora-smoke run-code --filename tests/browser-flow.js
 npx --yes --package @playwright/cli playwright-cli -s=makora-smoke run-code --filename tests/handoff-wait.js
 npx --yes --package @playwright/cli playwright-cli -s=makora-smoke run-code --filename tests/handoff-new-mocks.js
+npx --yes --package @playwright/cli playwright-cli -s=makora-smoke run-code --filename tests/example-case.js
 npx --yes --package @playwright/cli playwright-cli -s=makora-smoke close
 ```
 

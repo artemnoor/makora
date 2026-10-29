@@ -58,3 +58,4 @@ jobs:
           npx --yes --package @playwright/cli@0.1.22 playwright-cli -s=makora-ci run-code --filename tests/browser-flow.js
           npx --yes --package @playwright/cli@0.1.22 playwright-cli -s=makora-ci run-code --filename tests/handoff-wait.js
           npx --yes --package @playwright/cli@0.1.22 playwright-cli -s=makora-ci run-code --filename tests/handoff-new-mocks.js
+          npx --yes --package @playwright/cli@0.1.22 playwright-cli -s=makora-ci run-code --filename tests/example-case.js

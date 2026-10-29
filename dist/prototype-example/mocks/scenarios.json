@@ -1,0 +1,6 @@
+[
+  {"id":"success","fixture":"fixtures/places.json","expected":"валидный каталог","tests":["TC-01","TC-02","TC-04","TC-07"]},
+  {"id":"empty","fixture":"fixtures/empty.json","expected":"пустой список","tests":["TC-03"]},
+  {"id":"error","fixture":"fixtures/error.json","expected":"ошибка источника","tests":["TC-05"]},
+  {"id":"invalid","fixture":"fixtures/invalid.json","expected":"отклоняется схемой Place","tests":["TC-06"]}
+]
