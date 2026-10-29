@@ -113,3 +113,25 @@
 .board:not(.expanded) .idea-card-number,.board:not(.expanded) .idea-card-caption{font-size:8px;line-height:1.1}
 .board:not(.expanded) .idea-card-arrow{right:6px;bottom:4px;font-size:10px}
 @media(max-width:600px){.board:not(.expanded) .idea-card-number,.board:not(.expanded) .idea-card-caption{display:none}.board:not(.expanded) .idea-groups>button{padding:3px 6px}.board:not(.expanded) .idea-groups strong{font-size:10px}}
+
+/* Fit section menus like the analysis index; documents retain their own scroll. */
+.board.idea-board .board-content:has(> .idea-sections){overflow:hidden}
+.board.idea-board .board-content:has(> .idea-sections) .idea-breadcrumb{flex:none}
+.board.idea-board .idea-breadcrumb .idea-export{margin:0;flex:none}
+.board.idea-board .idea-sections{flex:1;min-height:0;grid-template-columns:repeat(2,minmax(0,1fr));grid-template-rows:repeat(5,minmax(0,1fr))}
+.board.idea-board .idea-sections>button{min-width:0;min-height:0}
+.board:not(.expanded).idea-board .idea-breadcrumb{margin:0 0 2px;align-items:center}
+.board:not(.expanded).idea-board .idea-breadcrumb .board-back{padding:0;font-size:9px;line-height:1.2}
+.board:not(.expanded).idea-board .idea-breadcrumb .idea-export{border:0;padding:0;font-size:9px;line-height:1.2}
+.board:not(.expanded).idea-board .idea-group-title{display:none}
+.board:not(.expanded).idea-board .idea-sections{column-gap:12px}
+.board:not(.expanded).idea-board .idea-sections>button{grid-template-columns:18px minmax(0,1fr) 9px;gap:5px;padding:1px 0;font-size:9px;line-height:1.2}
+.board:not(.expanded).idea-board .idea-sections>button>span{font-size:9px}
+.board:not(.expanded).idea-board .idea-sections strong{overflow:hidden;white-space:nowrap;text-overflow:ellipsis}
+.board.expanded.idea-board .idea-breadcrumb{margin-bottom:clamp(4px,1vh,12px)}
+.board.expanded.idea-board .idea-breadcrumb .idea-export{padding:8px 12px}
+.board.expanded.idea-board .idea-group-title{margin:0 0 clamp(6px,1vh,14px);font-size:clamp(18px,2vw,25px)}
+.board.expanded.idea-board .idea-sections>button{padding:clamp(3px,1vh,10px) 0;font-size:clamp(11px,1.25vw,16px);line-height:1.2}
+@media(max-width:600px){.board.expanded.idea-board .idea-sections{gap:0 12px}.board.expanded.idea-board .idea-sections>button{grid-template-columns:22px minmax(0,1fr) 12px;gap:4px;font-size:11px}.board.expanded.idea-board .idea-sections>button>span{font-size:10px}}
+
+.board-stage .board:not(.expanded).idea-board .board-content:has(> .idea-sections){padding:0}

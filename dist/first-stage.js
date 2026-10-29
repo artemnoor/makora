@@ -164,7 +164,7 @@
   function showIdeaGroup(group) {
     ideaGroup = group;
     const item = ideaGroups[group];
-    content.innerHTML = `<div class="idea-breadcrumb"><button type="button" class="board-back" data-idea-home>← Исследование и решение</button><span>${item.file}</span></div><h3 class="idea-group-title">${item.title}</h3><div class="idea-sections">${item.docs.map((doc,i)=>`<button type="button" data-idea-item="${i}"><span>${String(i+1).padStart(2,'0')}</span><strong>${esc(doc.title)}</strong><span>↗</span></button>`).join('')}</div><button type="button" class="idea-export" data-idea-export>Скачать ${item.file} ↓</button>`;
+    content.innerHTML = `<div class="idea-breadcrumb"><button type="button" class="board-back" data-idea-home>← ${item.title}</button><button type="button" class="idea-export" data-idea-export title="Скачать ${item.file}">Скачать ↓</button></div><h3 class="idea-group-title">${item.title}</h3><div class="idea-sections">${item.docs.map((doc,i)=>`<button type="button" data-idea-item="${i}" title="${esc(doc.title)}"><span>${String(i+1).padStart(2,'0')}</span><strong>${esc(doc.title)}</strong><span>↗</span></button>`).join('')}</div>`;
     content.scrollTop = 0;
   }
   function showIdeaDocument(index) {
