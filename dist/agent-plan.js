@@ -15,10 +15,11 @@ window.createAgentPlan = function(root, mascot) {
   const board=document.createElement('section');
   board.className='agent-plan-board'; board.hidden=true;
   board.setAttribute('aria-label','Демонстрационный план агентов');
-  board.innerHTML=`<img class="agent-board-shadow" src="analysis-board.png" alt="" draggable="false"><img class="agent-board-art" src="analysis-board.png" alt="" draggable="false"><div class="agent-board-frame"><header class="agent-board-header"><div><small>ДЕМО · ТИХИЙ КАМПУС</small><h2>План агентов</h2></div><div><button type="button" data-agent-expand aria-label="Развернуть доску">⛶</button></div></header><div class="agent-board-content"></div><footer class="agent-board-footer"><span data-agent-status></span><button type="button" data-agent-approve>Утвердить план</button></footer></div>`;
+  board.innerHTML=`<img class="agent-board-shadow" src="analysis-board.png" alt="" draggable="false"><img class="agent-board-art" src="analysis-board.png" alt="" draggable="false"><nav class="agent-board-tabs" aria-label="Разделы доски агентов"><button type="button" data-agent-tab="agents">01 <span>Агенты</span></button><button type="button" data-agent-tab="activity">02 <span>Этапы</span></button><button type="button" data-agent-tab="gitflow">03 <span>Gitflow</span></button></nav><div class="agent-board-frame"><header class="agent-board-header"><div><small>ДЕМО · ТИХИЙ КАМПУС</small><h2>План агентов</h2></div><div><button type="button" data-agent-expand aria-label="Развернуть доску">⛶</button></div></header><div class="agent-board-content"></div><footer class="agent-board-footer"><span data-agent-status></span><button type="button" data-agent-approve>Утвердить план</button></footer></div>`;
   root.append(board);
   const content=board.querySelector('.agent-board-content'), status=board.querySelector('[data-agent-status]');
   let current=null, drag=null, moved=!!savedView.planMoved;
+  let activeTab=['agents','activity','gitflow'].includes(savedView.agentTab)?savedView.agentTab:'agents';
   const motion={x:0,y:0,targetX:0,targetY:0,velocity:0,rotation:0,frame:0,last:0};
   const reducedMotion=window.matchMedia('(prefers-reduced-motion: reduce)');
   const clamp=(value,min,max)=>Math.max(min,Math.min(max,value));
@@ -36,8 +37,9 @@ window.createAgentPlan = function(root, mascot) {
   }
   function startMotion(){if(reducedMotion.matches){settle();return;}if(!motion.frame){motion.last=performance.now();motion.frame=requestAnimationFrame(animate);}}
   function save(){try{localStorage.setItem(key,JSON.stringify(state));}catch(_){}}
-  function saveView(){try{localStorage.setItem(workspaceKey,JSON.stringify({...savedView,planMoved:moved,planX:motion.targetX,planY:motion.targetY,planExpanded:board.classList.contains('agent-expanded')}));}catch(_){}}
-  function updateStatus(){status.textContent=state.approved?'● ПЛАН УТВЕРЖДЁН · ДЕМО':'○ ЧЕРНОВИК · ДЕМО';board.querySelector('[data-agent-approve]').textContent=state.approved?'Утверждено ✓':'Утвердить план';}
+  function saveView(){try{const latest=JSON.parse(localStorage.getItem(workspaceKey))||{};savedView={...latest,...savedView,stage:latest.stage,agentTab:activeTab,planMoved:moved,planX:motion.targetX,planY:motion.targetY,planExpanded:board.classList.contains('agent-expanded')};localStorage.setItem(workspaceKey,JSON.stringify(savedView));}catch(_){}}
+  function updateStatus(){status.textContent=state.approved?'● ПЛАН УТВЕРЖДЁН · ДЕМО':'○ ЧЕРНОВИК · ДЕМО';const approve=board.querySelector('[data-agent-approve]');approve.hidden=activeTab!=='agents';approve.textContent=state.approved?'Утверждено ✓':'Утвердить план';}
+  function updateTabs(){board.querySelectorAll('[data-agent-tab]').forEach(button=>{const selected=button.dataset.agentTab===activeTab;button.classList.toggle('active',selected);if(selected)button.setAttribute('aria-current','page');else button.removeAttribute('aria-current');});board.querySelector('.agent-board-header h2').textContent={agents:'План агентов',activity:'Активные этапы',gitflow:'Gitflow'}[activeTab];}
   function graph(){
     current=null;
     savedView.planTask=null;saveView();
@@ -56,7 +58,19 @@ window.createAgentPlan = function(root, mascot) {
     content.querySelector('.agent-back').onclick=graph;
     updateStatus();
   }
-  content.addEventListener('click',e=>{const b=e.target.closest('[data-task]');if(b)detail(Number(b.dataset.task));});
+  function activity(){
+    current=null;
+    content.innerHTML=`<p class="agent-note">Демо-сценарий · реальные агенты не запущены</p><div class="agent-activity-list"><button type="button" data-task="0"><span class="agent-state done">✓</span><span><strong>T01 · Подготовка проекта</strong><small>Завершён · пример</small></span></button><button type="button" data-task="1"><span class="agent-state active">●</span><span><strong>T02 · Каталог пространств</strong><small>Builder · выполняется параллельно</small></span></button><button type="button" data-task="2"><span class="agent-state active">●</span><span><strong>T03 · Интерфейс поиска</strong><small>Builder · выполняется параллельно</small></span></button><button type="button" data-task="3"><span class="agent-state waiting">○</span><span><strong>T04 · Интеграция и проверка</strong><small>Ожидает T02 и T03</small></span></button></div><p class="agent-tree-caption">Reviewer проверяет результат каждого задания</p>`;
+    updateStatus();
+  }
+  function gitflow(){
+    current=null;
+    content.innerHTML=`<p class="agent-note">Пример ветвления · реальные ветки не считываются</p><div class="agent-git-tree"><div class="agent-git-row"><span class="agent-git-node main">main</span></div><div class="agent-git-line" aria-hidden="true"></div><div class="agent-git-row"><span class="agent-git-node">feature/T01-setup <small>T01</small></span></div><div class="agent-branch" aria-hidden="true"></div><div class="agent-git-row agent-git-parallel"><span class="agent-git-node">feature/T02-catalog <small>T02</small></span><span class="agent-git-node">feature/T03-search <small>T03</small></span></div><div class="agent-merge" aria-hidden="true"></div><div class="agent-git-row"><span class="agent-git-node">integration/T04 <small>T04</small></span></div><div class="agent-git-line" aria-hidden="true"></div><div class="agent-git-row"><span class="agent-git-node main">main <small>после проверки</small></span></div></div>`;
+    updateStatus();
+  }
+  function showTab(tab,restoreTask=false){activeTab=tab;updateTabs();content.scrollTop=0;if(tab==='agents'){if(restoreTask&&Number.isInteger(savedView.planTask)&&savedView.planTask>=0&&savedView.planTask<state.tasks.length)detail(savedView.planTask);else graph();}else if(tab==='activity')activity();else gitflow();saveView();}
+  board.querySelector('.agent-board-tabs').addEventListener('click',e=>{const tab=e.target.closest('[data-agent-tab]');if(tab)showTab(tab.dataset.agentTab);});
+  content.addEventListener('click',e=>{const b=e.target.closest('[data-task]');if(b){activeTab='agents';updateTabs();detail(Number(b.dataset.task));}});
   content.addEventListener('input',e=>{if(current===null||!e.target.dataset.field)return;state.tasks[current][e.target.dataset.field]=e.target.value;state.approved=false;save();updateStatus();});
   board.querySelector('[data-agent-approve]').onclick=()=>{state.approved=true;save();updateStatus();};
   board.querySelector('[data-agent-expand]').onclick=()=>{board.classList.toggle('agent-expanded');position();saveView();};
@@ -69,7 +83,6 @@ window.createAgentPlan = function(root, mascot) {
   board.addEventListener('pointermove',e=>{if(!drag||drag.id!==e.pointerId)return;moved=true;motion.targetX=clamp(drag.left+e.clientX-drag.x,0,Math.max(0,window.innerWidth-board.offsetWidth));motion.targetY=clamp(drag.top+e.clientY-drag.y,0,Math.max(0,window.innerHeight-board.offsetHeight));const now=performance.now();motion.velocity=clamp((e.clientX-drag.previousX)/Math.max(.016,(now-drag.last)/1000),-1000,1000);drag.previousX=e.clientX;drag.last=now;startMotion();});
   function endDrag(e){if(!drag||drag.id!==e.pointerId)return;drag=null;board.classList.remove('agent-dragging');saveView();startMotion();if(board.hasPointerCapture(e.pointerId))board.releasePointerCapture(e.pointerId);}
   ['pointerup','pointercancel','lostpointercapture'].forEach(type=>board.addEventListener(type,endDrag));
-  function position(){if(board.hidden||board.classList.contains('agent-expanded'))return;if(moved){motion.targetX=clamp(Number(savedView.planX)||0,0,Math.max(0,window.innerWidth-board.offsetWidth));motion.targetY=clamp(Number(savedView.planY)||0,0,Math.max(0,window.innerHeight-board.offsetHeight));settle();return;}const rect=mascot.getBoundingClientRect();const width=window.innerWidth<=760?Math.min(390,window.innerWidth-16):Math.min(510,Math.max(300,rect.left-28));board.style.width=width+'px';motion.targetX=Math.max(8,rect.left-width-18);motion.targetY=Math.max(8,Math.min(window.innerHeight-board.offsetHeight-8,rect.top+rect.height/2-board.offsetHeight/2));settle();}
-  graph();
-  return {position,open(){board.classList.remove('agent-expanded','agent-revealing');board.hidden=false;if(Number.isInteger(savedView.planTask)&&savedView.planTask>=0&&savedView.planTask<state.tasks.length)detail(savedView.planTask);else graph();position();if(savedView.planExpanded)board.classList.add('agent-expanded');void board.offsetWidth;board.classList.add('agent-revealing');}};
+  function position(){if(board.hidden||board.classList.contains('agent-expanded'))return;const rect=mascot.getBoundingClientRect();const width=window.innerWidth<=760?Math.min(390,window.innerWidth-16):Math.min(510,Math.max(300,rect.left-28));board.style.width=width+'px';if(moved){motion.targetX=clamp(Number(savedView.planX)||0,0,Math.max(0,window.innerWidth-board.offsetWidth));motion.targetY=clamp(Number(savedView.planY)||0,0,Math.max(0,window.innerHeight-board.offsetHeight));settle();return;}motion.targetX=Math.max(8,rect.left-width-18);motion.targetY=Math.max(8,Math.min(window.innerHeight-board.offsetHeight-8,rect.top+rect.height/2-board.offsetHeight/2));settle();}
+  return {position,open(){board.classList.remove('agent-expanded','agent-revealing');board.hidden=false;position();if(savedView.planExpanded)board.classList.add('agent-expanded');showTab(activeTab,true);void board.offsetWidth;board.classList.add('agent-revealing');}};
 };
