@@ -1,1 +1,1 @@
-"""Local artifact management for Makora. No model or agent runtime is included."""
+"""Local artifact management and bounded Codex App Server orchestration for Makora."""

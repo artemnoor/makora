@@ -86,6 +86,13 @@ async page => {
       await page.locator('[data-demo-approve]').click();
       await page.locator('.agent-plan-board').waitFor({state:'visible'});
       assert((await page.locator('.agent-board-content').innerText()).includes('Дерево проекта'), 'Этап 6 начался не со скелета');
+      await page.locator('[data-agent-mode="real"]').click();
+      await page.locator('.real-agent-view').waitFor({state:'visible'});
+      assert((await page.locator('.real-agent-view').innerText()).includes('Подготовить настоящий запуск'), 'REAL режим не показывает форму запуска');
+      assert(await page.locator('[data-agent-create-run]').isDisabled(), 'REAL режим позволяет запуск при недоступном Codex App Server');
+      assert((await page.locator('.real-agent-view').innerText()).includes('не гарантируется'), 'Ограничение видимости thread в Desktop не показано');
+      await page.locator('[data-agent-mode="demo"]').click();
+      assert((await page.locator('.agent-board-content').innerText()).includes('Дерево проекта'), 'Переключение обратно на DEMO сломало учебный маршрут');
       assert(await page.locator('[data-workflow-step="decomposition"]').isDisabled(), 'Декомпозиция доступна до подтверждения скелета');
       await page.locator('[data-skeleton-check]').click();
       await page.waitForFunction(()=>document.querySelectorAll('.agent-check-results li').length===3);

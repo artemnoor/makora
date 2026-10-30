@@ -5,12 +5,14 @@ import argparse
 import json
 import os
 import re
+import secrets
 from http.server import SimpleHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from urllib.parse import parse_qs, unquote, urlparse
 
 from .iterations import IterationStore, MAX_ARCHIVE
 from .workspace import MakoraError
+from .agents import AgentRuntime, AgentRuntimeError
 
 
 class MakoraHandler(SimpleHTTPRequestHandler):
@@ -36,7 +38,7 @@ class MakoraHandler(SimpleHTTPRequestHandler):
             host=urlparse('http://'+self.headers.get('Host','')).hostname
         except ValueError:return False
         origin=self.headers.get('Origin')
-        return host in ('localhost','127.0.0.1','::1') and (not origin or self._local_origin(origin))
+        return host in ('localhost','127.0.0.1','::1') and (not origin or (self._local_origin(origin) and urlparse(origin).netloc.lower()==self.headers.get('Host','').lower()))
 
     def end_headers(self):
         origin = self.headers.get('Origin', '')
@@ -89,11 +91,38 @@ class MakoraHandler(SimpleHTTPRequestHandler):
             raise MakoraError('INVALID_JSON', 'Тело запроса должно быть JSON-объектом.')
         return value
 
+    def _agent_auth(self):
+        supplied=self.headers.get('X-Makora-Token','')
+        expected=getattr(self.server,'agent_token','')
+        return bool(expected and secrets.compare_digest(supplied,expected))
+
+    def _agent_json(self, call, status=200):
+        try:self._json(call(),status)
+        except AgentRuntimeError as exc:self._error(exc,exc.status)
+        except (OSError,ValueError,KeyError) as exc:self._error(exc,500)
+
     def do_GET(self):
         if not self._local_request():self._error(MakoraError('ORIGIN_NOT_ALLOWED','Доступ разрешён только локальному интерфейсу.'),403);return
         parsed = urlparse(self.path)
         path = unquote(parsed.path)
         try:
+            if path == '/api/agents/token':
+                origin=self.headers.get('Origin','')
+                if not origin or urlparse(origin).netloc.lower()!=self.headers.get('Host','').lower():
+                    self._error(AgentRuntimeError('SAME_ORIGIN_REQUIRED','Token is available only to the Makora page.',403),403);return
+                self._json({'token':self.server.agent_token});return
+            if path == '/api/agents/status':
+                self._agent_json(self.server.agent_runtime.status);return
+            if path == '/api/agents/approvals':
+                self._agent_json(self.server.agent_runtime.approvals);return
+            if path == '/api/agents/state':
+                self._agent_json(self.server.agent_runtime.snapshot);return
+            match=re.fullmatch(r'/api/agents/runs/([\w-]+)',path)
+            if match:self._agent_json(lambda:self.server.agent_runtime.get_run(match.group(1)));return
+            match=re.fullmatch(r'/api/agents/sessions/([\w-]+)',path)
+            if match:self._agent_json(lambda:self.server.agent_runtime.get_session(match.group(1)));return
+            match=re.fullmatch(r'/api/agents/runs/([\w-]+)/tasks/([\w-]+)/diff',path)
+            if match:self._agent_json(lambda:self.server.agent_runtime.run_diff(match.group(1),match.group(2)));return
             if path == '/api/status':
                 current = self.store.current_revision()
                 self._json({'available': True, 'storage': 'local-filesystem', 'current_revision': current,
@@ -147,6 +176,22 @@ class MakoraHandler(SimpleHTTPRequestHandler):
         if not self._local_request():self._error(MakoraError('ORIGIN_NOT_ALLOWED','Доступ разрешён только локальному интерфейсу.'),403);return
         path = unquote(urlparse(self.path).path)
         try:
+            if path.startswith('/api/agents/') and not self._agent_auth():
+                self._error(AgentRuntimeError('AUTH_REQUIRED','Нужен действующий токен этой страницы Макоры.',401),401);return
+            match=re.fullmatch(r'/api/agents/approvals/([\w-]+)',path)
+            if match:
+                value=self._read_json()
+                self._agent_json(lambda:self.server.agent_runtime.resolve_approval(match.group(1),str(value.get('decision',''))));return
+            if path == '/api/agents/runs':
+                self._agent_json(lambda:self.server.agent_runtime.create_run(self._read_json()),201);return
+            match=re.fullmatch(r'/api/agents/runs/([\w-]+)/tasks/([\w-]+)/worktree',path)
+            if match:self._agent_json(lambda:self.server.agent_runtime.create_task_worktree(match.group(1),match.group(2)),201);return
+            match=re.fullmatch(r'/api/agents/runs/([\w-]+)/tasks/([\w-]+)/agents/(builder|reviewer|test_designer)',path)
+            if match:self._agent_json(lambda:self.server.agent_runtime.launch_agent(match.group(1),match.group(2),match.group(3)),201);return
+            match=re.fullmatch(r'/api/agents/sessions/([\w-]+)/messages',path)
+            if match:
+                value=self._read_json()
+                self._agent_json(lambda:self.server.agent_runtime.send_message(match.group(1),str(value.get('text',''))),202);return
             if path == '/api/iterations/prepare':
                 result = self.store.prepare(self._body(), self.headers.get('X-Base-Revision'))
                 self._json(result, 201)
@@ -195,19 +240,25 @@ class MakoraHandler(SimpleHTTPRequestHandler):
             super().log_message(fmt, *args)
 
 
-def serve(workspace, static, host='127.0.0.1', port=8765):
+def serve(workspace, static, host='127.0.0.1', port=8765, agent_roots=None):
     workspace = Path(workspace).expanduser().resolve()
     workspace.mkdir(parents=True, exist_ok=True)
     handler = lambda *args, **kwargs: MakoraHandler(*args, directory=static, **kwargs)
     server = ThreadingHTTPServer((host, port), handler)
     server.daemon_threads = True
     server.iteration_store = IterationStore(workspace)
+    default_root=Path(__file__).parent.parent.resolve()
+    roots=[Path(p).expanduser().resolve() for p in (agent_roots or [])]
+    server.agent_runtime=AgentRuntime(workspace,default_root/'integrations'/'codex-desktop-local-api',roots or [default_root])
+    server.agent_token=secrets.token_urlsafe(32)
     print(f'Макора API: http://{host}:{port}/api/status')
     print(f'Локальное хранилище: {workspace}')
     if static: print(f'Статика: {Path(static).resolve()}')
     try: server.serve_forever()
     except KeyboardInterrupt: pass
-    finally: server.server_close()
+    finally:
+        server.server_close()
+        server.agent_runtime.close()
 
 
 def main():
@@ -216,9 +267,10 @@ def main():
     parser.add_argument('--static', default=None, help='Каталог dist для раздачи сайта с того же порта')
     parser.add_argument('--host', default='127.0.0.1')
     parser.add_argument('--port', type=int, default=8765)
+    parser.add_argument('--agent-root', action='append', default=[], help='Разрешённая Git-папка проекта для Agent Worktree (можно указать несколько раз)')
     args=parser.parse_args()
     if args.port < 1 or args.port > 65535: parser.error('Порт должен быть между 1 и 65535.')
-    serve(args.workspace,args.static,args.host,args.port)
+    serve(args.workspace,args.static,args.host,args.port,args.agent_root)
 
 
 if __name__ == '__main__': main()
