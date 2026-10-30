@@ -154,8 +154,9 @@ async page => {
           realAgentRun={runId,taskId:persisted.task.id,status:persisted.task.status,repairCycles,model:persisted.sessions.map(s=>s.model),threadIds:persisted.sessions.map(s=>s.threadId),tests:persisted.task.tests.status,integratedCommit:persisted.task.integratedCommit};
         }
       } else {
-        assert(await page.locator('[data-agent-create-run]').isDisabled(), 'REAL режим позволяет запуск при недоступном Codex App Server');
-        assert((await page.locator('.real-agent-view').innerText()).includes('не гарантируется'), 'Ограничение видимости thread в Desktop не показано');
+        const appServerConnected = await page.locator('.real-status.online').count() > 0;
+        if (!appServerConnected) assert(await page.locator('[data-agent-create-run]').isDisabled(), 'REAL режим позволяет запуск при недоступном Codex App Server');
+        assert((await page.locator('.real-visibility').innerText()).includes('Потоки App Server сохраняются, но их отображение в Codex Desktop не гарантируется.'), 'Предупреждение о видимости App Server thread в Codex Desktop не показано');
       }
       await page.locator('[data-agent-mode="demo"]').click();
       assert((await page.locator('.agent-board-content').innerText()).includes('Дерево проекта'), 'Переключение обратно на DEMO сломало учебный маршрут');

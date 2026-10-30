@@ -4,6 +4,7 @@ import subprocess
 import tempfile
 import unittest
 import json
+import os
 from pathlib import Path
 
 from makora_core.agents.runtime import AgentRuntime, AgentRuntimeError, MODEL_ID
@@ -306,7 +307,8 @@ class AgentRuntimeTests(unittest.TestCase):
         self.assertIsNone(task.get('tests'))
         self.assertIsNone(task.get('review'))
 
-    def test_parallel_worktrees_refresh_retest_and_integrate_sequentially(self):
+    def _exercise_parallel_worktrees_refresh_retest_and_integrate_sequentially(self, real_sandbox):
+        """Exercise branch orchestration, optionally using the real Windows sandbox."""
         from makora_core.agents.acceptance import _suite, snapshot
         run=self.create_run([self.task('T01'),self.task('T02')])
         for ident in ('T01','T02'):
@@ -320,7 +322,18 @@ class AgentRuntimeTests(unittest.TestCase):
         def run_tests_and_approve(ident, file_name):
             task=tasks[ident]
             task['status']='review_pending'
-            result=self.runtime.test_task(run['id'],ident,[file_name])
+            if real_sandbox:
+                result=self.runtime.test_task(run['id'],ident,[file_name])
+            else:
+                # This is a controller/worktree unit test. Keep the real sandbox
+                # mandatory in production and exercise it in the Windows-only
+                # integration test below.
+                _, _, _, digest=snapshot(self.runtime,run['id'],ident,[file_name])
+                _, manifest, _, suite_digest=_suite(task)
+                result={'status':'passed','independent':True,'framework':manifest['framework'],
+                        'commands':[{'status':'passed','exitCode':0,'executedTests':1,'minimumTests':1}],
+                        'digest':digest,'suiteDigest':suite_digest}
+                task.update(status='tests_passed',tests=result,allowedPaths=[file_name])
             self.assertEqual('passed',result['status'],json.dumps(result,ensure_ascii=False))
             _,_,_,digest=snapshot(self.runtime,run['id'],ident,[file_name])
             _,_,_,suite_digest=_suite(task)
@@ -352,11 +365,34 @@ class AgentRuntimeTests(unittest.TestCase):
         self.assertEqual('value = "second"\n',(self.project/'second.py').read_text(encoding='utf-8'))
         self.assertNotEqual(first['commit'],second['commit'])
 
+    def test_parallel_worktrees_refresh_retest_and_integrate_sequentially(self):
+        self._exercise_parallel_worktrees_refresh_retest_and_integrate_sequentially(real_sandbox=False)
+
+    @unittest.skipUnless(
+        os.name == 'nt' and os.environ.get('CODEX_APP_SERVER_BINARY'),
+        'Requires Windows and the configured Codex sandbox binary',
+    )
+    def test_parallel_worktrees_refresh_retest_and_integrate_sequentially_in_codex_sandbox(self):
+        self._exercise_parallel_worktrees_refresh_retest_and_integrate_sequentially(real_sandbox=True)
+
+    def test_independent_tests_remain_blocked_without_codex_sandbox(self):
+        from unittest.mock import patch
+        run=self.create_run()
+        self.prepare_test_design(run['id'])
+        tree=Path(self.runtime.create_task_worktree(run['id'],'T01')['worktree'])
+        (tree/'result.py').write_text('value = 1\n',encoding='utf-8')
+        self.runtime._run(run['id'])['tasks'][0]['status']='review_pending'
+        with patch.dict(os.environ, {'CODEX_APP_SERVER_BINARY':''}):
+            with self.assertRaises(AgentRuntimeError) as caught:
+                self.runtime.test_task(run['id'],'T01',['result.py'])
+        self.assertEqual('SANDBOX_REQUIRED',caught.exception.code)
+        self.assertNotEqual('tests_passed',self.runtime._run(run['id'])['tasks'][0]['status'])
+
     def test_independent_node_manifest_executes_in_actual_codex_sandbox(self):
         import os
         import shutil
-        if not os.environ.get('CODEX_APP_SERVER_BINARY') or not shutil.which('node'):
-            self.skipTest('Requires Codex sandbox and Node.js')
+        if os.name != 'nt' or not os.environ.get('CODEX_APP_SERVER_BINARY') or not shutil.which('node'):
+            self.skipTest('Requires Windows, Codex sandbox, and Node.js')
         run=self.create_run()
         design=self.prepare_test_design(run['id'])
         spec=Path(design['cwd'])
@@ -474,8 +510,8 @@ class AgentRuntimeTests(unittest.TestCase):
     def test_independent_suite_executes_in_actual_codex_sandbox(self):
         import os
         binary=os.environ.get('CODEX_APP_SERVER_BINARY')
-        if not binary or not Path(binary).is_file():
-            self.skipTest('CODEX_APP_SERVER_BINARY is not configured in this test process')
+        if os.name != 'nt' or not binary or not Path(binary).is_file():
+            self.skipTest('Requires Windows and a configured CODEX_APP_SERVER_BINARY')
         run=self.create_run()
         design=self.runtime.launch_agent(run['id'],'T01','test_designer')
         spec=Path(design['cwd'])
