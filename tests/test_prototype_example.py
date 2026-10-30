@@ -1,4 +1,5 @@
 import json
+import os
 import re
 import subprocess
 import sys
@@ -73,7 +74,8 @@ class PrototypeExampleTests(unittest.TestCase):
 
     def test_fixture_validation_script_runs_from_case(self):
         result = subprocess.run([sys.executable, str(CASE / 'mocks/validate.py')], cwd=CASE,
-                                text=True, encoding='utf-8', capture_output=True)
+                                text=True, encoding='utf-8', capture_output=True,
+                                env={**os.environ, 'PYTHONIOENCODING': 'utf-8'})
         self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
         self.assertIn('негативный набор отклонён', result.stdout)
         self.assertIn('не проверялись', result.stdout)

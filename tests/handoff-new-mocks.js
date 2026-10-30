@@ -1,8 +1,9 @@
 async page => {
   const assert=(value,message)=>{if(!value)throw new Error(message)};
   const start = async () => {
-    await page.locator('#first-text').fill('Учебное условие');
-    await page.locator('.pixel-start').click();
+    const sourceExists=await page.evaluate(()=>window.makoraProject.source());
+    if(sourceExists) await page.locator('.board-scene').waitFor({state:'visible'});
+    else { await page.locator('#first-text').fill('Учебное условие'); await page.locator('.pixel-start').click(); }
     await page.locator('.capabilities-toggle').click();
     await page.locator('[data-prototype-open]').click();
   };

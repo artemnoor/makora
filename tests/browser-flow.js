@@ -172,8 +172,8 @@ async page => {
   await page.reload();
   assert(await page.evaluate(() => window.makoraProject.isApproved()), 'Утверждение идеи потерялось после обновления');
   assert(await page.evaluate(() => window.makoraProject.context().concept.find(x => x.title === 'Финальная идея').md.includes('Изменение для проверки зависимостей')), 'Изменённая идея не восстановилась');
-  await page.locator('#first-text').fill('Новое условие после перезагрузки');
-  await page.locator('.pixel-start').click();
+  await page.locator('.board-scene').waitFor({state:'visible'});
+  assert(await page.locator('[data-board-stage].active').count() === 1, 'После перезагрузки не восстановился активный экран');
   await page.locator('.capabilities-toggle').click();
   await page.locator('[data-prototype-open]').click();
   await page.locator('#prototype-prompt').waitFor({state:'visible'});

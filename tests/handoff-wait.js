@@ -14,8 +14,7 @@ async page => {
   await page.locator('.prototype-waiting').waitFor({state:'visible'});
   assert((await page.locator('.prototype-dialog').innerText()).includes('ОЖИДАЮ РЕЗУЛЬТАТ'), 'Ожидание не началось');
   await page.reload();
-  await page.locator('#first-text').fill('Учебное условие');
-  await page.locator('.pixel-start').click();
+  await page.locator('.board-scene').waitFor({state:'visible'});
   await page.locator('.capabilities-toggle').click();
   await page.locator('[data-prototype-open]').click();
   assert((await page.locator('.prototype-dialog').innerText()).includes('ОЖИДАЮ РЕЗУЛЬТАТ'), 'Ожидание не восстановилось');

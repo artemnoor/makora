@@ -31,6 +31,7 @@
 @media(max-width:760px){.first-intro .first-form{padding:21px}.first-intro .first-form h1{font-size:30px}}
 
 @media(min-width:761px) and (max-height:800px){.first-intro .first-form{padding:19px 23px 16px}.first-intro .first-form h1{font-size:28px;margin:13px 0 9px}.first-intro .first-form>p:not(.first-disclaimer):not(.first-error){font-size:15px;margin-bottom:11px}.first-intro .pixel-drop{min-height:76px;padding:7px}.first-intro .pixel-plus svg{width:22px;height:22px}.first-intro .first-form textarea{min-height:46px;padding:8px 10px}.first-intro .pixel-start{padding:11px 14px}.first-intro .first-disclaimer{margin-top:9px}}
+@media(min-width:761px) and (max-height:800px){#first-stage .first-intro{padding:8px 0 14px;gap:0}#first-stage .mascot-area{height:125px;min-height:0;margin-top:0}#first-stage .first-form{padding:12px 18px 10px}#first-stage .first-form h1{font-size:25px;margin:8px 0 6px}#first-stage .first-form>p:not(.first-disclaimer):not(.first-error){font-size:12px;margin-bottom:7px}#first-stage .first-form .pixel-drop{min-height:58px;padding:5px}#first-stage .first-form .or-line{margin:8px 0}#first-stage .first-form textarea{min-height:38px;padding:6px 8px}#first-stage .first-form .pixel-start{margin-top:7px;padding:8px 10px}#first-stage .first-form .first-disclaimer{margin-top:6px}}
 
 /* Keep the pixel frame while using clear typography for reading and input. */
 .first-intro .first-form{font-family:Manrope,Arial,sans-serif}
@@ -197,12 +198,13 @@
 .agent-board-content:has(.agent-git-diagram){display:flex;flex-direction:column;overflow:hidden}
 .agent-git-diagram{flex:1;min-height:0;width:100%;display:flex;align-items:center;justify-content:center}
 .agent-git-diagram svg{display:block;width:100%;height:100%;max-height:410px;overflow:visible}
-.git-lanes path{fill:none;stroke:#524e5b;stroke-width:1;stroke-dasharray:2 4}
-.git-flow-lines path{fill:none;stroke:#c6c1d1;stroke-width:2;stroke-linecap:round;stroke-linejoin:round}
-.git-labels text{fill:#e1dfe8;font:600 15px Manrope,Arial,sans-serif}
-.git-versions text{fill:#a8a4af;font:12px Manrope,Arial,sans-serif}
-.git-commits circle{stroke:#eceaf1;stroke-width:1.5}
-.git-feature circle{fill:#b1a4c0}.git-develop circle{fill:#797486}.git-release circle{fill:#d2ced9}.git-hotfix circle{fill:#4c4858}.git-main circle{fill:#eceaf1}
+.git-lanes path{fill:none;stroke:#51475f;stroke-width:1;stroke-dasharray:2 4;marker-end:url(#git-arrow)}
+.git-flow-lines path{fill:none;stroke:#c9bddf;stroke-width:2;stroke-linecap:round;stroke-linejoin:round}
+.git-labels rect{stroke:#777;stroke-width:1}.git-label-feature rect{fill:#51455f;stroke:#a391bd}.git-label-develop rect{fill:#37343f}.git-label-release rect{fill:#5c5268;stroke:#9185a3}.git-label-hotfix rect{fill:#29272e}.git-label-main rect{fill:#e8e5eb;stroke:#fff}.git-label-main text{fill:#17151b}
+.git-labels text{fill:#f2f2f2;font:600 13px Manrope,Arial,sans-serif}.git-labels .git-label-main text{fill:#17151b}
+.git-versions rect{fill:#5b5069;stroke:#b9a8d3;stroke-width:1}.git-versions text{fill:#fff;font:600 10px Manrope,Arial,sans-serif}
+.git-commits circle{stroke:#111;stroke-width:2}
+.git-feature circle{fill:#c5b2f6}.git-develop circle{fill:#898096}.git-release circle{fill:#ddd5e8}.git-hotfix circle{fill:#51475f}.git-main circle{fill:#f5f3f7}
 .agent-expanded .agent-git-diagram svg{max-height:500px}
 .agent-plan-board.agent-expanded{background:#090909}
 .agent-plan-board:not(.agent-expanded).agent-git-active .agent-board-header{position:absolute;top:0;right:0;z-index:1;border:0;padding:0}
