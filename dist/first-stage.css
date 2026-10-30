@@ -93,6 +93,7 @@
 /* All four stages share the same board and the original live workspace DOM. */
 .board-stages{position:absolute;top:-4px;left:10%;right:10%;z-index:4;display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:3px;cursor:default}
 .board-stages button{background:#111014;border:1px solid #55505d;color:#bdb9c6;padding:6px 3px;font:600 10px/1.2 Manrope,Arial,sans-serif;cursor:pointer;white-space:nowrap}.board-stages button:hover{background:#26232e;color:#fff}.board-stages button.active{background:#e6e4ec;color:#17151b;border-color:#fff}
+.board-stages button.locked{opacity:.45;border-style:dashed}.board-stages button.locked:hover{opacity:.8;background:#17151b}
 .board-stage-message{position:absolute;top:100%;left:10%;right:10%;z-index:5;padding:10px;background:#18161e;border:1px solid #68616f;color:#fff;font:12px/1.5 Manrope,Arial,sans-serif;cursor:default}
 .board.expanded .board-stages{top:18px;left:clamp(20px,4vw,60px);right:clamp(20px,4vw,60px);max-width:1080px;margin:auto;gap:8px}.board.expanded .board-stages button{font-size:13px;padding:12px 8px}
 .board-stage .board.expanded .board-inner{padding-top:88px}.board.expanded .board-stage-message{top:68px;bottom:auto;left:5%;right:5%}
@@ -211,3 +212,8 @@
 .agent-plan-board:not(.agent-expanded).agent-git-active .agent-board-header>div:first-child,.agent-plan-board:not(.agent-expanded).agent-git-active .agent-board-footer{display:none}
 .agent-plan-board:not(.agent-expanded).agent-git-active .agent-board-content{padding-top:3px}
 .agent-plan-board:not(.agent-expanded).agent-git-active .agent-note{padding-right:24px}
+#first-stage.restoring .mascot-area{animation:none!important;transition:none!important}
+#first-stage.restoring .board-scene{opacity:1!important;animation:none!important}
+#first-stage.restoring .board-shadow-art{display:none!important}
+#first-stage.restoring .board-art{opacity:1!important;clip-path:none!important;animation:none!important}
+#first-stage.restoring .board-inner{opacity:1!important;animation:none!important}

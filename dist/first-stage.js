@@ -5,7 +5,7 @@
   root.innerHTML = `<div class="first-top"><a class="first-logo" href="/">✳ <span>макора</span></a><span>РАБОЧЕЕ ПРОСТРАНСТВО / 01</span><span>ЭТАП 01 / 06</span></div>
   <div class="first-intro"><div class="mascot-area" tabindex="0" role="img" aria-label="Макора. Перетащите мышью или перемещайте стрелками." title="Перетащить Макору"><iframe class="mascot-frame" src="mascot.html" title="Персонаж Макоры" tabindex="-1"></iframe></div>
   <form class="first-form"><div class="speech-label">ПЕРВЫЙ ШАГ <span>01 / 06</span></div><h1>Привет!<br>Разберём задание?</h1><p>Пришли условие хакатона — соберём всё важное в одном месте.</p>
-  <label class="pixel-drop"><input type="file" accept=".pdf,.doc,.docx,.txt,.md" class="sr-only"><span class="pixel-plus" aria-hidden="true"><svg viewBox="0 0 24 24" width="28" height="28" shape-rendering="crispEdges"><path fill="currentColor" d="M2 5h8v2h12v14H2zm2 4v10h16V9z"/><path fill="currentColor" d="M11 11h2v2h2v2h-2v2h-2v-2H9v-2h2z"/></svg></span><strong class="file-label">Выбрать файл</strong><small>или перетащить сюда<br>PDF, DOCX, TXT, MD · до 20 МБ</small></label><div class="or-line"><span>ИЛИ ВСТАВЬ ТЕКСТ</span></div><label class="sr-only" for="first-text">Текст задания</label><textarea id="first-text" placeholder="Вставь условие задания сюда…"></textarea><p class="first-error" role="alert" hidden></p><button class="pixel-start" type="submit" disabled>Начать анализ <span aria-hidden="true">▶</span></button><p class="first-disclaimer">Демо: загрузка и анализ имитируются. Этап 06 находится в разработке.</p></form></div>
+  <label class="pixel-drop"><input type="file" accept=".pdf,.doc,.docx,.txt,.md" class="sr-only"><span class="pixel-plus" aria-hidden="true"><svg viewBox="0 0 24 24" width="28" height="28" shape-rendering="crispEdges"><path fill="currentColor" d="M2 5h8v2h12v14H2zm2 4v10h16V9z"/><path fill="currentColor" d="M11 11h2v2h2v2h-2v2h-2v-2H9v-2h2z"/></svg></span><strong class="file-label">Выбрать файл</strong><small>или перетащить сюда<br>PDF, DOCX, TXT, MD · до 20 МБ</small></label><div class="or-line"><span>ИЛИ ВСТАВЬ ТЕКСТ</span></div><label class="sr-only" for="first-text">Текст задания</label><textarea id="first-text" placeholder="Вставь условие задания сюда…"></textarea><p class="first-error" role="alert" hidden></p><button class="pixel-start" type="submit" disabled>Начать анализ <span aria-hidden="true">▶</span></button><p class="first-disclaimer">Демо: загрузка и анализ имитируются. После этапа 4 доступен учебный маршрут разработки.</p></form></div>
   <div class="board-scene" hidden><div class="board-heading"><span>01 / АНАЛИЗ ЗАДАНИЯ</span><span>01_CASE_ANALYSIS.MD</span></div><div class="board-stage"><div class="board-mascot" aria-hidden="true"></div><div class="board" aria-label="Доска рабочего пространства"><nav class="board-stages" aria-label="Этапы проекта"><button type="button" data-board-stage="1">01 <span>Анализ</span></button><button type="button" data-board-stage="2">02 <span>Идея</span></button><button type="button" data-board-stage="3">03 <span>План</span></button><button type="button" data-board-stage="4">04 <span>Мок-данные</span></button></nav><div class="board-stage-message" role="status" hidden></div><div class="board-sprite"><img class="board-shadow-art" src="analysis-board.png" alt="" draggable="false"><img class="board-art" src="analysis-board.png" alt="" draggable="false"></div><div class="board-inner"><div class="board-bar"><div><span class="board-kicker">ДЕМО-КЕЙС / ТИХИЙ КАМПУС</span><h2>Анализ задания<span>.</span></h2></div><button type="button" class="board-expand" aria-label="Развернуть доску" title="Развернуть доску">⛶</button></div><div class="board-content"></div><div class="board-footer"><span>ТЯНИ ЗА РАМКУ · ДВОЙНОЙ КЛИК — НА ВЕСЬ ЭКРАН</span><span>01 / 06</span></div></div></div></div><div class="scene-bottom"><p>Демо-анализ: показан пример, файл не анализируется.</p><button type="button" class="board-next">Далее <span>→</span></button></div></div>`;
   document.body.append(root);
   document.body.classList.add('first-stage-active');
@@ -138,9 +138,15 @@
     board.classList.toggle('idea-board', stage === 2);
     root.querySelector('.board-footer span:last-child').textContent = String(stage).padStart(2,'0') + ' / 06';
     board.classList.toggle('workspace-board', working);
+    const stageStatuses=window.makoraDemoWorkflow.getStageStatuses();
     root.querySelectorAll('[data-board-stage]').forEach(button => {
+      const number=Number(button.dataset.boardStage),status=stageStatuses[number]||'locked',locked=status==='locked';
       const active = Number(button.dataset.boardStage) === stage;
       button.classList.toggle('active', active);
+      button.classList.toggle('locked',locked);
+      button.dataset.status=status;
+      button.setAttribute('aria-disabled','false');
+      button.title=locked?window.makoraDemoWorkflow.getGateMessage(number):`Этап ${String(number).padStart(2,'0')} · ${status==='approved'?'утверждён':'доступен'}`;
       if (active) button.setAttribute('aria-current','step'); else button.removeAttribute('aria-current');
     });
     root.querySelector('.board-bar h2').textContent = boardTitles[stage-1] || 'Рабочее пространство';
@@ -149,13 +155,18 @@
     if (stage === 4 && !stage4DetailOpen && workspace.parentElement === content) { workspaceHome.append(workspace); showMockIndex(); }
     root.querySelector('.board-heading span:first-child').textContent = String(stage).padStart(2,'0') + ' / ' + (boardTitles[stage-1] || 'РАЗРАБОТКА').toUpperCase();
     root.querySelector('.board-heading span:last-child').textContent = stage === 1 ? '01_CASE_ANALYSIS.MD' : 'РАБОЧЕЕ ПРОСТРАНСТВО';
-    root.querySelector('.scene-bottom > p').textContent = (stage >= 3 ? window.makoraDemo.notice : 'Демо-анализ: показан пример, файл не анализируется.') + ' Этап 06 находится в разработке.';
+    root.querySelector('.scene-bottom > p').textContent = stage >= 3 ? window.makoraDemo.notice : stage === 1 ? 'Демо-анализ: показан пример, файл не анализируется.' : 'Учебный кейс «Тихий кампус» · исследование и идея — демонстрационные материалы.';
     const next = root.querySelector('.board-next');
     next.hidden = stage === 2 || stage >= 4;
     next.innerHTML = (stage === 1 ? 'Далее' : 'К мок-данным') + ' <span>→</span>';
   }
   async function openBoardStage(number) {
     if (stageSwitchInProgress) return;
+    if(!window.makoraDemoWorkflow.canOpenStage(number)){
+      stageMessage.textContent=window.makoraDemoWorkflow.getGateMessage(number);
+      stageMessage.hidden=false;
+      return;
+    }
     stageMessage.hidden = true;
     stageSwitchInProgress = true;
     try {
@@ -175,6 +186,7 @@
         else if (number === 4) { stage4DetailOpen = false; await window.openMockStage({preview:true}); }
         content.scrollTop = 0;
       }
+      window.makoraDemoWorkflow.setActiveStage(number);
       syncBoardStage();
     } finally { stageSwitchInProgress = false; }
   }
@@ -447,6 +459,28 @@
     moveBoard(narrow ? (window.innerWidth - width) / 2 : mascotRect.right + 18,
       narrow ? mascotRect.bottom + 12 : mascotRect.top + mascotRect.height / 2 - width / 4);
   }
+  function revealWorkspace(mascotRect,{restore=false}={}) {
+    const mascot=root.querySelector('.mascot-area'),formRect=form.getBoundingClientRect();
+    if(restore){
+      fixMascot();
+      root.classList.add('restoring');
+      form.hidden=true;
+    }else{
+      Object.assign(form.style,{position:'fixed',left:formRect.left+'px',top:formRect.top+'px',width:formRect.width+'px'});
+      Object.assign(mascot.style,{position:'fixed',left:mascotRect.left+'px',top:mascotRect.top+'px',width:mascotRect.width+'px',height:mascotRect.height+'px',minHeight:'0',maxWidth:'none',margin:'0'});
+      spinWheel();
+    }
+    root.classList.add('departing');
+    prototypeHandoff.show();
+    root.querySelector('.board-scene').hidden=false;
+    showIndex();
+    syncBoardStage();
+    placeBoard(mascotRect);
+    if(restore)root.classList.add('board-visible');
+    else requestAnimationFrame(()=>requestAnimationFrame(()=>root.classList.add('board-visible')));
+    if(window.makoraDemoWorkflow.isDemoPrototypeReady())setTimeout(()=>window.makoraAgentPlan?.open(),restore?350:1250);
+    if(!restore)setTimeout(()=>{form.hidden=true;},650);
+  }
   board.addEventListener('pointerdown', e => {
     if (e.button !== 0 || board.classList.contains('expanded') || e.target.closest('button,.board-content')) return;
     dragging = {id:e.pointerId, x:e.clientX, y:e.clientY, left:motion.targetX, top:motion.targetY, previousX:e.clientX, last:performance.now()};
@@ -485,28 +519,22 @@
     if (start.disabled || root.classList.contains('departing')) return;
     const sourceText=textarea.value.trim() || (selectedFile && /\.(txt|md)$/i.test(selectedFile.name) ? await selectedFile.text() : '');
     if(!window.makoraProject.setSource({name:textarea.value.trim()?'Вставленный текст':selectedFile?.name||'Условие',text:sourceText})){error.textContent='Не удалось сохранить условие на устройстве. Попробуй более короткий текст.';error.hidden=false;return;}
-    const mascot = root.querySelector('.mascot-area');
-    const initial = mascot.getBoundingClientRect();
-    const formRect = form.getBoundingClientRect();
-    Object.assign(form.style, {position:'fixed', left:formRect.left+'px', top:formRect.top+'px', width:formRect.width+'px'});
-    Object.assign(mascot.style, {position:'fixed', left:initial.left+'px', top:initial.top+'px', width:initial.width+'px', height:initial.height+'px', minHeight:'0', maxWidth:'none', margin:'0'});
-    spinWheel();
-    root.classList.add('departing');
-    prototypeHandoff.show();
-    root.querySelector('.board-scene').hidden = false;
-    showIndex();
-    syncBoardStage();
-    placeBoard(initial);
-    requestAnimationFrame(() => requestAnimationFrame(() => root.classList.add('board-visible')));
-    setTimeout(() => { form.hidden = true; }, 650);
+    revealWorkspace(root.querySelector('.mascot-area').getBoundingClientRect());
   });
-  root.querySelector('.board-next').addEventListener('click', () => openBoardStage(Math.min(boardStage + 1, 4)));
+  root.querySelector('.board-next').addEventListener('click', () => {
+    const next=Math.min(boardStage+1,4);
+    if(boardStage===1){const result=window.makoraDemoWorkflow.approveAnalysis();if(!result.ok){stageMessage.textContent=result.error;stageMessage.hidden=false;return;}}
+    openBoardStage(next);
+  });
   const previousSource=window.makoraProject.source();
   if(previousSource){
     textarea.value=previousSource.text||previousSource.name||'';
     update();
-    if(!start.disabled){form.requestSubmit();window.makoraProject.setSource(previousSource);}
-    const resumeStage=Math.max(1,Math.min(4,Number(savedWorkspaceView.stage)||1));
+    if(!start.disabled){
+      revealWorkspace(root.querySelector('.mascot-area').getBoundingClientRect(),{restore:true});
+    }
+    let resumeStage=Math.max(1,Math.min(4,Number(savedWorkspaceView.stage)||1));
+    while(resumeStage>1&&!window.makoraDemoWorkflow.canOpenStage(resumeStage))resumeStage--;
     if(resumeStage>1)setTimeout(()=>openBoardStage(resumeStage),1900);
   }
 })();
