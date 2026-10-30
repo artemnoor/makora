@@ -193,3 +193,19 @@
 .agent-expanded .agent-board-tabs{top:20px;left:8%;right:8%;max-width:1000px;margin:auto;gap:8px}.agent-expanded .agent-board-tabs button{font-size:13px;padding:10px}.agent-expanded .agent-board-frame{inset:85px 8% 5%}.agent-expanded .agent-activity-list{gap:8px}.agent-expanded .agent-activity-list button{padding:12px}.agent-expanded .agent-activity-list strong{font-size:14px}.agent-expanded .agent-activity-list small,.agent-expanded .agent-git-node{font-size:12px}.agent-expanded .agent-git-node{padding:10px}.agent-expanded .agent-git-line{height:25px}
 @media(max-width:760px){.agent-board-tabs button{font-size:9px;padding:4px 1px}.agent-expanded .agent-board-tabs{left:20px;right:20px}.agent-expanded .agent-board-frame{inset:75px 20px 20px}.agent-expanded .agent-board-tabs button{font-size:11px}}
 @media(prefers-reduced-motion:reduce){.agent-revealing:not(.agent-expanded) .agent-board-frame,.agent-revealing:not(.agent-expanded) .agent-board-tabs{opacity:1;animation:none}}
+/* Horizontal Gitflow timeline, styled in the board's muted monochrome palette. */
+.agent-board-content:has(.agent-git-diagram){display:flex;flex-direction:column;overflow:hidden}
+.agent-git-diagram{flex:1;min-height:0;width:100%;display:flex;align-items:center;justify-content:center}
+.agent-git-diagram svg{display:block;width:100%;height:100%;max-height:410px;overflow:visible}
+.git-lanes path{fill:none;stroke:#524e5b;stroke-width:1;stroke-dasharray:2 4}
+.git-flow-lines path{fill:none;stroke:#c6c1d1;stroke-width:2;stroke-linecap:round;stroke-linejoin:round}
+.git-labels text{fill:#e1dfe8;font:600 15px Manrope,Arial,sans-serif}
+.git-versions text{fill:#a8a4af;font:12px Manrope,Arial,sans-serif}
+.git-commits circle{stroke:#eceaf1;stroke-width:1.5}
+.git-feature circle{fill:#b1a4c0}.git-develop circle{fill:#797486}.git-release circle{fill:#d2ced9}.git-hotfix circle{fill:#4c4858}.git-main circle{fill:#eceaf1}
+.agent-expanded .agent-git-diagram svg{max-height:500px}
+.agent-plan-board.agent-expanded{background:#090909}
+.agent-plan-board:not(.agent-expanded).agent-git-active .agent-board-header{position:absolute;top:0;right:0;z-index:1;border:0;padding:0}
+.agent-plan-board:not(.agent-expanded).agent-git-active .agent-board-header>div:first-child,.agent-plan-board:not(.agent-expanded).agent-git-active .agent-board-footer{display:none}
+.agent-plan-board:not(.agent-expanded).agent-git-active .agent-board-content{padding-top:3px}
+.agent-plan-board:not(.agent-expanded).agent-git-active .agent-note{padding-right:24px}
