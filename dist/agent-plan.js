@@ -16,7 +16,7 @@ window.createAgentPlan = function(root, mascot) {
   board.innerHTML=`<div class="agent-board-frame"><header class="agent-board-header"><div><small>ДЕМО · ТИХИЙ КАМПУС</small><h2>План агентов</h2></div><div><button type="button" data-agent-expand aria-label="Развернуть доску">⛶</button><button type="button" data-agent-close aria-label="Закрыть доску">×</button></div></header><div class="agent-board-content"></div><footer class="agent-board-footer"><span data-agent-status></span><button type="button" data-agent-approve>Утвердить план</button></footer></div>`;
   root.append(board);
   const content=board.querySelector('.agent-board-content'), status=board.querySelector('[data-agent-status]');
-  let current=null;
+  let current=null, drag=null, moved=false;
   function save(){try{localStorage.setItem(key,JSON.stringify(state));}catch(_){}}
   function updateStatus(){status.textContent=state.approved?'● ПЛАН УТВЕРЖДЁН · ДЕМО':'○ ЧЕРНОВИК · ДЕМО';board.querySelector('[data-agent-approve]').textContent=state.approved?'Утверждено ✓':'Утвердить план';}
   function graph(){
@@ -41,7 +41,15 @@ window.createAgentPlan = function(root, mascot) {
   board.querySelector('[data-agent-close]').onclick=()=>{board.hidden=true;};
   board.querySelector('[data-agent-expand]').onclick=()=>{board.classList.toggle('agent-expanded');position();};
   board.addEventListener('dblclick',e=>{if(e.target.closest('button,textarea,input,label'))return;board.classList.toggle('agent-expanded');position();});
-  function position(){if(board.hidden||board.classList.contains('agent-expanded'))return;const rect=mascot.getBoundingClientRect();const width=Math.min(510,Math.max(300,rect.left-28));board.style.width=width+'px';board.style.left=Math.max(8,rect.left-width-18)+'px';board.style.top=Math.max(82,Math.min(window.innerHeight-board.offsetHeight-8,rect.top+rect.height/2-board.offsetHeight/2))+'px';}
+  board.addEventListener('pointerdown',e=>{
+    if(board.classList.contains('agent-expanded') || e.button!==0 || e.target.closest('button,textarea,input,label,.agent-board-content,.agent-board-footer'))return;
+    const rect=board.getBoundingClientRect();drag={id:e.pointerId,x:e.clientX,y:e.clientY,left:rect.left,top:rect.top};
+    board.classList.add('agent-dragging');board.setPointerCapture(e.pointerId);e.preventDefault();
+  });
+  board.addEventListener('pointermove',e=>{if(!drag||drag.id!==e.pointerId)return;moved=true;board.style.left=Math.max(0,Math.min(window.innerWidth-board.offsetWidth,drag.left+e.clientX-drag.x))+'px';board.style.top=Math.max(0,Math.min(window.innerHeight-board.offsetHeight,drag.top+e.clientY-drag.y))+'px';});
+  function endDrag(e){if(!drag||drag.id!==e.pointerId)return;drag=null;board.classList.remove('agent-dragging');if(board.hasPointerCapture(e.pointerId))board.releasePointerCapture(e.pointerId);}
+  ['pointerup','pointercancel','lostpointercapture'].forEach(type=>board.addEventListener(type,endDrag));
+  function position(){if(board.hidden||board.classList.contains('agent-expanded'))return;if(moved){board.style.left=Math.max(0,Math.min(window.innerWidth-board.offsetWidth,parseFloat(board.style.left)||0))+'px';board.style.top=Math.max(0,Math.min(window.innerHeight-board.offsetHeight,parseFloat(board.style.top)||0))+'px';return;}const rect=mascot.getBoundingClientRect();const width=window.innerWidth<=760?Math.min(390,window.innerWidth-16):Math.min(510,Math.max(300,rect.left-28));board.style.width=width+'px';board.style.left=Math.max(8,rect.left-width-18)+'px';board.style.top=Math.max(8,Math.min(window.innerHeight-board.offsetHeight-8,rect.top+rect.height/2-board.offsetHeight/2))+'px';}
   graph();
   return {position,open(){board.hidden=false;graph();position();}};
 };
