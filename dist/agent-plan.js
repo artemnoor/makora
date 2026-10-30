@@ -13,7 +13,7 @@ window.createAgentPlan = function(root, mascot) {
   const board=document.createElement('section');
   board.className='agent-plan-board'; board.hidden=true;
   board.setAttribute('aria-label','Демонстрационный план агентов');
-  board.innerHTML=`<div class="agent-board-frame"><header class="agent-board-header"><div><small>ДЕМО · ТИХИЙ КАМПУС</small><h2>План агентов</h2></div><div><button type="button" data-agent-expand aria-label="Развернуть доску">⛶</button><button type="button" data-agent-close aria-label="Закрыть доску">×</button></div></header><div class="agent-board-content"></div><footer class="agent-board-footer"><span data-agent-status></span><button type="button" data-agent-approve>Утвердить план</button></footer></div>`;
+  board.innerHTML=`<img class="agent-board-shadow" src="analysis-board.png" alt="" draggable="false"><img class="agent-board-art" src="analysis-board.png" alt="" draggable="false"><div class="agent-board-frame"><header class="agent-board-header"><div><small>ДЕМО · ТИХИЙ КАМПУС</small><h2>План агентов</h2></div><div><button type="button" data-agent-expand aria-label="Развернуть доску">⛶</button><button type="button" data-agent-close aria-label="Закрыть доску">×</button></div></header><div class="agent-board-content"></div><footer class="agent-board-footer"><span data-agent-status></span><button type="button" data-agent-approve>Утвердить план</button></footer></div>`;
   root.append(board);
   const content=board.querySelector('.agent-board-content'), status=board.querySelector('[data-agent-status]');
   let current=null, drag=null, moved=false;
@@ -67,5 +67,5 @@ window.createAgentPlan = function(root, mascot) {
   ['pointerup','pointercancel','lostpointercapture'].forEach(type=>board.addEventListener(type,endDrag));
   function position(){if(board.hidden||board.classList.contains('agent-expanded'))return;if(moved){motion.targetX=clamp(motion.targetX,0,Math.max(0,window.innerWidth-board.offsetWidth));motion.targetY=clamp(motion.targetY,0,Math.max(0,window.innerHeight-board.offsetHeight));settle();return;}const rect=mascot.getBoundingClientRect();const width=window.innerWidth<=760?Math.min(390,window.innerWidth-16):Math.min(510,Math.max(300,rect.left-28));board.style.width=width+'px';motion.targetX=Math.max(8,rect.left-width-18);motion.targetY=Math.max(8,Math.min(window.innerHeight-board.offsetHeight-8,rect.top+rect.height/2-board.offsetHeight/2));settle();}
   graph();
-  return {position,open(){board.hidden=false;graph();position();}};
+  return {position,open(){board.classList.remove('agent-expanded','agent-revealing');board.hidden=false;graph();position();void board.offsetWidth;board.classList.add('agent-revealing');}};
 };
