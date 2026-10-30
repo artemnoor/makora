@@ -17,6 +17,22 @@ window.createAgentPlan = function(root, mascot) {
   root.append(board);
   const content=board.querySelector('.agent-board-content'), status=board.querySelector('[data-agent-status]');
   let current=null, drag=null, moved=false;
+  const motion={x:0,y:0,targetX:0,targetY:0,velocity:0,rotation:0,frame:0,last:0};
+  const reducedMotion=window.matchMedia('(prefers-reduced-motion: reduce)');
+  const clamp=(value,min,max)=>Math.max(min,Math.min(max,value));
+  function paint(){board.style.left=motion.x+'px';board.style.top=motion.y+'px';board.style.setProperty('--agent-tilt',motion.rotation+'deg');}
+  function settle(){cancelAnimationFrame(motion.frame);motion.frame=0;motion.x=motion.targetX;motion.y=motion.targetY;motion.velocity=motion.rotation=0;paint();}
+  function animate(now){
+    motion.frame=0;
+    if(!root.isConnected||board.hidden||board.classList.contains('agent-expanded')||reducedMotion.matches){settle();return;}
+    const dt=Math.min(.06,Math.max(0,(now-motion.last)/1000));motion.last=now;
+    const smooth=1-Math.exp(-dt*11);motion.x+=(motion.targetX-motion.x)*smooth;motion.y+=(motion.targetY-motion.y)*smooth;
+    motion.rotation+=(clamp(motion.velocity*.006,-3,3)-motion.rotation)*(1-Math.exp(-dt*7));
+    if(!drag){motion.velocity*=Math.exp(-dt*7);motion.rotation*=Math.exp(-dt*2.3);}
+    paint();
+    if(drag||Math.abs(motion.targetX-motion.x)>.1||Math.abs(motion.targetY-motion.y)>.1||Math.abs(motion.velocity)>.1||Math.abs(motion.rotation)>.01)motion.frame=requestAnimationFrame(animate);else settle();
+  }
+  function startMotion(){if(reducedMotion.matches){settle();return;}if(!motion.frame){motion.last=performance.now();motion.frame=requestAnimationFrame(animate);}}
   function save(){try{localStorage.setItem(key,JSON.stringify(state));}catch(_){}}
   function updateStatus(){status.textContent=state.approved?'● ПЛАН УТВЕРЖДЁН · ДЕМО':'○ ЧЕРНОВИК · ДЕМО';board.querySelector('[data-agent-approve]').textContent=state.approved?'Утверждено ✓':'Утвердить план';}
   function graph(){
@@ -43,13 +59,13 @@ window.createAgentPlan = function(root, mascot) {
   board.addEventListener('dblclick',e=>{if(e.target.closest('button,textarea,input,label'))return;board.classList.toggle('agent-expanded');position();});
   board.addEventListener('pointerdown',e=>{
     if(board.classList.contains('agent-expanded') || e.button!==0 || e.target.closest('button,textarea,input,label,.agent-board-content,.agent-board-footer'))return;
-    const rect=board.getBoundingClientRect();drag={id:e.pointerId,x:e.clientX,y:e.clientY,left:rect.left,top:rect.top};
+    drag={id:e.pointerId,x:e.clientX,y:e.clientY,left:motion.targetX,top:motion.targetY,previousX:e.clientX,last:performance.now()};
     board.classList.add('agent-dragging');board.setPointerCapture(e.pointerId);e.preventDefault();
   });
-  board.addEventListener('pointermove',e=>{if(!drag||drag.id!==e.pointerId)return;moved=true;board.style.left=Math.max(0,Math.min(window.innerWidth-board.offsetWidth,drag.left+e.clientX-drag.x))+'px';board.style.top=Math.max(0,Math.min(window.innerHeight-board.offsetHeight,drag.top+e.clientY-drag.y))+'px';});
-  function endDrag(e){if(!drag||drag.id!==e.pointerId)return;drag=null;board.classList.remove('agent-dragging');if(board.hasPointerCapture(e.pointerId))board.releasePointerCapture(e.pointerId);}
+  board.addEventListener('pointermove',e=>{if(!drag||drag.id!==e.pointerId)return;moved=true;motion.targetX=clamp(drag.left+e.clientX-drag.x,0,Math.max(0,window.innerWidth-board.offsetWidth));motion.targetY=clamp(drag.top+e.clientY-drag.y,0,Math.max(0,window.innerHeight-board.offsetHeight));const now=performance.now();motion.velocity=clamp((e.clientX-drag.previousX)/Math.max(.016,(now-drag.last)/1000),-1000,1000);drag.previousX=e.clientX;drag.last=now;startMotion();});
+  function endDrag(e){if(!drag||drag.id!==e.pointerId)return;drag=null;board.classList.remove('agent-dragging');startMotion();if(board.hasPointerCapture(e.pointerId))board.releasePointerCapture(e.pointerId);}
   ['pointerup','pointercancel','lostpointercapture'].forEach(type=>board.addEventListener(type,endDrag));
-  function position(){if(board.hidden||board.classList.contains('agent-expanded'))return;if(moved){board.style.left=Math.max(0,Math.min(window.innerWidth-board.offsetWidth,parseFloat(board.style.left)||0))+'px';board.style.top=Math.max(0,Math.min(window.innerHeight-board.offsetHeight,parseFloat(board.style.top)||0))+'px';return;}const rect=mascot.getBoundingClientRect();const width=window.innerWidth<=760?Math.min(390,window.innerWidth-16):Math.min(510,Math.max(300,rect.left-28));board.style.width=width+'px';board.style.left=Math.max(8,rect.left-width-18)+'px';board.style.top=Math.max(8,Math.min(window.innerHeight-board.offsetHeight-8,rect.top+rect.height/2-board.offsetHeight/2))+'px';}
+  function position(){if(board.hidden||board.classList.contains('agent-expanded'))return;if(moved){motion.targetX=clamp(motion.targetX,0,Math.max(0,window.innerWidth-board.offsetWidth));motion.targetY=clamp(motion.targetY,0,Math.max(0,window.innerHeight-board.offsetHeight));settle();return;}const rect=mascot.getBoundingClientRect();const width=window.innerWidth<=760?Math.min(390,window.innerWidth-16):Math.min(510,Math.max(300,rect.left-28));board.style.width=width+'px';motion.targetX=Math.max(8,rect.left-width-18);motion.targetY=Math.max(8,Math.min(window.innerHeight-board.offsetHeight-8,rect.top+rect.height/2-board.offsetHeight/2));settle();}
   graph();
   return {position,open(){board.hidden=false;graph();position();}};
 };

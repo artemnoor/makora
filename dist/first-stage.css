@@ -170,3 +170,5 @@
 .agent-board-footer button{flex:none}
 .agent-board-content input,.agent-board-content textarea{user-select:text;touch-action:auto}
 @media(max-width:760px){.agent-plan-board:not(.agent-expanded){left:auto;top:auto;bottom:auto;width:auto;max-height:45vh}}
+.agent-plan-board:not(.agent-expanded){transform:rotate(var(--agent-tilt,0deg));transform-origin:center;will-change:left,top,transform}
+@media(prefers-reduced-motion:reduce){.agent-plan-board:not(.agent-expanded){transform:none;will-change:auto}}
