@@ -11,7 +11,7 @@ import { DatabaseSync } from 'node:sqlite';
 const root = dirname(fileURLToPath(import.meta.url));
 const shell = process.env.CODEX_POWERSHELL_PATH || 'pwsh';
 const cwd = process.env.CODEX_DEFAULT_CWD || process.cwd();
-const codex = spawn(shell, ['-NoLogo', '-NoProfile', '-File', join(root, 'appserver-uds.ps1')], {
+const codex = spawn(process.env.CODEX_APP_SERVER_BINARY || shell, process.env.CODEX_APP_SERVER_BINARY ? ['app-server', '--listen', 'stdio://'] : ['-NoLogo', '-NoProfile', '-File', join(root, 'appserver-uds.ps1')], {
   cwd,
   env: process.env,
   stdio: ['pipe', 'pipe', 'pipe'],
@@ -988,7 +988,7 @@ const server = createServer(async (request, response) => {
         threadSource: 'appServer',
         ephemeral: false,
         approvalPolicy: input.approvalPolicy || 'onRequest',
-        sandbox: input.sandbox || 'workspace-write',
+        ...(input.permissions ? {permissions:input.permissions, config:input.config || {}} : {sandbox: input.sandbox || 'workspace-write'}),
         ...(typeof input.model === 'string' && input.model ? { model: input.model } : {}),
       });
       const threadId = result.thread?.id;
@@ -1005,7 +1005,7 @@ const server = createServer(async (request, response) => {
           threadId,
           input: [{ type: 'text', text: input.prompt.trim() }],
           approvalPolicy: input.approvalPolicy || 'on-request',
-          ...(input.sandboxPolicy && typeof input.sandboxPolicy === 'object' ? { sandboxPolicy: input.sandboxPolicy } : {}),
+          ...(input.permissions ? {permissions:input.permissions} : (input.sandboxPolicy && typeof input.sandboxPolicy === 'object' ? { sandboxPolicy: input.sandboxPolicy } : {})),
         });
         const operation = startDeliveryTracking(threadId, input.prompt.trim());
         return json(response, 201, { id: threadId, model: input.model || null, turnId: turn.turn?.id, initialPromptSubmitted: true, transport: 'app-server', operation });

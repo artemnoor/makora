@@ -108,7 +108,8 @@ class MakoraHandler(SimpleHTTPRequestHandler):
         try:
             if path == '/api/agents/token':
                 origin=self.headers.get('Origin','')
-                if not origin or urlparse(origin).netloc.lower()!=self.headers.get('Host','').lower():
+                same_origin = (origin and self._local_origin(origin) and urlparse(origin).netloc.lower()==self.headers.get('Host','').lower()) or (not origin and self.headers.get('Sec-Fetch-Site','') == 'same-origin')
+                if not same_origin or self.headers.get('X-Makora-Request') != 'token':
                     self._error(AgentRuntimeError('SAME_ORIGIN_REQUIRED','Token is available only to the Makora page.',403),403);return
                 self._json({'token':self.server.agent_token});return
             if path == '/api/agents/status':
@@ -184,6 +185,12 @@ class MakoraHandler(SimpleHTTPRequestHandler):
                 self._agent_json(lambda:self.server.agent_runtime.resolve_approval(match.group(1),str(value.get('decision',''))));return
             if path == '/api/agents/runs':
                 self._agent_json(lambda:self.server.agent_runtime.create_run(self._read_json()),201);return
+            match=re.fullmatch(r'/api/agents/runs/([\w-]+)/tasks/([\w-]+)/(tests|integrate)',path)
+            if match:
+                value=self._read_json()
+                if match.group(3)=='tests':
+                    self._agent_json(lambda:self.server.agent_runtime.test_task(match.group(1),match.group(2),value.get('allowedPaths',[])));return
+                self._agent_json(lambda:self.server.agent_runtime.integrate_task(match.group(1),match.group(2),value.get('confirmed') is True));return
             match=re.fullmatch(r'/api/agents/runs/([\w-]+)/tasks/([\w-]+)/worktree',path)
             if match:self._agent_json(lambda:self.server.agent_runtime.create_task_worktree(match.group(1),match.group(2)),201);return
             match=re.fullmatch(r'/api/agents/runs/([\w-]+)/tasks/([\w-]+)/agents/(builder|reviewer|test_designer)',path)

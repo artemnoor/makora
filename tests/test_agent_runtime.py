@@ -16,7 +16,7 @@ class FakeProvider:
     def status(self):
         return {"connected": True, "model": MODEL_ID, "modelAvailable": True}
 
-    def create_thread(self, *, cwd, name, prompt, sandbox="workspaceWrite"):
+    def create_thread(self, *, cwd, name, prompt, sandbox="workspaceWrite", denied_paths=None):
         self.next += 1
         thread = f"thread-{self.next}"
         operation = f"operation-{self.next}"
@@ -149,6 +149,41 @@ class AgentRuntimeTests(unittest.TestCase):
         restored = AgentRuntime(self.workspace, self.integration, [self.project], FakeProvider())
         self.assertEqual(run["id"], restored.get_run(run["id"])["id"])
         self.assertEqual(run["baseCommit"], restored.get_run(run["id"])["baseCommit"])
+
+    def test_recovery_does_not_accept_an_unrelated_completed_turn(self):
+        run = self.create_run()
+        session = self.runtime.launch_agent(run["id"], "T01", "test_designer")
+        self.provider.sessions[session["threadId"]]["state"] = "failed"
+        self.provider.history = lambda _: {"turns": [{"id": "older-turn", "status": "completed"}]}
+        self.assertEqual("failed", self.runtime.get_session(session["id"])["status"])
+
+    def test_diff_includes_staged_unstaged_and_untracked_paths(self):
+        run = self.create_run()
+        tree = Path(self.runtime.create_task_worktree(run["id"], "T01")["worktree"])
+        (tree / "README.md").write_text("staged\n", encoding="utf-8")
+        subprocess.run(["git", "-C", str(tree), "add", "README.md"], check=True)
+        (tree / "README.md").write_text("unstaged\n", encoding="utf-8")
+        (tree / "new.py").write_text("value = 1\n", encoding="utf-8")
+        diff = self.runtime.run_diff(run["id"], "T01")
+        self.assertIn("README.md", diff["changedFiles"])
+        self.assertIn("new.py", diff["untrackedFiles"])
+        self.assertIn("unstaged", diff["diff"])
+
+    def test_integration_rejects_missing_test_and_review_evidence(self):
+        run = self.create_run()
+        tree = Path(self.runtime.create_task_worktree(run['id'], 'T01')['worktree'])
+        (tree/'result.py').write_text('value = 1\n',encoding='utf-8')
+        self.runtime._run(run['id'])['tasks'][0]['allowedPaths']=['result.py']
+        with self.assertRaisesRegex(AgentRuntimeError,'подтверждение'):
+            self.runtime.integrate_task(run['id'],'T01',True)
+
+    def test_acceptance_blocks_unapproved_files(self):
+        from makora_core.agents.acceptance import snapshot
+        run = self.create_run()
+        tree = Path(self.runtime.create_task_worktree(run['id'], 'T01')['worktree'])
+        (tree/'secret.key').write_text('not a real key',encoding='utf-8')
+        with self.assertRaises(AgentRuntimeError):
+            snapshot(self.runtime,run['id'],'T01',['secret.key'])
 
 
 if __name__ == "__main__":

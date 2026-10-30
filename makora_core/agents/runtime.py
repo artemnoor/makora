@@ -5,6 +5,7 @@ import json
 import os
 import re
 import secrets
+import socket
 import shutil
 import subprocess
 import threading
@@ -42,6 +43,10 @@ class CodexLocalApi:
         self.workspace = workspace
         self._lock = threading.Lock()
         self._process: subprocess.Popen | None = None
+        with socket.socket() as listener:
+            listener.bind(('127.0.0.1', 0))
+            self._port = listener.getsockname()[1]
+        self._base = f'http://127.0.0.1:{self._port}'
         token_file = self.workspace / "agents" / "local-api-token"
         try:
             self._token = token_file.read_text("ascii").strip()
@@ -58,7 +63,7 @@ class CodexLocalApi:
     def _request(self, path: str, payload: dict | None = None, timeout: float = 8) -> dict:
         data = None if payload is None else json.dumps(payload).encode("utf-8")
         request = urllib.request.Request(
-            API_BASE + path,
+            self._base + path,
             data=data,
             headers={"Authorization": f"Bearer {self._token}", **({"Content-Type": "application/json"} if data is not None else {})},
         )
@@ -74,10 +79,14 @@ class CodexLocalApi:
                 parsed = json.loads(detail)
             except json.JSONDecodeError:
                 parsed = {}
-            if parsed.get("deliveryUnknown"):
+            if 'cannot enforce split filesystem read restrictions' in str(parsed.get('error', '')):
+                raise AgentRuntimeError('SANDBOX_UNAVAILABLE', 'Windows unelevated sandbox не поддерживает изоляцию чтения. Настрой MXC, elevated sandbox или отдельную Linux-среду. Запуск без изоляции заблокирован.', 503) from exc
+            if parsed.get("deliveryUnknown") or parsed.get("threadId"):
                 raise AgentRuntimeError("DELIVERY_UNKNOWN", "Codex не подтвердил доставку. Проверь историю перед повторной отправкой.", 409, parsed) from exc
             raise AgentRuntimeError("CODEX_API_ERROR", f"Codex API HTTP {exc.code}: {detail}", 502) from exc
         except (urllib.error.URLError, TimeoutError, OSError) as exc:
+            if data is not None:
+                raise AgentRuntimeError('DELIVERY_UNKNOWN', 'Соединение потеряно после отправки. Результат неизвестен; автоматический повтор запрещён.', 409) from exc
             raise AgentRuntimeError("CODEX_UNAVAILABLE", "Не удалось подключиться к локальному Codex App Server.", 503) from exc
         except json.JSONDecodeError as exc:
             raise AgentRuntimeError("CODEX_API_INVALID", "Codex API returned non-JSON response", 502) from exc
@@ -109,7 +118,7 @@ class CodexLocalApi:
             stream = open(log, "ab", buffering=0)
             env = os.environ.copy()
             env["CODEX_LOCAL_API_TOKEN"] = self._token
-            args = [pwsh, "-NoLogo", "-NoProfile", "-File", str(script), "-AppServerOnly", "-Port", "4182", "-WorkingDirectory", str(self.integration_dir)]
+            args = [pwsh, "-NoLogo", "-NoProfile", "-File", str(script), "-AppServerOnly", "-Port", str(self._port), "-WorkingDirectory", str(self.integration_dir)]
             self._process = subprocess.Popen(args, cwd=self.integration_dir, env=env, stdin=subprocess.DEVNULL,
                                              stdout=stream, stderr=subprocess.STDOUT, creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0))
         deadline = time.monotonic() + 20
@@ -141,7 +150,7 @@ class CodexLocalApi:
             "desktopVisibility": "App Server threads are persistent; Codex Desktop UI visibility is not guaranteed by this transport.",
         }
 
-    def create_thread(self, *, cwd: Path, name: str, prompt: str, sandbox: str = "workspaceWrite") -> dict:
+    def create_thread(self, *, cwd: Path, name: str, prompt: str, sandbox: str = "workspaceWrite", denied_paths: list[str] | None = None) -> dict:
         self.ensure_started()
         status = self.status()
         if not status["modelAvailable"]:
@@ -150,6 +159,13 @@ class CodexLocalApi:
         if sandbox_mode is None:
             raise AgentRuntimeError("INVALID_SANDBOX", "Unsupported Codex sandbox mode")
         root = str(cwd.resolve())
+        filesystem = {":root": "read", str(self.workspace / 'agents' / 'local-api-token'): "deny"}
+        for run_folder in (self.workspace / 'agents' / 'worktrees').glob('*'):
+            for sibling in run_folder.iterdir():
+                if sibling.resolve() != cwd.resolve():
+                    filesystem[str(sibling.resolve())] = "deny"
+        filesystem.update({str(Path(p).resolve()): "deny" for p in (denied_paths or [])})
+        filesystem[root] = "read" if sandbox == "readOnly" else "write"
         if sandbox == "readOnly":
             sandbox_policy = {"type": "readOnly", "access": {
                 "type": "restricted", "includePlatformDefaults": True, "readableRoots": [root]}}
@@ -160,8 +176,9 @@ class CodexLocalApi:
         return self._request("/api/threads", {
             "transport": "app-server", "cwd": str(cwd), "model": MODEL_ID,
             "name": name[:100], "prompt": prompt, "sandbox": sandbox_mode,
-            "approvalPolicy": "on-request", "sandboxPolicy": sandbox_policy,
-        }, timeout=20)
+            "approvalPolicy": "on-request", "permissions": "makora",
+            "config": {"permissions.makora": {"filesystem": filesystem, "network": {"enabled": False}}},
+        }, timeout=100)
 
     def send(self, thread_id: str, text: str) -> dict:
         self.ensure_started()
@@ -379,10 +396,15 @@ class AgentRuntime:
                 prompt = self._builder_prompt(task, run)
                 task["status"] = "implementing"
             elif role == "reviewer":
-                if task["status"] != "review_pending" or not task.get("worktree"):
+                if task["status"] not in ("review_pending", "tests_passed") or not task.get("worktree"):
                     raise AgentRuntimeError("REVIEW_NOT_READY", "Reviewer запускается после завершения Builder и проверки фактического diff.", 409)
                 cwd = Path(task["worktree"])
                 prompt = self._reviewer_prompt(task, run)
+                if task.get('tests',{}).get('status') == 'passed':
+                    from .acceptance import snapshot
+                    _, _, files, digest = snapshot(self,run_id,task_id,task['allowedPaths'])
+                    task['reviewDigest'] = digest
+                    prompt += '\nФактические изменённые файлы (null означает удаление):\n' + json.dumps(files,ensure_ascii=False) + '\nРезультаты изолированных тестов:\n' + json.dumps(task['tests'],ensure_ascii=False) + '\nОтветь только JSON: {"verdict":"pass|changes_requested","findings":[],"tests":[]}. При отсутствии данных не ставь pass.'
                 task["status"] = "reviewing"
             else:
                 if task.get("testDesignerSessionId"):
@@ -401,7 +423,7 @@ class AgentRuntime:
             self._save()
         try:
             created = self.provider.create_thread(cwd=cwd, name=f"Makora {role} {task_id}", prompt=prompt,
-                                                  sandbox="readOnly" if role == "reviewer" else "workspaceWrite")
+                                                  sandbox="readOnly" if role == "reviewer" else "workspaceWrite", denied_paths=[run['projectRoot']])
         except Exception as exc:
             with self._lock:
                 uncertain = isinstance(exc, AgentRuntimeError) and exc.code == "DELIVERY_UNKNOWN"
@@ -468,7 +490,7 @@ class AgentRuntime:
                 # before deciding that the user prompt was lost; never resend automatically.
                 history = self.provider.history(result["threadId"])
                 turns = history.get("turns", [])
-                if any(t.get("status") == "completed" for t in turns if isinstance(t, dict)):
+                if result.get("turnId") and any(t.get("id") == result["turnId"] and t.get("status") == "completed" for t in turns if isinstance(t, dict)):
                     state = "completed"
                     detail = history
         except AgentRuntimeError as exc:
@@ -485,6 +507,13 @@ class AgentRuntime:
                     task["status"] = "review_pending"
                 elif session["role"] == "reviewer" and task:
                     task["status"] = "review_completed"
+                    text = self._assistant_text(detail)
+                    try:
+                        review, _ = json.JSONDecoder().raw_decode(text[text.index('{'):])
+                        if review.get('verdict') in ('pass','changes_requested'):
+                            task['review'] = {**review,'digest':task.get('reviewDigest'),'threadId':session['threadId']}
+                    except (ValueError,AttributeError):
+                        task['review'] = {'verdict':'unconfirmed'}
                 elif session["role"] == "test_designer" and task:
                     task["testDesignStatus"] = "completed"
                     task["testDesignResult"] = self._assistant_text(detail)
@@ -516,7 +545,7 @@ class AgentRuntime:
 
         for turn in history.get("turns", []):
             for item in turn.get("items", []) if isinstance(turn, dict) else []:
-                if isinstance(item, dict) and item.get("type") in {"agentMessage", "assistantMessage"}:
+                if isinstance(item, dict) and (item.get("role") == "assistant" or item.get("type") in {"agentMessage", "assistantMessage"}):
                     collect(item)
         return "\n\n".join(dict.fromkeys(parts))
 
@@ -530,10 +559,22 @@ class AgentRuntime:
         if not task or not task.get("worktree"):
             raise AgentRuntimeError("WORKTREE_NOT_FOUND", "Для задачи нет worktree.", 404)
         root = Path(task["worktree"])
+        untracked = self._run_git(root, "ls-files", "--others", "--exclude-standard", "--", ".").splitlines()
+        tracked = self._run_git(root, "diff", "--name-only", "HEAD", "--", ".").splitlines()
         return {"status": self._run_git(root, "status", "--short"),
-                "diff": self._run_git(root, "diff", "--no-ext-diff", "--", "."),
-                "changedFiles": self._run_git(root, "diff", "--name-only", "HEAD", "--", ".").splitlines(),
+                "diff": self._run_git(root, "diff", "--no-ext-diff", "HEAD", "--", "."),
+                "changedFiles": list(dict.fromkeys(tracked + untracked)),
+                "untrackedFiles": untracked,
+                "untrackedNotice": "Содержимое новых файлов не включено автоматически: проверь их перед передачей Reviewer.",
                 "branch": task.get("branch"), "baseCommit": run["baseCommit"]}
+
+    def test_task(self, run_id, task_id, allowed_paths):
+        from .acceptance import test_task
+        return test_task(self, run_id, task_id, allowed_paths)
+
+    def integrate_task(self, run_id, task_id, confirmed=False):
+        from .acceptance import integrate
+        return integrate(self, run_id, task_id, confirmed)
 
     def get_session(self, agent_id: str, refresh: bool = True) -> dict:
         if refresh:
