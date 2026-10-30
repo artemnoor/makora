@@ -1,6 +1,8 @@
 // Demonstration only: no agents are started and no project analysis is performed.
 window.createAgentPlan = function(root, mascot) {
   const key = 'makora.agent-plan-demo.v1';
+  const workspaceKey = 'makora.workspace-view.v1';
+  let savedView={};try{savedView=JSON.parse(localStorage.getItem(workspaceKey))||{};}catch(_){}
   const defaults = [
     {id:'T01', title:'Подготовка проекта', deps:'Нет', goal:'Подготовить структуру приложения и подключить исходные данные.', contract:'Структура проекта и README', mocks:'mocks/fixtures/spaces.json', tools:'Редактор, терминал, Git', ready:'Проект запускается, фикстуры доступны, базовые проверки проходят.'},
     {id:'T02', title:'Каталог пространств', deps:'T01', goal:'Загрузить каталог пространств из фикстур и подготовить данные для интерфейса.', contract:'Space · GET /spaces', mocks:'spaces.json, empty.json, invalid.json', tools:'Редактор, терминал, тестовый раннер', ready:'Корректные записи загружаются, ошибки данных обрабатываются и проверены.'},
@@ -16,7 +18,7 @@ window.createAgentPlan = function(root, mascot) {
   board.innerHTML=`<img class="agent-board-shadow" src="analysis-board.png" alt="" draggable="false"><img class="agent-board-art" src="analysis-board.png" alt="" draggable="false"><div class="agent-board-frame"><header class="agent-board-header"><div><small>ДЕМО · ТИХИЙ КАМПУС</small><h2>План агентов</h2></div><div><button type="button" data-agent-expand aria-label="Развернуть доску">⛶</button></div></header><div class="agent-board-content"></div><footer class="agent-board-footer"><span data-agent-status></span><button type="button" data-agent-approve>Утвердить план</button></footer></div>`;
   root.append(board);
   const content=board.querySelector('.agent-board-content'), status=board.querySelector('[data-agent-status]');
-  let current=null, drag=null, moved=false;
+  let current=null, drag=null, moved=!!savedView.planMoved;
   const motion={x:0,y:0,targetX:0,targetY:0,velocity:0,rotation:0,frame:0,last:0};
   const reducedMotion=window.matchMedia('(prefers-reduced-motion: reduce)');
   const clamp=(value,min,max)=>Math.max(min,Math.min(max,value));
@@ -34,9 +36,11 @@ window.createAgentPlan = function(root, mascot) {
   }
   function startMotion(){if(reducedMotion.matches){settle();return;}if(!motion.frame){motion.last=performance.now();motion.frame=requestAnimationFrame(animate);}}
   function save(){try{localStorage.setItem(key,JSON.stringify(state));}catch(_){}}
+  function saveView(){try{localStorage.setItem(workspaceKey,JSON.stringify({...savedView,planMoved:moved,planX:motion.targetX,planY:motion.targetY,planExpanded:board.classList.contains('agent-expanded')}));}catch(_){}}
   function updateStatus(){status.textContent=state.approved?'● ПЛАН УТВЕРЖДЁН · ДЕМО':'○ ЧЕРНОВИК · ДЕМО';board.querySelector('[data-agent-approve]').textContent=state.approved?'Утверждено ✓':'Утвердить план';}
   function graph(){
     current=null;
+    savedView.planTask=null;saveView();
     content.innerHTML=`<p class="agent-note">Пример плана · агенты не запускаются</p><div class="agent-tree"><div class="agent-tree-row"><button data-task="0"></button></div><div class="agent-branch" aria-hidden="true"></div><div class="agent-tree-row parallel"><button data-task="1"></button><button data-task="2"></button></div><div class="agent-merge" aria-hidden="true"></div><div class="agent-tree-row"><button data-task="3"></button></div></div><p class="agent-tree-caption">T02 и T03 могут выполняться параллельно</p>`;
     content.querySelectorAll('[data-task]').forEach(button=>{const t=state.tasks[Number(button.dataset.task)];button.innerHTML='<span></span><strong></strong><small></small>';button.querySelector('span').textContent=t.id;button.querySelector('strong').textContent=t.title;button.querySelector('small').textContent='Зависит: '+t.deps;});
     updateStatus();
@@ -44,6 +48,7 @@ window.createAgentPlan = function(root, mascot) {
   const fields=[['goal','Цель'],['deps','Зависимости'],['contract','Контракт'],['mocks','Моки'],['tools','Инструменты'],['ready','Критерий готовности'],['builder','Промпт Builder'],['reviewer','Промпт Reviewer']];
   function detail(index){
     current=index; const task=state.tasks[index];
+    savedView.planTask=index;saveView();
     content.innerHTML='<button class="agent-back" type="button">← К графу</button><div class="agent-detail-title"><small></small><h3></h3></div><p class="agent-note">Демонстрационная карточка · изменения сохраняются в браузере</p><div class="agent-fields"></div>';
     content.querySelector('.agent-detail-title small').textContent=task.id;content.querySelector('h3').textContent=task.title;
     const container=content.querySelector('.agent-fields');
@@ -54,17 +59,17 @@ window.createAgentPlan = function(root, mascot) {
   content.addEventListener('click',e=>{const b=e.target.closest('[data-task]');if(b)detail(Number(b.dataset.task));});
   content.addEventListener('input',e=>{if(current===null||!e.target.dataset.field)return;state.tasks[current][e.target.dataset.field]=e.target.value;state.approved=false;save();updateStatus();});
   board.querySelector('[data-agent-approve]').onclick=()=>{state.approved=true;save();updateStatus();};
-  board.querySelector('[data-agent-expand]').onclick=()=>{board.classList.toggle('agent-expanded');position();};
-  board.addEventListener('dblclick',e=>{if(e.target.closest('button,textarea,input,label'))return;board.classList.toggle('agent-expanded');position();});
+  board.querySelector('[data-agent-expand]').onclick=()=>{board.classList.toggle('agent-expanded');position();saveView();};
+  board.addEventListener('dblclick',e=>{if(e.target.closest('button,textarea,input,label'))return;board.classList.toggle('agent-expanded');position();saveView();});
   board.addEventListener('pointerdown',e=>{
     if(board.classList.contains('agent-expanded') || e.button!==0 || e.target.closest('button,textarea,input,label,.agent-board-content,.agent-board-footer'))return;
     drag={id:e.pointerId,x:e.clientX,y:e.clientY,left:motion.targetX,top:motion.targetY,previousX:e.clientX,last:performance.now()};
     board.classList.add('agent-dragging');board.setPointerCapture(e.pointerId);e.preventDefault();
   });
   board.addEventListener('pointermove',e=>{if(!drag||drag.id!==e.pointerId)return;moved=true;motion.targetX=clamp(drag.left+e.clientX-drag.x,0,Math.max(0,window.innerWidth-board.offsetWidth));motion.targetY=clamp(drag.top+e.clientY-drag.y,0,Math.max(0,window.innerHeight-board.offsetHeight));const now=performance.now();motion.velocity=clamp((e.clientX-drag.previousX)/Math.max(.016,(now-drag.last)/1000),-1000,1000);drag.previousX=e.clientX;drag.last=now;startMotion();});
-  function endDrag(e){if(!drag||drag.id!==e.pointerId)return;drag=null;board.classList.remove('agent-dragging');startMotion();if(board.hasPointerCapture(e.pointerId))board.releasePointerCapture(e.pointerId);}
+  function endDrag(e){if(!drag||drag.id!==e.pointerId)return;drag=null;board.classList.remove('agent-dragging');saveView();startMotion();if(board.hasPointerCapture(e.pointerId))board.releasePointerCapture(e.pointerId);}
   ['pointerup','pointercancel','lostpointercapture'].forEach(type=>board.addEventListener(type,endDrag));
-  function position(){if(board.hidden||board.classList.contains('agent-expanded'))return;if(moved){motion.targetX=clamp(motion.targetX,0,Math.max(0,window.innerWidth-board.offsetWidth));motion.targetY=clamp(motion.targetY,0,Math.max(0,window.innerHeight-board.offsetHeight));settle();return;}const rect=mascot.getBoundingClientRect();const width=window.innerWidth<=760?Math.min(390,window.innerWidth-16):Math.min(510,Math.max(300,rect.left-28));board.style.width=width+'px';motion.targetX=Math.max(8,rect.left-width-18);motion.targetY=Math.max(8,Math.min(window.innerHeight-board.offsetHeight-8,rect.top+rect.height/2-board.offsetHeight/2));settle();}
+  function position(){if(board.hidden||board.classList.contains('agent-expanded'))return;if(moved){motion.targetX=clamp(Number(savedView.planX)||0,0,Math.max(0,window.innerWidth-board.offsetWidth));motion.targetY=clamp(Number(savedView.planY)||0,0,Math.max(0,window.innerHeight-board.offsetHeight));settle();return;}const rect=mascot.getBoundingClientRect();const width=window.innerWidth<=760?Math.min(390,window.innerWidth-16):Math.min(510,Math.max(300,rect.left-28));board.style.width=width+'px';motion.targetX=Math.max(8,rect.left-width-18);motion.targetY=Math.max(8,Math.min(window.innerHeight-board.offsetHeight-8,rect.top+rect.height/2-board.offsetHeight/2));settle();}
   graph();
-  return {position,open(){board.classList.remove('agent-expanded','agent-revealing');board.hidden=false;graph();position();void board.offsetWidth;board.classList.add('agent-revealing');}};
+  return {position,open(){board.classList.remove('agent-expanded','agent-revealing');board.hidden=false;if(Number.isInteger(savedView.planTask)&&savedView.planTask>=0&&savedView.planTask<state.tasks.length)detail(savedView.planTask);else graph();position();if(savedView.planExpanded)board.classList.add('agent-expanded');void board.offsetWidth;board.classList.add('agent-revealing');}};
 };

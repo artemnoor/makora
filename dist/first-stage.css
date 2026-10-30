@@ -181,3 +181,5 @@
 .agent-revealing:not(.agent-expanded) .agent-board-frame{animation:board-content-in .4s 1.45s both}
 .agent-expanded .agent-board-art,.agent-expanded .agent-board-shadow{display:none}
 @media(prefers-reduced-motion:reduce){.agent-revealing:not(.agent-expanded) .agent-board-art,.agent-revealing:not(.agent-expanded) .agent-board-frame{animation:none}.agent-revealing:not(.agent-expanded) .agent-board-shadow{animation:none;display:none}}
+/* Reveal the empty board first, then bring its plan onto the surface. */
+.agent-revealing:not(.agent-expanded) .agent-board-frame{opacity:0;animation:board-content-in .4s 1.55s both}

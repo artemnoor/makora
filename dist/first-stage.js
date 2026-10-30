@@ -95,6 +95,8 @@
   const stageDownloads = {main:document.querySelector('#download').onclick, concept:document.querySelector('#download-concept').onclick};
   const boardTitles = ['Анализ задания','Разработка идеи','Планирование разработки','Подготовка мок-данных','Разработка'];
   const stageMessage = root.querySelector('.board-stage-message');
+  const workspaceViewKey='makora.workspace-view.v1';
+  let savedWorkspaceView={};try{savedWorkspaceView=JSON.parse(localStorage.getItem(workspaceViewKey))||{};}catch(_){}
   let boardStage = 1, stageSwitchInProgress = false, stage3DetailOpen = false, stage4DetailOpen = false;
   const boardBar=root.querySelector('.board-bar'),expandButton=boardBar.querySelector('.board-expand');
   const boardActions=document.createElement('div');boardActions.className='board-actions';
@@ -129,6 +131,8 @@
     root.querySelector('.board-kicker').textContent='ДЕМО-КЕЙС / ТИХИЙ КАМПУС';
     if (stage === 4 && boardStage !== 4) { stage4DetailOpen = false; stage3DetailOpen = false; }
     boardStage = stage;
+    savedWorkspaceView={...savedWorkspaceView,stage};
+    try{localStorage.setItem(workspaceViewKey,JSON.stringify(savedWorkspaceView));}catch(_){}
     const working = stage > 4 || (stage === 4 && stage4DetailOpen) || (stage === 3 && stage3DetailOpen);
     board.classList.toggle('plan-index-board', (stage === 3 && !stage3DetailOpen) || (stage === 4 && !stage4DetailOpen));
     board.classList.toggle('idea-board', stage === 2);
@@ -497,4 +501,12 @@
     setTimeout(() => { form.hidden = true; }, 650);
   });
   root.querySelector('.board-next').addEventListener('click', () => openBoardStage(Math.min(boardStage + 1, 4)));
+  const previousSource=window.makoraProject.source();
+  if(previousSource){
+    textarea.value=previousSource.text||previousSource.name||'';
+    update();
+    if(!start.disabled){form.requestSubmit();window.makoraProject.setSource(previousSource);}
+    const resumeStage=Math.max(1,Math.min(4,Number(savedWorkspaceView.stage)||1));
+    if(resumeStage>1)setTimeout(()=>openBoardStage(resumeStage),1900);
+  }
 })();
