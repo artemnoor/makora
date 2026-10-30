@@ -44,6 +44,8 @@ def _executed_tests(framework, output, manifest):
                 if match: values.append(int(match.group(1)))
         return sum(values) or None
     key=str(framework).strip().lower()
+    if key in {'python unittest', 'python unittest (standard library)', 'unittest (standard library)'}:
+        key = 'unittest'
     if key=='go test':
         return len(re.findall(r'^--- PASS:',output,re.MULTILINE)) or None
     pattern=TEST_COUNT_PATTERNS.get(key)
@@ -214,6 +216,18 @@ def _argv(command):
     return [resolved, *command[1:]]
 
 
+def _test_environment(root, command):
+    """Expose conventional Python source roots to independent unittest suites."""
+    env = os.environ.copy()
+    if _runner_name(command[0]) in ('python', 'python3'):
+        paths = [root, *(root / name for name in ('app', 'src', 'lib') if (root / name).is_dir())]
+        existing = env.get('PYTHONPATH')
+        if existing:
+            paths.append(Path(existing))
+        env['PYTHONPATH'] = os.pathsep.join(str(path) for path in paths)
+    return env
+
+
 def test_task(runtime, run_id, task_id, allowed_paths):
     from .runtime import AgentRuntimeError, _now
     with runtime._lock:
@@ -238,7 +252,8 @@ def test_task(runtime, run_id, task_id, allowed_paths):
                 argv = _argv(raw_command)
                 command = [binary, '-c', 'windows.sandbox=elevated', 'sandbox', '-C', str(sandbox_root), '--permission-profile', ':workspace', '--', *argv]
                 try:
-                    result = subprocess.run(command, cwd=sandbox_root, capture_output=True, text=True, timeout=180)
+                    result = subprocess.run(command, cwd=sandbox_root, capture_output=True, text=True,
+                                            timeout=180, env=_test_environment(sandbox_root, raw_command))
                     output = (result.stdout + result.stderr)[-16000:]
                     executed = _executed_tests(manifest['framework'], output, manifest)
                     minimum = manifest.get('minimumTests', 1)

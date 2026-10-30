@@ -983,14 +983,24 @@ const server = createServer(async (request, response) => {
           throw error;
         }
       }
-      const result = await rpc('thread/start', {
+      // thread/start may need to initialize a fresh worktree and sandbox. The
+      // default 30s RPC timeout can expire while App Server is still creating
+      // the thread, leaving the caller without its ID and making delivery
+      // ambiguous. Keep this bounded, but give thread creation more time.
+      let result;
+      try {
+        result = await rpc('thread/start', {
         cwd: input.projectless === true ? cwd : input.cwd || cwd,
         threadSource: 'appServer',
         ephemeral: false,
         approvalPolicy: input.approvalPolicy || 'onRequest',
         ...(input.permissions ? {permissions:input.permissions, config:input.config || {}} : {sandbox: input.sandbox || 'workspace-write'}),
         ...(typeof input.model === 'string' && input.model ? { model: input.model } : {}),
-      });
+        }, 120_000);
+      } catch (error) {
+        if (/timed out/i.test(error.message)) return json(response, 504, { error: error.message, deliveryUnknown: true });
+        throw error;
+      }
       const threadId = result.thread?.id;
       if (!threadId) throw new Error('App Server did not return a thread id');
       const name = String(input.name || '').trim().slice(0, 120);

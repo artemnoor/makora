@@ -191,6 +191,10 @@ class MakoraHandler(SimpleHTTPRequestHandler):
             if match:self._agent_json(lambda:self.server.agent_runtime.approve_mahoraga_plan(match.group(1)),201);return
             if path == '/api/agents/runs':
                 self._agent_json(lambda:self.server.agent_runtime.create_run(self._read_json()),201);return
+            match=re.fullmatch(r'/api/agents/runs/([\w-]+)/autopilot',path)
+            if match:
+                value=self._read_json()
+                self._agent_json(lambda:self.server.agent_runtime.set_mahoraga_autopilot(match.group(1),value.get('enabled') is True),200);return
             match=re.fullmatch(r'/api/agents/runs/([\w-]+)/mahoraga',path)
             if match:self._agent_json(lambda:self.server.agent_runtime.start_mahoraga_orchestrator(match.group(1)),201);return
             match=re.fullmatch(r'/api/agents/runs/([\w-]+)/tasks/([\w-]+)/(tests|integrate)',path)
