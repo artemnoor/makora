@@ -1,7 +1,9 @@
 async page => {
   const assert = (condition, message) => { if (!condition) throw new Error(message); };
   const errors = [];
+  let realAgentRun=null;
   page.on('pageerror', error => errors.push(error.message));
+  await page.evaluate(()=>{const params=new URLSearchParams(location.search);if(params.get('makoraRealAgentE2E')==='1'){sessionStorage.setItem('__MAKORA_REAL_AGENT_E2E','1');sessionStorage.setItem('__MAKORA_AGENT_E2E_ROOT',params.get('agentRoot')||'');sessionStorage.setItem('__MAKORA_AGENT_E2E_SCENARIO',params.get('agentScenario')||'success')}});
   await page.evaluate(() => localStorage.clear());
   await page.reload();
   assert((await page.locator('.first-disclaimer').innerText()).includes('После этапа 4 доступен учебный маршрут разработки'), 'Демо-маршрут не объяснён');
@@ -88,9 +90,73 @@ async page => {
       assert((await page.locator('.agent-board-content').innerText()).includes('Дерево проекта'), 'Этап 6 начался не со скелета');
       await page.locator('[data-agent-mode="real"]').click();
       await page.locator('.real-agent-view').waitFor({state:'visible'});
+      if(await page.locator('[data-agent-new-run]').count()){await page.locator('[data-agent-new-run]').click();await page.locator('[data-agent-create-run]').waitFor({state:'visible',timeout:15000});}
       assert((await page.locator('.real-agent-view').innerText()).includes('Подготовить настоящий запуск'), 'REAL режим не показывает форму запуска');
-      assert(await page.locator('[data-agent-create-run]').isDisabled(), 'REAL режим позволяет запуск при недоступном Codex App Server');
-      assert((await page.locator('.real-agent-view').innerText()).includes('не гарантируется'), 'Ограничение видимости thread в Desktop не показано');
+      if (await page.evaluate(()=>sessionStorage.getItem('__MAKORA_REAL_AGENT_E2E') === '1')) {
+        const projectRoot=await page.evaluate(()=>sessionStorage.getItem('__MAKORA_AGENT_E2E_ROOT'));
+        assert(projectRoot,'Для полного REAL E2E задай MAKORA_AGENT_E2E_ROOT на подготовленный временный Git-проект');
+          const agentScenario=await page.evaluate(()=>sessionStorage.getItem('__MAKORA_AGENT_E2E_SCENARIO')||'success');
+          const runId=await page.evaluate(async ({root,scenario})=>{
+          const tokenResponse=await fetch('/api/agents/token',{headers:{'X-Makora-Request':'token'},credentials:'same-origin'});
+          const tokenBody=await tokenResponse.json();if(!tokenResponse.ok)throw new Error('Не удалось получить API token');
+           const repairPrompt=scenario==='repair';
+           const task={id:'T01',title:'Slugify текста',goal:'Создать src/slug.py с функцией slugify(text), которая переводит латиницу в нижний регистр и заменяет пробелы дефисами.',acceptance:'slugify("Hello World") возвращает "hello-world"; модуль импортируется и не выполняет побочные эффекты при импорте.',contracts:['src/slug.py экспортирует функцию slugify(text: str) -> str.'],mocks:[],testPrompt:'Создай независимый unittest только для публичного acceptance-критерия slugify("Hello World") == "hello-world" и отсутствия ошибок импорта. Не добавляй требования к пунктуации: это должно остаться предметом отдельного Reviewer-прохода. Создай TEST_DESIGN.md, test-manifest.json и tests/test_slug.py; команда python -m unittest discover -s .makora-tests -v.',builderPrompt:repairPrompt?'Реализуй slugify в src/slug.py так, чтобы "Hello World" давал "hello-world". Для контрольного сценария оставь пунктуацию без дополнительной обработки; не добавляй удаление пунктуации.':'Реализуй slugify в src/slug.py согласно acceptance. Добавь короткий модульный docstring.',reviewerPrompt:repairPrompt?'Контроль проверки цикла исправлений: проверь, удаляет ли slugify ASCII-пунктуацию. Если код только приводит регистр и меняет пробелы, обязательно верни verdict changes_requested с одним конкретным finding: удалить пунктуацию. Не ставь pass до появления этой обработки. Иначе оцени обычное соответствие acceptance.':'Проверь публичный контракт, ошибки и соответствие независимому тестовому набору.'};
+           const response=await fetch('/api/agents/runs',{method:'POST',credentials:'same-origin',headers:{'Content-Type':'application/json','X-Makora-Token':tokenBody.result.token},body:JSON.stringify({projectRoot:root,tasks:[task]})});
+          const body=await response.json();if(!response.ok)throw new Error(body.error?.message||'Не удалось создать реальный run');return body.result.id;
+         },{root:projectRoot,scenario:agentScenario});
+        await page.evaluate(id=>localStorage.setItem('makora.agent-real-run',id),runId);
+        await page.reload();
+        await page.locator('.agent-plan-board').waitFor({state:'visible',timeout:15000});
+        await page.locator('[data-agent-mode="real"]').click();
+        const waitAction=async(action,timeout=240000)=>page.locator(`[data-agent-action="${action}"][data-task="T01"]`).waitFor({state:'visible',timeout});
+        const clickAction=async(action)=>{await waitAction(action);if(action==='tests'){await page.evaluate(()=>{window.prompt=()=> 'src/slug.py';document.querySelector('[data-agent-action="tests"][data-task="T01"]').click()});return}const button=page.locator(`[data-agent-action="${action}"][data-task="T01"]`);if(action==='integrate')await page.evaluate(()=>{window.confirm=()=>true});await button.click()};
+        await clickAction('test_designer');
+        await page.locator('[data-agent-action="worktree"][data-task="T01"]').waitFor({state:'visible',timeout:240000});
+        await clickAction('worktree');
+        await clickAction('builder');
+        let repairCycles=0;
+        let escalated=false;
+        for(let reviewRound=0;reviewRound<4;reviewRound++){
+          await clickAction('tests');
+          await waitAction('reviewer',240000);
+          await clickAction('reviewer');
+          const pass=page.locator('[data-agent-action="integrate"][data-task="T01"]');
+          const fixes=page.locator('[data-agent-fixes="T01"]');
+          const escalate=page.locator('[data-agent-action="mahoraga"][data-task="T01"]');
+          await page.waitForFunction(()=>{const text=document.querySelector('.real-task')?.innerText||'';return text.includes('ревью завершено')||text.includes('нужны исправления')||text.includes('передать Махораге')},null,{timeout:240000});
+          if(await pass.count()){await clickAction('integrate');break}
+          if(await escalate.count()){
+            assert(repairCycles===3,'Задача эскалирована до исчерпания трёх циклов исправлений');
+            await clickAction('mahoraga');
+            await page.waitForFunction(()=>document.querySelector('.real-task')?.innerText.includes('ожидает решения человека'),null,{timeout:240000});
+            escalated=true;
+            break;
+          }
+          assert(await fixes.count(),'Reviewer не завершил проверку и не предложил исправления');
+          assert(repairCycles<3,'Разрешено не более трёх follow-up Builder turns');
+          await fixes.click();
+          repairCycles++;
+          const attempts=await page.evaluate(async id=>{const token=(await(await fetch('/api/agents/token',{headers:{'X-Makora-Request':'token'}})).json()).result.token;const body=(await(await fetch('/api/agents/state',{headers:{'X-Makora-Token':token}})).json()).result;return body.runs.find(run=>run.id===id)?.tasks[0]?.repairAttempts},runId);
+          assert(attempts===repairCycles,'Счётчик repair attempts не совпал с отправленными follow-up turns');
+          if(agentScenario==='repair')assert(repairCycles>=1,'Repair-кейс должен проверить как минимум один реальный цикл исправлений');
+          await page.locator('[data-agent-action="tests"][data-task="T01"]').waitFor({state:'visible',timeout:240000});
+        }
+        if(!escalated)await page.waitForFunction(()=>document.querySelector('.real-task')?.innerText.includes('integrated'),null,{timeout:120000});
+        const persisted=await page.evaluate(async()=>{const token=(await(await fetch('/api/agents/token',{headers:{'X-Makora-Request':'token'}})).json()).result.token;const state=(await(await fetch('/api/agents/state',{headers:{'X-Makora-Token':token}})).json()).result;const run=state.runs.at(-1);return {task:run.tasks[0],sessions:state.sessions.filter(s=>s.runId===run.id)}});
+        assert(persisted.sessions.some(s=>s.role==='test_designer'&&s.status==='completed')&&persisted.sessions.some(s=>s.role==='builder'&&s.status==='completed')&&persisted.sessions.some(s=>s.role==='reviewer'&&s.status==='completed'),'В полном цикле отсутствует завершённая сессия одного из реальных агентов');
+        if(escalated){
+          assert(persisted.task.status==='blocked_for_human'&&persisted.sessions.some(s=>s.role==='mahoraga'&&s.status==='completed'),'После эскалации задача должна ждать решения человека');
+          realAgentRun={runId,taskId:persisted.task.id,status:persisted.task.status,repairCycles,model:persisted.sessions.map(s=>s.model),threadIds:persisted.sessions.map(s=>s.threadId)};
+        }else{
+          assert(persisted.task.status==='integrated'&&persisted.task.integratedCommit,'Backend не подтвердил интеграцию');
+          assert(persisted.task.tests?.independent===true&&persisted.task.tests?.status==='passed','Интеграция прошла без подтверждения независимого sandbox-набора');
+          if(agentScenario==='repair')assert(repairCycles>=1,'Контрольный repair run завершился без фактического цикла исправлений');
+          realAgentRun={runId,taskId:persisted.task.id,status:persisted.task.status,repairCycles,model:persisted.sessions.map(s=>s.model),threadIds:persisted.sessions.map(s=>s.threadId),tests:persisted.task.tests.status,integratedCommit:persisted.task.integratedCommit};
+        }
+      } else {
+        assert(await page.locator('[data-agent-create-run]').isDisabled(), 'REAL режим позволяет запуск при недоступном Codex App Server');
+        assert((await page.locator('.real-agent-view').innerText()).includes('не гарантируется'), 'Ограничение видимости thread в Desktop не показано');
+      }
       await page.locator('[data-agent-mode="demo"]').click();
       assert((await page.locator('.agent-board-content').innerText()).includes('Дерево проекта'), 'Переключение обратно на DEMO сломало учебный маршрут');
       assert(await page.locator('[data-workflow-step="decomposition"]').isDisabled(), 'Декомпозиция доступна до подтверждения скелета');
@@ -277,5 +343,5 @@ async page => {
   await page.locator('[data-section="0"]').click();
   assert(!(await page.locator('.board-document').innerText()).includes('Актуальная суть из согласованной версии'),'После отката остался документ другой ревизии');
   assert(errors.length === 0, 'Ошибки JavaScript: ' + errors.join('; '));
-  return {analysis: 10, research: 5, solution: 9, planning: 9, mocks: 5, approvedAndInvalidated: true, errors};
+  return {analysis: 10, research: 5, solution: 9, planning: 9, mocks: 5, approvedAndInvalidated: true, realAgentRun, errors};
 }

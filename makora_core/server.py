@@ -77,6 +77,8 @@ class MakoraHandler(SimpleHTTPRequestHandler):
 
     def _error(self, error, status=400):
         value = {'ok': False, 'error': {'code': getattr(error, 'code', 'INTERNAL_ERROR'), 'message': str(error)}}
+        details = getattr(error, 'details', None)
+        if details: value['error']['details'] = details
         data = json.dumps(value, ensure_ascii=False).encode('utf-8')
         self.send_response(status); self.send_header('Content-Type', 'application/json; charset=utf-8')
         self.send_header('Content-Length', str(len(data))); self.end_headers(); self.wfile.write(data)
@@ -193,8 +195,14 @@ class MakoraHandler(SimpleHTTPRequestHandler):
                 self._agent_json(lambda:self.server.agent_runtime.integrate_task(match.group(1),match.group(2),value.get('confirmed') is True));return
             match=re.fullmatch(r'/api/agents/runs/([\w-]+)/tasks/([\w-]+)/worktree',path)
             if match:self._agent_json(lambda:self.server.agent_runtime.create_task_worktree(match.group(1),match.group(2)),201);return
-            match=re.fullmatch(r'/api/agents/runs/([\w-]+)/tasks/([\w-]+)/agents/(builder|reviewer|test_designer)',path)
+            match=re.fullmatch(r'/api/agents/runs/([\w-]+)/tasks/([\w-]+)/agents/(builder|reviewer|test_designer|mahoraga)',path)
             if match:self._agent_json(lambda:self.server.agent_runtime.launch_agent(match.group(1),match.group(2),match.group(3)),201);return
+            match=re.fullmatch(r'/api/agents/runs/([\w-]+)/tasks/([\w-]+)/rebase',path)
+            if match:
+                value=self._read_json()
+                self._agent_json(lambda:self.server.agent_runtime.refresh_task_base(match.group(1),match.group(2),value.get('resolvedConflicts',[]),value.get('allowedPaths')));return
+            match=re.fullmatch(r'/api/agents/runs/([\w-]+)/tasks/([\w-]+)/request-fixes',path)
+            if match:self._agent_json(lambda:self.server.agent_runtime.request_builder_fixes(match.group(1),match.group(2)));return
             match=re.fullmatch(r'/api/agents/sessions/([\w-]+)/messages',path)
             if match:
                 value=self._read_json()

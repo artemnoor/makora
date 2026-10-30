@@ -1,6 +1,6 @@
 /* Stage 6 UI. Workflow transitions and task state live in demo-workflow.js. */
 if(!document.querySelector('[data-agent-runtime-css]')){const link=document.createElement('link');link.rel='stylesheet';link.href='agent-runtime.css?v=1';link.dataset.agentRuntimeCss='true';document.head.append(link)}
-if(!window.makoraRealAgents&&!document.querySelector('[data-agent-runtime-script]')){const script=document.createElement('script');script.src='agent-runtime-ui.js?v=1';script.dataset.agentRuntimeScript='true';document.head.append(script)}
+if(!window.makoraRealAgents&&!document.querySelector('[data-agent-runtime-script]')){const script=document.createElement('script');script.src='agent-runtime-ui.js?v=2';script.dataset.agentRuntimeScript='true';document.head.append(script)}
 window.createAgentPlan = function(root, mascot) {
   const workflow=window.makoraDemoWorkflow;
   const viewKey='makora.workspace-view.v1';

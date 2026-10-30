@@ -303,7 +303,8 @@ class AgentRuntime:
                                "testPrompt": str(task.get("testPrompt", ""))[:12000],
                                "reviewerPrompt": str(task.get("reviewerPrompt", ""))[:12000],
                                "status": "pending", "worktree": None, "branch": None,
-                               "builderSessionId": None, "reviewerSessionId": None, "integration": "not_integrated"})
+                               "builderSessionId": None, "reviewerSessionId": None, "integration": "not_integrated",
+                               "repairAttempts": 0, "testDesignDir": None, "testDesignFiles": []})
         for task in normalized:
             if not task["title"] or not task["goal"] or not task["acceptance"]:
                 raise AgentRuntimeError("TASK_FIELDS_REQUIRED", f"{task['id']}: нужны название, цель и критерии готовности.")
@@ -372,14 +373,14 @@ class AgentRuntime:
             if folder.exists():
                 raise AgentRuntimeError("WORKTREE_EXISTS", "Рабочая директория уже существует; сначала проверь и восстанови её состояние.", 409)
             self._run_git(root, "worktree", "add", "-b", branch, str(folder), run["baseCommit"])
-            task.update({"status": "ready", "branch": branch, "worktree": str(folder), "startedAt": _now()})
+            task.update({"status": "ready", "branch": branch, "worktree": str(folder), "worktreeBase": run["baseCommit"], "startedAt": _now()})
             self._event("worktree_created", f"Создана отдельная Git-ветка {branch}", run_id, task_id)
             self._save()
             return {"taskId": task_id, "branch": branch, "worktree": str(folder), "baseCommit": run["baseCommit"], "gitStatus": self._run_git(folder, "status", "--short")}
 
     def launch_agent(self, run_id: str, task_id: str, role: str) -> dict:
-        if role not in ("builder", "reviewer", "test_designer"):
-            raise AgentRuntimeError("INVALID_ROLE", "Роль должна быть builder, reviewer или test_designer.")
+        if role not in ("builder", "reviewer", "test_designer", "mahoraga"):
+            raise AgentRuntimeError("INVALID_ROLE", "Роль должна быть builder, reviewer, test_designer или mahoraga.")
         with self._lock:
             run = self._run(run_id)
             task = next((item for item in run["tasks"] if item["id"] == task_id), None)
@@ -396,34 +397,54 @@ class AgentRuntime:
                 prompt = self._builder_prompt(task, run)
                 task["status"] = "implementing"
             elif role == "reviewer":
-                if task["status"] not in ("review_pending", "tests_passed") or not task.get("worktree"):
-                    raise AgentRuntimeError("REVIEW_NOT_READY", "Reviewer запускается после завершения Builder и проверки фактического diff.", 409)
+                if task["status"] not in ("tests_passed",) or not task.get("worktree") or task.get('tests',{}).get('status') != 'passed':
+                    raise AgentRuntimeError("REVIEW_NOT_READY", "Reviewer запускается только после прохождения независимых тестов.", 409)
+                if task.get('worktreeBase', run['baseCommit']) != run['baseCommit']:
+                    raise AgentRuntimeError('TASK_BASE_OUTDATED', 'База задачи устарела. Обнови ветку и повтори независимые тесты и ревью.', 409)
                 cwd = Path(task["worktree"])
                 prompt = self._reviewer_prompt(task, run)
                 if task.get('tests',{}).get('status') == 'passed':
                     from .acceptance import snapshot
                     _, _, files, digest = snapshot(self,run_id,task_id,task['allowedPaths'])
                     task['reviewDigest'] = digest
-                    prompt += '\nФактические изменённые файлы (null означает удаление):\n' + json.dumps(files,ensure_ascii=False) + '\nРезультаты изолированных тестов:\n' + json.dumps(task['tests'],ensure_ascii=False) + '\nОтветь только JSON: {"verdict":"pass|changes_requested","findings":[],"tests":[]}. При отсутствии данных не ставь pass.'
+                    from .acceptance import _suite
+                    _, _, suite_files, suite_digest = _suite(task)
+                    task['reviewSuiteDigest'] = suite_digest
+                    prompt += ('\nФактические изменённые файлы (null означает удаление):\n' + json.dumps(files,ensure_ascii=False) +
+                               '\nНезависимый набор Test Designer (файлы и содержимое):\n' + json.dumps(suite_files,ensure_ascii=False) +
+                               '\nSHA256 независимого набора: ' + suite_digest +
+                               '\nРезультаты независимых тестов:\n' + json.dumps(task['tests'],ensure_ascii=False) +
+                               '\nОтветь только JSON: {"verdict":"pass|changes_requested","findings":[],"tests":[]}. '
+                               'Проверь сами тесты и diff, а не только текст результата. При отсутствии данных не ставь pass.')
                 task["status"] = "reviewing"
-            else:
+            elif role == "test_designer":
                 if task.get("testDesignerSessionId"):
                     raise AgentRuntimeError("TEST_DESIGN_EXISTS", "Сессия Test Designer уже сохранена. Не запускай её повторно без проверки истории.", 409)
                 if task["status"] not in ("pending", "ready"):
                     raise AgentRuntimeError("TEST_DESIGN_NOT_READY", "Независимый Test Designer должен запускаться до Builder.", 409)
                 spec_dir = self.worktrees_dir / run_id / f"{task_id}-test-spec"
                 spec_dir.mkdir(parents=True, exist_ok=False)
+                task['testDesignDir'] = str(spec_dir)
                 for file_name, content in (("TASK.md", self._task_spec(task)), ("CONTRACTS.md", "\n".join(task["contracts"])), ("ACCEPTANCE.md", task["acceptance"])):
                     (spec_dir / file_name).write_text(content, "utf-8")
                 cwd = spec_dir
-                prompt = (task["testPrompt"] or f"Подготовь независимые проверки для {task['id']} {task['title']}.") + "\n\nРеализацию не анализируй и не просматривай. Рабочая папка содержит только условие, контракты и критерии готовности. Создай TEST_DESIGN.md с тест-кейсами и ожидаемыми результатами; не добавляй исходный код."
+                prompt = (task["testPrompt"] or f"Подготовь независимые проверки для {task['id']} {task['title']}.") + "\n\nРеализацию не анализируй: рабочая папка содержит только условие и контракты. Обязательно создай TEST_DESIGN.md, test-manifest.json формата {version:1, framework:string, files:[...], commands:[[...]], minimumTests:число} и исполняемые файлы тестов внутри tests/ или .makora-tests/. В manifest.files перечисляй только файлы тестового набора; не включай TEST_DESIGN.md или test-manifest.json. Минимум один тест должен действительно исполняться, manifest.minimumTests укажи не меньше 1. Для неизвестного формата вывода runner добавь буквальный countPrefix, непосредственно после которого runner печатает количество пройденных тестов. Команда каждой проверки должна явно запускать suite из .makora-tests (например python -m unittest discover -s .makora-tests -v). Не запускай команды через shell, не добавляй установщики зависимостей и сетевые действия. Тесты должны быть независимыми от тестов самого проекта, проверять контракт и критерии, завершаться ненулевым кодом при нарушении."
                 task["testDesignStatus"] = "running"
+            else:
+                if task.get('status') != 'mahoraga_required':
+                    raise AgentRuntimeError('MAHORAGA_NOT_READY', 'Передача Махораге доступна после трёх неудачных циклов Reviewer.', 409)
+                cwd = Path(task['worktree'])
+                prompt = (f"Проанализируй блокирующую задачу {task_id} после трёх безуспешных циклов исправления. "
+                          f"Не меняй файлы. ТЗ: {self._task_spec(task)}\nПоследний отчёт Reviewer:\n"
+                          f"{json.dumps(task.get('review',{}), ensure_ascii=False)}\n"
+                          f"Результаты независимых тестов:\n{json.dumps(task.get('tests',{}),ensure_ascii=False)}\n"
+                          "Верни конкретный диагноз, минимальный план исправления и вопросы человеку, если есть блокеры.")
             agent_id = "agent-" + uuid.uuid4().hex[:12]
             self._event("agent_start_requested", f"Запрошен Codex {role} на {MODEL_ID}", run_id, task_id)
             self._save()
         try:
             created = self.provider.create_thread(cwd=cwd, name=f"Makora {role} {task_id}", prompt=prompt,
-                                                  sandbox="readOnly" if role == "reviewer" else "workspaceWrite", denied_paths=[run['projectRoot']])
+                                                  sandbox="readOnly" if role in ("reviewer", "mahoraga") else "workspaceWrite", denied_paths=[run['projectRoot']])
         except Exception as exc:
             with self._lock:
                 uncertain = isinstance(exc, AgentRuntimeError) and exc.code == "DELIVERY_UNKNOWN"
@@ -446,7 +467,8 @@ class AgentRuntime:
             self.state["sessions"][agent_id] = session
             if role == "builder": task["builderSessionId"] = agent_id
             elif role == "reviewer": task["reviewerSessionId"] = agent_id
-            else: task["testDesignerSessionId"] = agent_id
+            elif role == 'test_designer': task["testDesignerSessionId"] = agent_id
+            else: task['mahoragaSessionId'] = agent_id
             self._event("agent_created", f"{role} · thread {thread_id} · {MODEL_ID}", run_id, task_id)
             self._save()
         return dict(session)
@@ -483,16 +505,22 @@ class AgentRuntime:
             operation = self.provider.operation(result["operationId"])
             state = operation.get("state", "unconfirmed")
             detail = operation.get("result") or operation.get("error")
-            if state == "completed":
-                detail = self.provider.history(result["threadId"])
-            if state in ("unconfirmed", "failed"):
-                # Operation records are in-memory in the bridge. On recovery, inspect persisted thread history
-                # before deciding that the user prompt was lost; never resend automatically.
-                history = self.provider.history(result["threadId"])
-                turns = history.get("turns", [])
-                if result.get("turnId") and any(t.get("id") == result["turnId"] and t.get("status") == "completed" for t in turns if isinstance(t, dict)):
-                    state = "completed"
-                    detail = history
+            # App Server operations may remain `delivered` after their specific turn has completed.
+            # Reconcile only against the exact turn ID created for this operation; never accept a prior turn.
+            history = self.provider.history(result["threadId"])
+            turns = history.get("turns", [])
+            turn = next((item for item in turns if isinstance(item, dict) and item.get('id') == result.get('turnId')), None)
+            if turn:
+                if turn.get('status') == 'completed':
+                    state, detail = 'completed', history
+                elif turn.get('status') in ('failed', 'interrupted'):
+                    state, detail = 'failed', {'turnId': result.get('turnId'), 'turnStatus': turn.get('status'), 'history': history}
+                elif turn.get('status') in ('inProgress', 'running', 'streaming'):
+                    state = 'running'
+            elif state == 'completed':
+                state, detail = 'unconfirmed', {'message': 'Операция завершена, но связанный turn не найден в истории.', 'operationId': result['operationId'], 'turnId': result.get('turnId')}
+            if not result.get('turnId'):
+                state, detail = 'unconfirmed', {'message': 'У операции нет сохранённого turn ID; результат нельзя сопоставить с историей.'}
         except AgentRuntimeError as exc:
             state = "unconfirmed"
             detail = {"code": exc.code, "message": str(exc)}
@@ -506,17 +534,31 @@ class AgentRuntime:
                 if session["role"] == "builder" and task:
                     task["status"] = "review_pending"
                 elif session["role"] == "reviewer" and task:
-                    task["status"] = "review_completed"
                     text = self._assistant_text(detail)
                     try:
                         review, _ = json.JSONDecoder().raw_decode(text[text.index('{'):])
-                        if review.get('verdict') in ('pass','changes_requested'):
-                            task['review'] = {**review,'digest':task.get('reviewDigest'),'threadId':session['threadId']}
+                        if review.get('verdict') in ('pass','changes_requested') and isinstance(review.get('findings'), list):
+                            task['review'] = {**review,'digest':task.get('reviewDigest'),'suiteDigest':task.get('reviewSuiteDigest'),'threadId':session['threadId']}
+                            if review['verdict'] == 'pass':
+                                task['status'] = 'review_completed'
+                            elif task.get('repairAttempts', 0) >= 3:
+                                task['status'] = 'mahoraga_required'
+                            else:
+                                task['status'] = 'changes_requested'
+                        else:
+                            task['status'] = 'review_unconfirmed'
                     except (ValueError,AttributeError):
                         task['review'] = {'verdict':'unconfirmed'}
+                        task['status'] = 'review_unconfirmed'
                 elif session["role"] == "test_designer" and task:
-                    task["testDesignStatus"] = "completed"
                     task["testDesignResult"] = self._assistant_text(detail)
+                    valid, files, error = self._validate_test_design(Path(task.get('testDesignDir', '')))
+                    task["testDesignStatus"] = "completed" if valid else "failed"
+                    task['testDesignFiles'] = files
+                    task['testDesignError'] = error
+                elif session['role'] == 'mahoraga' and task:
+                    task['mahoragaResult'] = self._assistant_text(detail)
+                    task['status'] = 'blocked_for_human'
                 self._event("agent_completed", f"{session['role']} thread {session['threadId']} завершил ответ", session.get("runId"), session.get("taskId"))
             elif state == "failed":
                 session["error"] = detail
@@ -525,6 +567,48 @@ class AgentRuntime:
                 self._event("agent_failed", f"{session['role']} завершился ошибкой", session.get("runId"), session.get("taskId"))
             self._save()
             return dict(session)
+
+    @staticmethod
+    def _validate_test_design(spec_dir: Path) -> tuple[bool, list[str], str | None]:
+        """Require a machine-runnable, independently authored suite before Builder can start."""
+        try:
+            spec_dir = spec_dir.resolve(strict=True)
+            manifest_path = spec_dir / 'test-manifest.json'
+            design_path = spec_dir / 'TEST_DESIGN.md'
+            if (manifest_path.is_symlink() or design_path.is_symlink() or not manifest_path.is_file() or
+                    not design_path.is_file() or manifest_path.stat().st_size > 200_000 or design_path.stat().st_size > 200_000):
+                return False, [], 'Нужны TEST_DESIGN.md и test-manifest.json.'
+            manifest = json.loads(manifest_path.read_text('utf-8'))
+            if manifest.get('version') != 1 or not isinstance(manifest.get('framework'), str):
+                return False, [], 'Неподдерживаемый формат test-manifest.json.'
+            files = manifest.get('files')
+            commands = manifest.get('commands')
+            if not isinstance(files, list) or not files or not isinstance(commands, list) or not commands:
+                return False, [], 'Манифест должен содержать files и commands.'
+            normalized = []
+            for name in files:
+                if name in ('TEST_DESIGN.md', 'test-manifest.json'):
+                    continue
+                if not isinstance(name, str):
+                    return False, [], f'Недопустимое имя файла теста: {name}'
+                path = Path(name)
+                if path.is_absolute() or '..' in path.parts or not path.parts or path.parts[0] not in ('tests', '.makora-tests'):
+                    return False, [], f'Недопустимый путь теста: {name}'
+                target = spec_dir.joinpath(*path.parts)
+                if target.is_symlink() or not target.resolve().is_relative_to(spec_dir) or not target.is_file():
+                    return False, [], f'Файл теста не найден или небезопасен: {name}'
+                normalized.append(path.as_posix())
+            if not normalized:
+                return False, [], 'В манифесте нет исполняемых файлов независимого набора.'
+            for command in commands:
+                if (not isinstance(command, list) or len(command) < 2 or
+                    not all(isinstance(part, str) and part and '\0' not in part for part in command) or
+                    '.makora-tests' not in ' '.join(command) or Path(command[0]).name.lower().removesuffix('.exe') not in
+                    {'python','python3','pytest','node','npm','go','cargo','dotnet','java','mvn','gradle'}):
+                    return False, [], 'Каждая команда должна быть argv-массивом и запускать независимый suite из .makora-tests.'
+            return True, normalized, None
+        except (OSError, ValueError, TypeError, AttributeError) as exc:
+            return False, [], f'Ошибка чтения test design: {exc}'
 
     @staticmethod
     def _assistant_text(history: dict) -> str:
@@ -576,6 +660,96 @@ class AgentRuntime:
         from .acceptance import integrate
         return integrate(self, run_id, task_id, confirmed)
 
+    def refresh_task_base(self, run_id: str, task_id: str, resolved_conflicts: list[str] | None = None,
+                          allowed_paths: list[str] | None = None) -> dict:
+        """Recreate a parallel task worktree on the latest integrated base, retaining its source worktree."""
+        from .acceptance import snapshot
+        with self._lock:
+            run = self._run(run_id)
+            task = next((item for item in run['tasks'] if item['id'] == task_id), None)
+            if not task or not task.get('worktree'):
+                raise AgentRuntimeError('WORKTREE_NOT_FOUND', 'Для задачи нет исходного worktree.', 404)
+            if task.get('worktreeBase', run['baseCommit']) == run['baseCommit']:
+                return {'status': 'current', 'baseCommit': run['baseCommit'], 'worktree': task['worktree']}
+            if task['status'] in ('integrated','implementing','reviewing','unconfirmed'):
+                raise AgentRuntimeError('TASK_BUSY', 'Сначала заверши активную сессию агента; состояние задачи не изменено.', 409)
+            if runtime_head := self._run_git(Path(run['projectRoot']), 'rev-parse', 'HEAD'):
+                if runtime_head != run['baseCommit'] or self._run_git(Path(run['projectRoot']), 'status', '--porcelain'):
+                    raise AgentRuntimeError('PROJECT_CHANGED', 'Основной проект должен совпадать с последним интегрированным коммитом.', 409)
+            allowed = allowed_paths if allowed_paths is not None else task.get('allowedPaths', [])
+            if not isinstance(allowed, list) or not all(isinstance(path, str) for path in allowed):
+                raise AgentRuntimeError('INVALID_ALLOWED_PATHS', 'Файлы должны быть списком относительных путей.', 400)
+            if not allowed:
+                raise AgentRuntimeError('ALLOWED_PATHS_REQUIRED', 'Укажи разрешённые файлы задачи для переноса на новую базу.', 409)
+            _, old_root, changed, _ = snapshot(self, run_id, task_id, allowed)
+            old_base = task.get('worktreeBase', run['baseCommit'])
+            upstream_changes = set(self._run_git(old_root, 'diff', '--name-only', old_base, run['baseCommit'], '--', '.').splitlines())
+            changed_paths = set(changed)
+            conflicts = sorted(upstream_changes & changed_paths)
+            if resolved_conflicts is not None and (
+                    not isinstance(resolved_conflicts, list) or
+                    not all(isinstance(path, str) for path in resolved_conflicts)):
+                raise AgentRuntimeError('INVALID_CONFLICT_RESOLUTION', 'Решённые конфликты должны быть списком путей.', 400)
+            resolved = set(resolved_conflicts or [])
+            if any(path not in conflicts for path in resolved):
+                raise AgentRuntimeError('INVALID_CONFLICT_RESOLUTION', 'Список решений содержит файл, который не является конфликтом.', 400)
+            unresolved = sorted(set(conflicts) - resolved)
+            if unresolved:
+                raise AgentRuntimeError('PARALLEL_CONFLICT', 'Есть пересечения с уже интегрированной задачей. Сначала вручную объедини эти файлы в исходном worktree, затем подтверди разрешение.', 409,
+                                        {'conflicts': unresolved, 'sourceWorktree': str(old_root), 'baseCommit': run['baseCommit']})
+            root = Path(run['projectRoot'])
+            folder = self.worktrees_dir / run_id / f"{task_id}-base-{run['baseCommit'][:8]}-{task.get('repairAttempts', 0)}"
+            if folder.exists():
+                folder = folder.with_name(folder.name + '-' + uuid.uuid4().hex[:6])
+            branch = f"makora/{run_id}/{task_id}-base-{run['baseCommit'][:8]}-{uuid.uuid4().hex[:5]}".lower()
+            self._run_git(root, 'worktree', 'add', '-b', branch, str(folder), run['baseCommit'])
+            for name, content in changed.items():
+                relative = Path(*Path(name).parts)
+                if relative.is_absolute() or '..' in relative.parts or any(part.startswith('.') for part in relative.parts):
+                    raise AgentRuntimeError('UNSAFE_PATH', f'Недопустимый файл при обновлении базы: {name}', 409)
+                source = old_root.joinpath(*relative.parts)
+                target = folder.joinpath(*relative.parts)
+                if content is None:
+                    target.unlink(missing_ok=True)
+                else:
+                    if source.is_symlink() or not source.resolve().is_relative_to(old_root.resolve()):
+                        raise AgentRuntimeError('UNSAFE_PATH', name, 409)
+                    target.parent.mkdir(parents=True, exist_ok=True)
+                    shutil.copyfile(source, target)
+            task.setdefault('previousWorktrees', []).append({'worktree': str(old_root), 'branch': task.get('branch'), 'baseCommit': old_base})
+            task.update(worktree=str(folder), branch=branch, worktreeBase=run['baseCommit'], status='review_pending',
+                        integration='not_integrated', allowedPaths=allowed, tests=None, review=None, reviewDigest=None, reviewSuiteDigest=None)
+            self._event('parallel_branch_rebased', f'Рабочая ветка перенесена на {run["baseCommit"][:12]}; тесты и Reviewer сброшены', run_id, task_id)
+            self._save()
+            return {'status': 'refreshed', 'baseCommit': run['baseCommit'], 'worktree': str(folder), 'branch': branch,
+                    'changedFiles': sorted(changed_paths), 'resolvedConflicts': sorted(resolved)}
+
+    def request_builder_fixes(self, run_id: str, task_id: str) -> dict:
+        with self._lock:
+            run = self._run(run_id)
+            task = next((item for item in run['tasks'] if item['id'] == task_id), None)
+            if not task or task.get('status') != 'changes_requested' or task.get('review', {}).get('verdict') != 'changes_requested':
+                raise AgentRuntimeError('REVIEW_CHANGES_REQUIRED', 'Нет актуальных замечаний Reviewer.', 409)
+            if task.get('repairAttempts', 0) >= 3:
+                task['status'] = 'mahoraga_required'
+                self._save()
+                return {'status': 'mahoraga_required', 'attempts': 3}
+            builder_id = task.get('builderSessionId')
+            if not builder_id:
+                raise AgentRuntimeError('BUILDER_SESSION_MISSING', 'Сессия Builder не найдена.', 409)
+            attempt = task.get('repairAttempts', 0) + 1
+            feedback = json.dumps(task['review'].get('findings', []), ensure_ascii=False, indent=2)
+            message = (f"Цикл исправлений {attempt}/3. Исправь замечания независимого Reviewer:\n{feedback}\n"
+                       "Меняй только разрешённые файлы задачи. После исправления сообщи список файлов. Старые тесты и review будут аннулированы.")
+            task['repairAttempts'] = attempt
+            self._save()
+        result = self.send_message(builder_id, message)
+        with self._lock:
+            task['lastRepairTurnId'] = result.get('turnId')
+            self._event('builder_fix_requested', f'Цикл исправления {attempt}/3 отправлен Builder', run_id, task_id)
+            self._save()
+        return {'status': 'fix_requested', 'attempt': attempt, 'turnId': result.get('turnId')}
+
     def get_session(self, agent_id: str, refresh: bool = True) -> dict:
         if refresh:
             return self.refresh_session(agent_id)
@@ -593,9 +767,17 @@ class AgentRuntime:
             session = self.state["sessions"].get(agent_id)
             if not session:
                 raise AgentRuntimeError("AGENT_NOT_FOUND", "Агент не найден.", 404)
-            if session["status"] in ("accepted", "delivered", "running"):
+            if session["status"] in ("accepted", "delivered", "running", "unconfirmed"):
                 raise AgentRuntimeError("SESSION_BUSY", "В этом thread уже выполняется запрос.", 409)
             thread_id = session["threadId"]
+            task = self._task_for_session(session)
+            if task and session['role'] == 'builder':
+                task.pop('tests', None)
+                task.pop('review', None)
+                task.pop('reviewDigest', None)
+                task.pop('reviewSuiteDigest', None)
+                task['status'] = 'implementing'
+                self._save()
         try:
             result = self.provider.send(thread_id, text)
         except AgentRuntimeError as exc:
@@ -613,6 +795,7 @@ class AgentRuntime:
         with self._lock:
             session = self.state["sessions"][agent_id]
             session["operationId"] = operation["id"]
+            session["turnId"] = result.get('turnId')
             session["status"] = operation.get("state", "accepted")
             session["lastMessageAt"] = _now()
             session["result"] = None
