@@ -129,6 +129,15 @@ def _suite(task):
         if len(blob) > MAX_FILE_BYTES or b'\0' in blob or total > MAX_SUITE_BYTES:
             raise AgentRuntimeError('TEST_SUITE_TOO_LARGE', 'Независимый тестовый набор превышает разрешённый размер.', 409)
         data[path.as_posix()] = blob.decode('utf-8')
+    # Provide the exact immutable design context that Test Designer used to author the
+    # executable suite. Bind it to the suite digest so review/retest cannot silently
+    # drift when the task, contract, acceptance criteria, or runner manifest changes.
+    for name, target in (('TEST_DESIGN.md', design_path), ('test-manifest.json', manifest_path),
+                         ('TASK.md', folder / 'TASK.md'), ('CONTRACTS.md', folder / 'CONTRACTS.md'),
+                         ('ACCEPTANCE.md', folder / 'ACCEPTANCE.md')):
+        if target.is_symlink() or not target.is_file() or target.stat().st_size > MAX_FILE_BYTES:
+            raise AgentRuntimeError('TEST_CONTEXT_MISSING', f'Файл контекста независимого набора отсутствует или небезопасен: {name}', 409)
+        data[f'.makora-tests/context/{name}'] = target.read_text('utf-8')
     commands = manifest.get('commands')
     if not isinstance(commands, list) or not commands or len(commands) > 10:
         raise AgentRuntimeError('TEST_MANIFEST_INVALID', 'Манифест не содержит команд запуска.', 409)
@@ -180,7 +189,8 @@ def _materialize_project(runtime, root, files, suite_data, destination):
     suite_root = destination / '.makora-tests'
     suite_root.mkdir()
     for name, content in suite_data.items():
-        target = suite_root.joinpath(*PurePosixPath(name).parts[1:])
+        relative = PurePosixPath(name)
+        target = suite_root.joinpath(*relative.parts[1:])
         target.parent.mkdir(parents=True, exist_ok=True)
         target.write_text(content, encoding='utf-8')
 

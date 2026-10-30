@@ -185,8 +185,14 @@ class MakoraHandler(SimpleHTTPRequestHandler):
             if match:
                 value=self._read_json()
                 self._agent_json(lambda:self.server.agent_runtime.resolve_approval(match.group(1),str(value.get('decision',''))));return
+            if path == '/api/agents/plans':
+                self._agent_json(lambda:self.server.agent_runtime.start_mahoraga_planning(self._read_json()),201);return
+            match=re.fullmatch(r'/api/agents/plans/([\w-]+)/approve',path)
+            if match:self._agent_json(lambda:self.server.agent_runtime.approve_mahoraga_plan(match.group(1)),201);return
             if path == '/api/agents/runs':
                 self._agent_json(lambda:self.server.agent_runtime.create_run(self._read_json()),201);return
+            match=re.fullmatch(r'/api/agents/runs/([\w-]+)/mahoraga',path)
+            if match:self._agent_json(lambda:self.server.agent_runtime.start_mahoraga_orchestrator(match.group(1)),201);return
             match=re.fullmatch(r'/api/agents/runs/([\w-]+)/tasks/([\w-]+)/(tests|integrate)',path)
             if match:
                 value=self._read_json()
@@ -200,13 +206,17 @@ class MakoraHandler(SimpleHTTPRequestHandler):
             match=re.fullmatch(r'/api/agents/runs/([\w-]+)/tasks/([\w-]+)/rebase',path)
             if match:
                 value=self._read_json()
-                self._agent_json(lambda:self.server.agent_runtime.refresh_task_base(match.group(1),match.group(2),value.get('resolvedConflicts',[]),value.get('allowedPaths')));return
+                self._agent_json(lambda:self.server.agent_runtime.refresh_task_base(match.group(1),match.group(2),value.get('resolvedConflicts'),value.get('allowedPaths')));return
+            match=re.fullmatch(r'/api/agents/runs/([\w-]+)/tasks/([\w-]+)/resolve-conflicts',path)
+            if match:self._agent_json(lambda:self.server.agent_runtime.resolve_task_conflicts(match.group(1),match.group(2)));return
             match=re.fullmatch(r'/api/agents/runs/([\w-]+)/tasks/([\w-]+)/request-fixes',path)
             if match:self._agent_json(lambda:self.server.agent_runtime.request_builder_fixes(match.group(1),match.group(2)));return
             match=re.fullmatch(r'/api/agents/sessions/([\w-]+)/messages',path)
             if match:
                 value=self._read_json()
                 self._agent_json(lambda:self.server.agent_runtime.send_message(match.group(1),str(value.get('text',''))),202);return
+            match=re.fullmatch(r'/api/agents/sessions/([\w-]+)/apply-actions',path)
+            if match:self._agent_json(lambda:self.server.agent_runtime.apply_mahoraga_actions(match.group(1)));return
             if path == '/api/iterations/prepare':
                 result = self.store.prepare(self._body(), self.headers.get('X-Base-Revision'))
                 self._json(result, 201)

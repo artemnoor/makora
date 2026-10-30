@@ -121,6 +121,50 @@ class AgentRuntimeTests(unittest.TestCase):
         with self.assertRaises(AgentRuntimeError):
             self.create_run([self.task("T01", ["T02"]), self.task("T02", ["T01"])])
 
+    def test_mahoraga_decomposes_case_and_controller_validates_plan_before_run_creation(self):
+        session=self.runtime.start_mahoraga_planning({'projectRoot':str(self.project),'brief':'Build a small feature.','context':'Requirements: fast and accessible.'})
+        self.assertEqual('mahoraga_planner',session['role'])
+        self.assertEqual('workspaceWrite',self.provider.sessions[session['threadId']]['sandbox'])
+        self.assertTrue((Path(session['cwd'])/'BRIEF.md').is_file())
+        planned_task=self.task('T01');planned_task['acceptance']=['Criterion A','Criterion B']
+        proposal={'summary':'One independently testable slice.','queueStrategy':'Dependency order, max two builders.',
+                  'risks':['External API availability is unknown.'],'openQuestions':['Confirm data source.'],
+                  'tasks':[planned_task]}
+        self.provider.history=lambda _: {'turns':[{'id':session['turnId'],'status':'completed','items':[{'type':'agentMessage','text':json.dumps(proposal)}]}]}
+        self.runtime.refresh_session(session['id'])
+        approved=self.runtime.approve_mahoraga_plan(session['id'])
+        self.assertEqual('One independently testable slice.',approved['mahoragaPlan']['summary'])
+        self.assertEqual('pending',approved['tasks'][0]['status'])
+        self.assertEqual('- Criterion A\n- Criterion B',approved['tasks'][0]['acceptance'])
+        self.assertEqual(approved['id'],self.runtime.get_session(session['id'],refresh=False)['approvedRunId'])
+
+    def test_mahoraga_plan_with_cycle_is_rejected_before_approval(self):
+        session=self.runtime.start_mahoraga_planning({'projectRoot':str(self.project),'brief':'Build a feature.'})
+        proposal={'tasks':[self.task('T01',['T02']),self.task('T02',['T01'])]}
+        self.provider.history=lambda _: {'turns':[{'id':session['turnId'],'status':'completed','items':[{'type':'agentMessage','text':json.dumps(proposal)}]}]}
+        self.runtime.refresh_session(session['id'])
+        recovered=self.runtime.get_session(session['id'],refresh=False)
+        self.assertIsNone(recovered.get('proposal'))
+        self.assertEqual('TASK_CYCLE',recovered['planError']['code'])
+        with self.assertRaisesRegex(AgentRuntimeError,'Сначала получи'):
+            self.runtime.approve_mahoraga_plan(session['id'])
+
+    def test_mahoraga_queue_actions_are_checked_by_controller(self):
+        run=self.create_run()
+        session=self.runtime.start_mahoraga_orchestrator(run['id'])
+        proposal={'summary':'Prepare isolated worktree, then await test design.', 'actions':[
+            {'action':'prepare_worktree','taskId':'T01','reason':'No dependencies.'},
+            {'action':'launch_builder','taskId':'T01','reason':'Attempt before test design.'},
+            {'action':'integrate','taskId':'T01','reason':'Unknown unsafe command.'}]}
+        self.provider.history=lambda _: {'turns':[{'id':session['turnId'],'status':'completed','items':[{'type':'agentMessage','text':json.dumps(proposal)}]}]}
+        self.runtime.refresh_session(session['id'])
+        result=self.runtime.apply_mahoraga_actions(session['id'])
+        self.assertEqual(['accepted','rejected','rejected'],[item['status'] for item in result['results']])
+        self.assertEqual('ready',self.runtime._run(run['id'])['tasks'][0]['status'])
+        self.assertEqual('ACTION_NOT_ALLOWED',result['results'][1]['code'])
+        self.assertIn('launch_test_designer',result['results'][1]['details']['allowedActions'])
+        self.assertEqual('Неизвестное действие или отсутствует taskId.',result['results'][2]['reason'])
+
     def test_test_designer_only_gets_spec_workspace(self):
         self.create_run()
         run_id = next(iter(self.runtime.state["runs"]))
@@ -129,6 +173,17 @@ class AgentRuntimeTests(unittest.TestCase):
         self.assertTrue((workdir / "TASK.md").is_file())
         self.assertFalse((workdir / "private_source.py").exists())
         self.assertNotIn("PRIVATE SOURCE", self.provider.sessions[session["threadId"]]["prompt"])
+
+    def test_test_designer_receives_only_explicit_committed_mock_files(self):
+        (self.project/'mocks').mkdir()
+        (self.project/'mocks'/'spaces.json').write_text('[{"id":"s1"}]\n',encoding='utf-8')
+        self.git('add','mocks/spaces.json');self.git('commit','-m','add approved fixture')
+        run=self.create_run([self.task()|{'mocks':['mocks/spaces.json','mocks/missing.json']}])
+        session=self.runtime.launch_agent(run['id'],'T01','test_designer')
+        folder=Path(session['cwd'])
+        self.assertEqual('[{"id":"s1"}]\n',(folder/'mocks'/'spaces.json').read_text(encoding='utf-8'))
+        self.assertFalse((folder/'private_source.py').exists())
+        self.assertIn('mocks/missing.json',(folder/'MOCKS.md').read_text(encoding='utf-8'))
 
     def test_reviewer_is_read_only_and_waits_for_builder_completion(self):
         self.create_run()
@@ -178,6 +233,20 @@ class AgentRuntimeTests(unittest.TestCase):
         self.provider.sessions[session["threadId"]]["state"] = "failed"
         self.provider.history = lambda _: {"turns": [{"id": "older-turn", "status": "completed"}]}
         self.assertEqual("failed", self.runtime.get_session(session["id"])["status"])
+
+    def test_recovery_uses_exact_turn_when_operation_record_is_gone(self):
+        run=self.create_run()
+        session=self.runtime.launch_agent(run['id'],'T01','test_designer')
+        spec=Path(session['cwd'])
+        (spec/'TEST_DESIGN.md').write_text('independent tests',encoding='utf-8')
+        (spec/'.makora-tests').mkdir()
+        (spec/'.makora-tests'/'test_contract.py').write_text('import unittest\nclass T(unittest.TestCase):\n def test_ok(self): self.assertTrue(True)\n',encoding='utf-8')
+        (spec/'test-manifest.json').write_text(json.dumps({'version':1,'framework':'unittest','files':['.makora-tests/test_contract.py'],'commands':[['python','-m','unittest','discover','-s','.makora-tests','-v']]}),encoding='utf-8')
+        self.provider.operation=lambda _: (_ for _ in ()).throw(AgentRuntimeError('OPERATION_NOT_FOUND','expired',404))
+        self.provider.history=lambda _: {'turns':[{'id':session['turnId'],'status':'completed','items':[{'type':'agentMessage','text':'Done.'}]}]}
+        refreshed=self.runtime.get_session(session['id'])
+        self.assertEqual('completed',refreshed['status'])
+        self.assertEqual('completed',self.runtime._run(run['id'])['tasks'][0]['testDesignStatus'])
 
     def test_exact_completed_turn_overrides_stale_delivered_operation(self):
         run=self.create_run()
@@ -316,7 +385,7 @@ class AgentRuntimeTests(unittest.TestCase):
         self.assertEqual('node:test',result['framework'])
         self.assertEqual(0,result['commands'][0]['exitCode'])
 
-    def test_parallel_same_file_is_reported_without_mutating_either_worktree(self):
+    def test_parallel_conflict_uses_three_way_merge_and_never_overwrites_integrated_version(self):
         run=self.create_run()
         tree=Path(self.runtime.create_task_worktree(run['id'],'T01')['worktree'])
         (tree/'README.md').write_text('agent version\n',encoding='utf-8')
@@ -326,13 +395,25 @@ class AgentRuntimeTests(unittest.TestCase):
         self.git('add','README.md'); self.git('commit','-m','parallel integration')
         self.runtime._run(run['id'])['baseCommit']=self.git('rev-parse','HEAD')
         before=tree.joinpath('README.md').read_text(encoding='utf-8')
-        with self.assertRaises(AgentRuntimeError) as caught:
-            self.runtime.refresh_task_base(run['id'],'T01',allowed_paths=['README.md'])
-        self.assertEqual('PARALLEL_CONFLICT',caught.exception.code)
-        self.assertEqual(['README.md'],caught.exception.details['conflicts'])
+        result=self.runtime.refresh_task_base(run['id'],'T01',allowed_paths=['README.md'])
+        self.assertEqual('conflict_resolution_required',result['status'])
+        self.assertEqual(['README.md'],result['conflicts'])
+        conflict_tree=Path(result['worktree'])
+        self.assertIn('<<<<<<<',conflict_tree.joinpath('README.md').read_text(encoding='utf-8'))
+        self.assertEqual('integrated version\n',(self.project/'README.md').read_text(encoding='utf-8'))
         self.assertEqual(before,tree.joinpath('README.md').read_text(encoding='utf-8'))
+        task=self.runtime._run(run['id'])['tasks'][0]
+        task.update(tests={'status':'passed'},review={'verdict':'pass'})
+        (conflict_tree/'README.md').write_text('integrated version\nagent version\n',encoding='utf-8')
+        subprocess.run(['git','-C',str(conflict_tree),'add','README.md'],check=True)
+        resolved=self.runtime.resolve_task_conflicts(run['id'],'T01')
+        self.assertEqual('resolved',resolved['status'])
+        self.assertEqual('integrated version\nagent version\n',(conflict_tree/'README.md').read_text(encoding='utf-8'))
+        self.assertEqual('review_pending',task['status'])
+        self.assertIsNone(task.get('tests'))
+        self.assertIsNone(task.get('review'))
 
-    def test_parallel_refresh_rejects_malformed_conflict_resolution(self):
+    def test_parallel_refresh_rejects_claimed_conflict_resolution_without_three_way_review(self):
         run=self.create_run()
         tree=Path(self.runtime.create_task_worktree(run['id'],'T01')['worktree'])
         (tree/'README.md').write_text('agent version\n',encoding='utf-8')
@@ -341,7 +422,7 @@ class AgentRuntimeTests(unittest.TestCase):
         self.runtime._run(run['id'])['baseCommit']=self.git('rev-parse','HEAD')
         with self.assertRaises(AgentRuntimeError) as caught:
             self.runtime.refresh_task_base(run['id'],'T01',resolved_conflicts='README.md',allowed_paths=['README.md'])
-        self.assertEqual('INVALID_CONFLICT_RESOLUTION',caught.exception.code)
+        self.assertEqual('UNSAFE_CONFLICT_OVERRIDE',caught.exception.code)
         self.assertTrue(tree.exists())
 
     def test_independent_test_suite_requires_executable_files_and_rejects_shell(self):
@@ -352,6 +433,11 @@ class AgentRuntimeTests(unittest.TestCase):
         valid, files, error=AgentRuntime._validate_test_design(Path(design['cwd']))
         self.assertTrue(valid,error)
         self.assertEqual(['tests/test_contract.py'],files)
+        from makora_core.agents.acceptance import _suite
+        _,_,suite,suite_digest=_suite(task)
+        self.assertIn('.makora-tests/context/TEST_DESIGN.md',suite)
+        self.assertIn('.makora-tests/context/test-manifest.json',suite)
+        self.assertEqual(64,len(suite_digest))
         manifest=Path(design['cwd'])/'test-manifest.json'
         (Path(design['cwd'])/'tests'/'test_contract.mjs').write_text('import test from "node:test"; import assert from "node:assert/strict"; test("contract",()=>assert.equal(1,1));\n',encoding='utf-8')
         manifest.write_text('{"version":1,"framework":"node:test","files":["tests/test_contract.mjs"],"commands":[["node","--test",".makora-tests/test_contract.mjs"]]}',encoding='utf-8')
