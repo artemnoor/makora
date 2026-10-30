@@ -13,7 +13,7 @@ window.createAgentPlan = function(root, mascot) {
   const board=document.createElement('section');
   board.className='agent-plan-board'; board.hidden=true;
   board.setAttribute('aria-label','Демонстрационный план агентов');
-  board.innerHTML=`<img class="agent-board-shadow" src="analysis-board.png" alt="" draggable="false"><img class="agent-board-art" src="analysis-board.png" alt="" draggable="false"><div class="agent-board-frame"><header class="agent-board-header"><div><small>ДЕМО · ТИХИЙ КАМПУС</small><h2>План агентов</h2></div><div><button type="button" data-agent-expand aria-label="Развернуть доску">⛶</button><button type="button" data-agent-close aria-label="Закрыть доску">×</button></div></header><div class="agent-board-content"></div><footer class="agent-board-footer"><span data-agent-status></span><button type="button" data-agent-approve>Утвердить план</button></footer></div>`;
+  board.innerHTML=`<img class="agent-board-shadow" src="analysis-board.png" alt="" draggable="false"><img class="agent-board-art" src="analysis-board.png" alt="" draggable="false"><div class="agent-board-frame"><header class="agent-board-header"><div><small>ДЕМО · ТИХИЙ КАМПУС</small><h2>План агентов</h2></div><div><button type="button" data-agent-expand aria-label="Развернуть доску">⛶</button></div></header><div class="agent-board-content"></div><footer class="agent-board-footer"><span data-agent-status></span><button type="button" data-agent-approve>Утвердить план</button></footer></div>`;
   root.append(board);
   const content=board.querySelector('.agent-board-content'), status=board.querySelector('[data-agent-status]');
   let current=null, drag=null, moved=false;
@@ -54,7 +54,6 @@ window.createAgentPlan = function(root, mascot) {
   content.addEventListener('click',e=>{const b=e.target.closest('[data-task]');if(b)detail(Number(b.dataset.task));});
   content.addEventListener('input',e=>{if(current===null||!e.target.dataset.field)return;state.tasks[current][e.target.dataset.field]=e.target.value;state.approved=false;save();updateStatus();});
   board.querySelector('[data-agent-approve]').onclick=()=>{state.approved=true;save();updateStatus();};
-  board.querySelector('[data-agent-close]').onclick=()=>{board.hidden=true;};
   board.querySelector('[data-agent-expand]').onclick=()=>{board.classList.toggle('agent-expanded');position();};
   board.addEventListener('dblclick',e=>{if(e.target.closest('button,textarea,input,label'))return;board.classList.toggle('agent-expanded');position();});
   board.addEventListener('pointerdown',e=>{
