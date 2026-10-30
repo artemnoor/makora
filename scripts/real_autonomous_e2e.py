@@ -270,8 +270,9 @@ def final_http_smoke(project: Path, root: Path, binary: Path, spec: object) -> d
     command = [str(binary), '-c', 'windows.sandbox=elevated', 'sandbox', '-C', str(sandbox_root),
                '--permission-profile', ':workspace', '--', sys.executable, str(probe)]
     try:
+        probe_env = {**os.environ, 'PYTHONIOENCODING': 'utf-8'}
         completed = subprocess.run(command, cwd=sandbox_root, capture_output=True, text=True,
-                                   encoding='utf-8', errors='replace', timeout=180)
+                                   encoding='utf-8', errors='replace', timeout=180, env=probe_env)
     except subprocess.TimeoutExpired as exc:
         raise E2EFailure(f'Final sandboxed HTTP probe timed out: {exc}') from exc
     output = completed.stdout + completed.stderr
@@ -391,6 +392,15 @@ def resume(args: argparse.Namespace) -> int:
                 raise E2EFailure('gpt-6-luna is unavailable during resume; no fallback is permitted.')
             run_id = evidence['runId']
             paused = request(api + f'/runs/{run_id}/autopilot', 'POST', {'enabled': False}, token=token)
+            # Re-evaluate the exact saved Reviewer turn after a controller fix.
+            # GET uses the normal session refresh and does not create a new turn.
+            saved = request(api + '/state', token=token)
+            saved_run = next(item for item in saved['runs'] if item['id'] == run_id)
+            for task in saved_run['tasks']:
+                if task.get('status') == 'review_unconfirmed' and task.get('reviewerSessionId'):
+                    checked = request(api + '/sessions/' + task['reviewerSessionId'], token=token)
+                    evidence.setdefault('reviewRechecks', []).append({'at': utc_now(), 'taskId': task['id'],
+                        'sessionId': checked['id'], 'threadId': checked.get('threadId'), 'turnId': checked.get('turnId')})
             autopilot = request(api + f'/runs/{run_id}/autopilot', 'POST', {'enabled': True}, token=token)
             evidence.setdefault('resumes', []).append({'at': utc_now(), 'publicAutopilotStatus': autopilot.get('status'),
                                                         'publicPauseStatus': paused.get('status'), 'model': status.get('model'),
@@ -495,7 +505,7 @@ def resume(args: argparse.Namespace) -> int:
         finally:
             if process.poll() is None:
                 try:
-                    process.send_signal(signal.CTRL_BREAK_EVENT)
+                    subprocess.run(['taskkill', '/PID', str(process.pid), '/T', '/F'], capture_output=True, timeout=10, check=False)
                     process.wait(timeout=10)
                 except Exception:
                     process.terminate()
@@ -762,7 +772,7 @@ def run(args: argparse.Namespace) -> int:
         finally:
             if process.poll() is None:
                 try:
-                    process.send_signal(signal.CTRL_BREAK_EVENT)
+                    subprocess.run(['taskkill', '/PID', str(process.pid), '/T', '/F'], capture_output=True, timeout=10, check=False)
                     process.wait(timeout=10)
                 except Exception:
                     process.terminate()

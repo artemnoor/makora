@@ -1,0 +1,110 @@
+{
+  "command": [
+    "C:\\CodexData\\packages\\app-server-daemon\\releases\\0.166.0-x86_64-pc-windows-msvc\\bin\\codex.exe",
+    "-c",
+    "windows.sandbox=elevated",
+    "sandbox",
+    "-C",
+    "C:\\CodexData\\tmp\\makora-autonomous-e2e-20261031-020453-45eb5b\\utf8-recheck\\final-http-sandbox",
+    "--permission-profile",
+    ":workspace",
+    "--",
+    "C:\\Users\\Артём\\AppData\\Local\\Programs\\Python\\Python311\\python.exe",
+    "C:\\CodexData\\tmp\\makora-autonomous-e2e-20261031-020453-45eb5b\\utf8-recheck\\final-http-sandbox\\.makora-tests\\e2e-http.py"
+  ],
+  "exitCode": 0,
+  "output": "MAKORA_E2E_JSON:[{\"case\": \"list\", \"status\": 200, \"response\": {\"rooms\": [{\"id\": \"north-library-204\", \"name\": \"Тихий читальный зал\", \"building\": \"Северная библиотека\", \"capacity\": 24, \"floor\": 2, \"features\": [\"розетки\", \"настольные лампы\", \"тихая зона\"]}, {\"id\": \"engineering-118\", \"name\": \"Учебная аудитория 118\", \"building\": \"Инженерный корпус\", \"capacity\": 32, \"floor\": 1, \"features\": [\"доска\", \"проектор\", \"розетки\"]}, {\"id\": \"student-center-305\", \"name\": \"Комната для групповой работы\", \"building\": \"Студенческий центр\", \"capacity\": 8, \"floor\": 3, \"features\": [\"белая доска\", \"экран\", \"переговорный стол\"]}, {\"id\": \"science-lab-012\", \"name\": \"Компьютерный класс\", \"building\": \"Научный корпус\", \"capacity\": 20, \"floor\": 0, \"features\": [\"компьютеры\", \"доступная среда\", \"кондиционер\"]}]}}, {\"case\": \"search\", \"status\": 200, \"response\": {\"rooms\": [{\"id\": \"north-library-204\", \"name\": \"Тихий читальный зал\", \"building\": \"Северная библиотека\", \"capacity\": 24, \"floor\": 2, \"features\": [\"розетки\", \"настольные лампы\", \"тихая зона\"]}]}}, {\"case\": \"empty\", \"status\": 200, \"response\": {\"rooms\": []}}, {\"case\": \"invalid\", \"status\": 400, \"response\": {\"error\": \"Query parameter 'minCapacity' must be a positive integer\"}}]\n",
+  "sandbox": "C:\\CodexData\\tmp\\makora-autonomous-e2e-20261031-020453-45eb5b\\utf8-recheck\\final-http-sandbox",
+  "checks": [
+    {
+      "case": "list",
+      "status": 200,
+      "response": {
+        "rooms": [
+          {
+            "id": "north-library-204",
+            "name": "Тихий читальный зал",
+            "building": "Северная библиотека",
+            "capacity": 24,
+            "floor": 2,
+            "features": [
+              "розетки",
+              "настольные лампы",
+              "тихая зона"
+            ]
+          },
+          {
+            "id": "engineering-118",
+            "name": "Учебная аудитория 118",
+            "building": "Инженерный корпус",
+            "capacity": 32,
+            "floor": 1,
+            "features": [
+              "доска",
+              "проектор",
+              "розетки"
+            ]
+          },
+          {
+            "id": "student-center-305",
+            "name": "Комната для групповой работы",
+            "building": "Студенческий центр",
+            "capacity": 8,
+            "floor": 3,
+            "features": [
+              "белая доска",
+              "экран",
+              "переговорный стол"
+            ]
+          },
+          {
+            "id": "science-lab-012",
+            "name": "Компьютерный класс",
+            "building": "Научный корпус",
+            "capacity": 20,
+            "floor": 0,
+            "features": [
+              "компьютеры",
+              "доступная среда",
+              "кондиционер"
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "case": "search",
+      "status": 200,
+      "response": {
+        "rooms": [
+          {
+            "id": "north-library-204",
+            "name": "Тихий читальный зал",
+            "building": "Северная библиотека",
+            "capacity": 24,
+            "floor": 2,
+            "features": [
+              "розетки",
+              "настольные лампы",
+              "тихая зона"
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "case": "empty",
+      "status": 200,
+      "response": {
+        "rooms": []
+      }
+    },
+    {
+      "case": "invalid",
+      "status": 400,
+      "response": {
+        "error": "Query parameter 'minCapacity' must be a positive integer"
+      }
+    }
+  ]
+}

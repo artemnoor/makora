@@ -215,6 +215,11 @@ class MakoraHandler(SimpleHTTPRequestHandler):
             if match:self._agent_json(lambda:self.server.agent_runtime.resolve_task_conflicts(match.group(1),match.group(2)));return
             match=re.fullmatch(r'/api/agents/runs/([\w-]+)/tasks/([\w-]+)/request-fixes',path)
             if match:self._agent_json(lambda:self.server.agent_runtime.request_builder_fixes(match.group(1),match.group(2)));return
+            match=re.fullmatch(r'/api/agents/runs/([\w-]+)/tasks/([\w-]+)/repair-test-design',path)
+            if match:
+                value=self._read_json()
+                reason=str(value.get('reason','')).strip()
+                self._agent_json(lambda:self.server.agent_runtime.repair_test_design(match.group(1),match.group(2),reason),201);return
             match=re.fullmatch(r'/api/agents/sessions/([\w-]+)/messages',path)
             if match:
                 value=self._read_json()

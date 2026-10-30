@@ -121,6 +121,20 @@ class AgentRuntimeTests(unittest.TestCase):
         self.assertTrue(any(Path(path).samefile(self.project) for path in paths))
         self.assertTrue(any(Path(path).samefile(self.project / 'app') for path in paths))
 
+    def test_windows_close_terminates_owned_tree_before_parent_exits(self):
+        workspace = self.base / 'close-workspace'
+        (workspace / 'agents').mkdir(parents=True)
+        api = CodexLocalApi(self.integration, workspace)
+        process = Mock(pid=12345)
+        process.poll.return_value = None
+        api._process = process
+        with patch('makora_core.agents.runtime.os.name', 'nt'), patch('makora_core.agents.runtime.subprocess.run') as kill:
+            api.close()
+        kill.assert_called_once()
+        self.assertEqual(['taskkill', '/PID', '12345', '/T', '/F'], kill.call_args.args[0])
+        process.terminate.assert_not_called()
+        process.wait.assert_called_once()
+
     def git(self, *args):
         result = subprocess.run(["git", "-C", str(self.project), *args], capture_output=True, text=True)
         if result.returncode:
@@ -442,7 +456,7 @@ class AgentRuntimeTests(unittest.TestCase):
         self.assertEqual(["app/__pycache__/module.cpython-311.pyc"], diff["ignoredGeneratedFiles"])
         self.assertNotIn("__pycache__", diff["diff"])
 
-    def test_autopilot_accepts_one_time_approval_only_for_exact_active_worktree_turn(self):
+    def test_autopilot_does_not_approve_command_only_because_cwd_matches(self):
         run = self.create_run()
         task = self.runtime._run(run['id'])['tasks'][0]
         task['allowedPaths'] = ['result.txt']
@@ -462,11 +476,9 @@ class AgentRuntimeTests(unittest.TestCase):
 
         result = self.runtime._resolve_scoped_autopilot_approvals(run['id'])
 
-        self.assertEqual({'accepted': 1, 'needsHuman': 0}, result)
-        self.assertEqual([('one', 'accept')], self.provider.resolved_approvals)
-        records = self.runtime._run(run['id'])['mahoragaAutopilot']['approvals']
-        self.assertEqual('accept-once', records[0]['decision'])
-        self.assertEqual(builder['threadId'], records[0]['threadId'])
+        self.assertEqual({'accepted': 0, 'needsHuman': 1}, result)
+        self.assertEqual([], self.provider.resolved_approvals)
+        self.assertEqual('needs_human', self.runtime._run(run['id'])['mahoragaAutopilot']['status'])
 
     def test_autopilot_pauses_for_codex_approval_from_outside_worktree(self):
         run = self.create_run()
@@ -490,6 +502,57 @@ class AgentRuntimeTests(unittest.TestCase):
         self.assertFalse(autopilot['enabled'])
         self.assertEqual('needs_human', autopilot['status'])
 
+    def test_file_change_grant_root_alone_is_not_automatically_approved(self):
+        run = self.create_run()
+        task = self.runtime._run(run['id'])['tasks'][0]
+        task['allowedPaths'] = ['result.txt']
+        self.runtime._run(run['id'])['plannerSessionId'] = 'approved-plan'
+        self.prepare_test_design(run['id'])
+        self.runtime.create_task_worktree(run['id'], 'T01')
+        builder = self.runtime.launch_agent(run['id'], 'T01', 'builder')
+        self.runtime._ensure_autopilot_worker = lambda: None
+        self.runtime.set_mahoraga_autopilot(run['id'], True)
+        self.provider.pending_approvals = [{'requestId':'file', 'method':'item/fileChange/requestApproval',
+            'params':{'threadId':builder['threadId'], 'turnId':builder['turnId'], 'grantRoot':builder['cwd']}}]
+        self.assertEqual({'accepted':0, 'needsHuman':1}, self.runtime._resolve_scoped_autopilot_approvals(run['id']))
+        self.assertEqual([], self.provider.resolved_approvals)
+
+    def test_failed_independent_suite_can_be_regenerated_without_accepting_it(self):
+        run = self.create_run()
+        self.prepare_test_design(run['id'])
+        task = self.runtime._run(run['id'])['tasks'][0]
+        task.update(status='tests_failed', tests={'status':'failed', 'commands':[{'output':'recursive import'}]})
+        self.assertIn('repair_test_design', self.runtime._mahoraga_allowed_actions(self.runtime._run(run['id']), task))
+        session = self.runtime.repair_test_design(run['id'], 'T01', 'recursive import in suite')
+        prompt = self.provider.sessions[session['threadId']]['prompt']
+        self.assertIn('recursive import', prompt)
+        self.assertEqual('failed', task['tests']['status'])
+        self.assertEqual('running', task['testDesignStatus'])
+        self.assertEqual([], self.runtime._mahoraga_allowed_actions(self.runtime._run(run['id']), task))
+        spec = Path(session['cwd'])
+        (spec/'TEST_DESIGN.md').write_text('Independent tests', encoding='utf-8')
+        (spec/'tests').mkdir()
+        (spec/'tests'/'test_fixed.py').write_text('def test_fixed(): pass', encoding='utf-8')
+        (spec/'test-manifest.json').write_text(json.dumps({'version':1, 'framework':'unittest',
+            'files':['tests/test_fixed.py'], 'commands':[['python','-m','unittest','discover','-s','.makora-tests']]}), encoding='utf-8')
+        self.provider.sessions[session['threadId']]['state'] = 'completed'
+        self.runtime.refresh_session(session['id'])
+        self.assertEqual('review_pending', task['status'])
+        self.assertIsNone(task['tests'])
+        self.assertEqual(['run_tests'], self.runtime._mahoraga_allowed_actions(self.runtime._run(run['id']), task))
+
+    def test_reviewer_unsupported_requirement_does_not_request_builder_changes(self):
+        run = self.create_run()
+        task = self.runtime._run(run['id'])['tasks'][0]
+        task.update(status='reviewing', reviewDigest='digest', reviewSuiteDigest='suite')
+        self.provider.sessions['review-thread'] = {'operation':'review-op', 'state':'completed'}
+        self.runtime.state['sessions']['review-agent'] = {'id':'review-agent', 'role':'reviewer', 'taskId':'T01',
+            'runId':run['id'], 'status':'running', 'threadId':'review-thread', 'operationId':'review-op', 'turnId':'review-turn'}
+        response = {'verdict':'changes_requested', 'findings':[{'requirementQuote':'invented requirement', 'evidence':'missing'}]}
+        self.provider.history = lambda _: {'turns':[{'id':'review-turn', 'status':'completed', 'items':[{'type':'agentMessage', 'text':json.dumps(response)}]}]}
+        self.runtime.refresh_session('review-agent')
+        self.assertEqual('review_unconfirmed', task['status'])
+
     def test_autopilot_queue_handles_null_test_and_review_artifacts_after_rebase(self):
         tasks = [self.task('T01') | {'allowedPaths': ['src/one.py']},
                  self.task('T02') | {'allowedPaths': ['src/two.py']}]
@@ -510,6 +573,17 @@ class AgentRuntimeTests(unittest.TestCase):
         self.assertRegex(fingerprint, r'^[0-9a-f]{64}$')
         self.assertNotEqual(first_failed_design, second_failed_design)
         self.assertEqual(['run_tests'], allowed)
+
+    def test_explicit_autopilot_restart_allows_reconsidering_current_queue(self):
+        run = self.create_run()
+        stored = self.runtime._run(run['id'])
+        stored['plannerSessionId'] = 'approved-plan'
+        stored['tasks'][0]['allowedPaths'] = ['result.txt']
+        self.runtime._ensure_autopilot_worker = lambda: None
+        fingerprint = self.runtime._autopilot_queue_fingerprint(stored)
+        stored['mahoragaAutopilot'].update(status='paused', enabled=False, seenQueueFingerprints=[fingerprint, 'older'])
+        self.runtime.set_mahoraga_autopilot(run['id'], True)
+        self.assertEqual(['older'], stored['mahoragaAutopilot']['seenQueueFingerprints'])
 
     def test_autopilot_controller_rejection_is_feedback_for_one_correction(self):
         task = self.task() | {'allowedPaths':['src/catalog.py']}
@@ -931,7 +1005,7 @@ class AgentRuntimeTests(unittest.TestCase):
         self.runtime.state['sessions'][reviewer_id]={'id':reviewer_id,'role':'reviewer','taskId':'T01','runId':run['id'],
             'threadId':'thread-final-review','operationId':'operation-final-review','turnId':'turn-final-review','status':'running',
             'reviewDigest':'code-digest','reviewSuiteDigest':'suite-digest'}
-        self.provider.history=lambda _: {'turns':[{'id':'turn-final-review','status':'completed','items':[{'type':'agentMessage','text':'{"verdict":"changes_requested","findings":[{"issue":"still failing"}] }'}]}]}
+        self.provider.history=lambda _: {'turns':[{'id':'turn-final-review','status':'completed','items':[{'type':'agentMessage','text':json.dumps({'verdict':'changes_requested','findings':[{'issue':'still failing','requirementQuote':'«The expected file exists.»','evidence':'file absent'}]})}]}]}
         self.runtime.refresh_session(reviewer_id)
         self.assertEqual('mahoraga_required',task['status'])
         specialist=self.runtime.launch_agent(run['id'],'T01','mahoraga')

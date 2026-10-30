@@ -226,14 +226,17 @@ class CodexLocalApi:
         self._process = None
         try:
             if process and process.poll() is None:
-                process.terminate()
+                if os.name == "nt":
+                    # Kill the tree while the parent still exists: terminating it
+                    # first re-parents Node and its App Server, leaving the writer alive.
+                    subprocess.run(["taskkill", "/PID", str(process.pid), "/T", "/F"],
+                                   capture_output=True, timeout=5, check=False)
+                else:
+                    process.terminate()
                 try:
                     process.wait(timeout=3)
                 except subprocess.TimeoutExpired:
                     process.kill()
-                if os.name == "nt":
-                    subprocess.run(["taskkill", "/PID", str(process.pid), "/T", "/F"],
-                                   capture_output=True, timeout=5, check=False)
         finally:
             stream = self._log_stream
             self._log_stream = None
@@ -467,7 +470,8 @@ class AgentRuntime:
             prompt = (
                 'Ты — Махорага, главный агент-координатор разработки Макоры. Изучи приложенный актуальный план запуска и предложи следующий безопасный набор действий. '
                 'Ты не запускаешь инструменты и не меняешь файлы; контроллер исполнит только допустимые действия. '
-                'Верни только JSON: {"summary":"...","actions":[{"action":"prepare_worktree|launch_test_designer|launch_builder|run_tests|launch_reviewer|request_fixes|refresh_task_base|recommend_integration|ask_human","taskId":"T01","reason":"..."}],"openQuestions":[]}. '
+                'Верни только JSON: {"summary":"...","actions":[{"action":"prepare_worktree|launch_test_designer|repair_test_design|launch_builder|run_tests|launch_reviewer|request_fixes|refresh_task_base|recommend_integration|ask_human","taskId":"T01","reason":"..."}],"openQuestions":[]}. '
+                'Если вывод тестов указывает на ошибку самого набора (например рекурсивный импорт или ошибка загрузки), предложи repair_test_design с обоснованием; если нарушен контракт продукта, выбирай request_fixes. '
                 'Действуй по зависимостям; одновременно допускай максимум двух Builder. Для run_tests поле allowedPaths не указывай: контроллер выведет список изменённых файлов сам. '
                 'Используй taskId буквально из плана и предлагай только действия из controllerAllowedActions для конкретной задачи. '
                 'Если независимый тест-дизайн завершился ошибкой и controllerAllowedActions содержит launch_test_designer, повтори Test Designer в пределах контроллерного лимита; не спрашивай человека до исчерпания этих попыток. '
@@ -512,6 +516,11 @@ class AgentRuntime:
                 raise AgentRuntimeError('AUTOPILOT_SCOPE_REQUIRED', 'Для каждой задачи Махорага должна определить разрешённые файлы до включения автокоординации.', 409)
             if enabled and autopilot.get('status') in ('completed', 'failed', 'needs_human', 'limit_reached'):
                 raise AgentRuntimeError('AUTOPILOT_TERMINAL', 'Этот автозапуск остановлен. Создай новый запуск или продолжи вручную.', 409)
+            if enabled and autopilot.get('status') == 'paused':
+                # A deliberate restart may follow a corrected external condition.
+                # Forget only the current fingerprint; normal loop limits still apply.
+                fingerprint = self._autopilot_queue_fingerprint(run)
+                autopilot['seenQueueFingerprints'] = [item for item in autopilot.get('seenQueueFingerprints', []) if item != fingerprint]
             autopilot.update({'enabled': enabled, 'status': 'running' if enabled else 'paused', 'lastError': None,
                               'updatedAt': _now()})
             self._event('mahoraga_autopilot_enabled' if enabled else 'mahoraga_autopilot_paused',
@@ -590,13 +599,13 @@ class AgentRuntime:
             else:
                 valid = valid and expected_root is not None and session_root == expected_root
             if method == 'item/fileChange/requestApproval':
-                grant_root = params.get('grantRoot')
-                valid = valid and (grant_root is None or Path(grant_root).resolve() == session_root)
+                # grantRoot alone does not describe the changes or their targets.
+                valid = False
             elif method == 'item/commandExecution/requestApproval':
-                try:
-                    valid = valid and isinstance(cwd_value, str) and Path(cwd_value).resolve() == session_root
-                except (OSError, ValueError):
-                    valid = False
+                # A working directory does not constrain shell commands, arguments,
+                # redirections, interpreters, or network access. An approval request
+                # specifically asks to cross a sandbox boundary; require a human.
+                valid = False
             else:
                 valid = False
             request_id = approval.get('requestId')
@@ -857,6 +866,8 @@ class AgentRuntime:
         if any(by_id[dependency]['status'] != 'integrated' for dependency in task['dependsOn']):
             return []
         status = task.get('status')
+        if task.get('testDesignStatus') == 'running':
+            return []
         if task.get('testDesignStatus') == 'failed':
             return ['launch_test_designer'] if task.get('testDesignerAttempts', 0) < 3 else ['ask_human']
         if (task.get('worktree') and task.get('worktreeBase', run['baseCommit']) != run['baseCommit'] and
@@ -878,7 +889,10 @@ class AgentRuntime:
                 return ['launch_test_designer']
             return []
         if status == 'tests_failed':
-            return ['request_fixes'] if task.get('repairAttempts', 0) < 3 else ['ask_human']
+            actions = []
+            if task.get('repairAttempts', 0) < 3: actions.append('request_fixes')
+            if task.get('testDesignerAttempts', 0) < 3: actions.append('repair_test_design')
+            return actions or ['ask_human']
         if status == 'review_unconfirmed':
             return ['ask_human']
         if status in ('review_pending','review_completed','changes_requested'):
@@ -965,7 +979,7 @@ class AgentRuntime:
                 raise AgentRuntimeError('ORCHESTRATOR_ACTIONS_INVALID', 'Ожидался список не более чем из 12 действий.', 409)
             run_id = session['runId']
         results = []
-        allowed_actions = {'prepare_worktree','launch_test_designer','launch_builder','run_tests','launch_reviewer','request_fixes','refresh_task_base','recommend_integration','ask_human'}
+        allowed_actions = {'prepare_worktree','launch_test_designer','repair_test_design','launch_builder','run_tests','launch_reviewer','request_fixes','refresh_task_base','recommend_integration','ask_human'}
         for item in actions:
             if not isinstance(item, dict) or item.get('action') not in allowed_actions or not isinstance(item.get('taskId'), str):
                 results.append({'status':'rejected','action':item,'reason':'Неизвестное действие или отсутствует taskId.'})
@@ -980,7 +994,7 @@ class AgentRuntime:
                 if action != 'ask_human' and action not in permitted:
                     raise AgentRuntimeError('ACTION_NOT_ALLOWED', 'Контроллер не разрешает это действие в текущем состоянии задачи.', 409,
                                             {'allowedActions':permitted})
-                if action in ('launch_test_designer','launch_builder','launch_reviewer'):
+                if action in ('launch_test_designer','repair_test_design','launch_builder','launch_reviewer'):
                     active_agents = sum(session.get('runId') == run_id and session.get('role') in
                                         ('test_designer','builder','reviewer') and session.get('status') in
                                         ('accepted','delivered','running') for session in self.state['sessions'].values())
@@ -990,6 +1004,10 @@ class AgentRuntime:
                     outcome = self.create_task_worktree(run_id,task_id)
                 elif action == 'launch_test_designer':
                     outcome = self.launch_agent(run_id,task_id,'test_designer')
+                elif action == 'repair_test_design':
+                    if not str(item.get('reason', '')).strip():
+                        raise AgentRuntimeError('REASON_REQUIRED', 'Нужно обоснование ошибки независимого теста.', 409)
+                    outcome = self.repair_test_design(run_id, task_id, str(item['reason']))
                 elif action == 'launch_builder':
                     outcome = self.launch_agent(run_id,task_id,'builder')
                 elif action == 'run_tests':
@@ -1116,7 +1134,7 @@ class AgentRuntime:
                     raise AgentRuntimeError("TEST_DESIGN_EXISTS", "Сессия Test Designer уже сохранена. Не запускай её повторно без проверки истории.", 409)
                 if retrying_test_design and task.get('testDesignerAttempts', 0) >= 3:
                     raise AgentRuntimeError('TEST_DESIGN_ATTEMPTS_EXHAUSTED', 'Три попытки Test Designer исчерпаны; требуется решение человека.', 409)
-                if task["status"] not in ("pending", "ready"):
+                if task["status"] not in ("pending", "ready") and not (retrying_test_design and task['status'] == 'tests_failed'):
                     raise AgentRuntimeError("TEST_DESIGN_NOT_READY", "Независимый Test Designer должен запускаться до Builder.", 409)
                 attempt = task.get('testDesignerAttempts', 0) + 1
                 suffix = '' if attempt == 1 else f'-attempt-{attempt}'
@@ -1158,6 +1176,8 @@ class AgentRuntime:
                 prompt = (task["testPrompt"] or f"Подготовь независимые проверки для {task['id']} {task['title']}.") + "\n\nРеализацию не анализируй: рабочая папка содержит только условие, контракты и явно перечисленные моки. MOCKS.md сообщает, какие из перечисленных файлов действительно переданы; изучай их на месте и не считай отсутствующие файлы доступными. В текущем рабочем каталоге Test Designer входные документы находятся в корне: TASK.md, CONTRACTS.md, ACCEPTANCE.md и MOCKS.md — прочитай именно их. Не придумывай пути файлов, поля данных или критерии, которых нет в этих документах; если данных недостаточно, сузь проверки до подтверждённого контракта и зафиксируй вопрос в TEST_DESIGN.md. Обязательно создай TEST_DESIGN.md, test-manifest.json формата {version:1, framework:string, files:[...], commands:[[...]], minimumTests:число} и исполняемые файлы тестов внутри tests/ или .makora-tests/. В manifest.files перечисляй только файлы тестового набора; не включай TEST_DESIGN.md или test-manifest.json. Минимум один тест должен действительно исполняться, manifest.minimumTests укажи не меньше 1. Для неизвестного формата вывода runner добавь буквальный countPrefix, непосредственно после которого runner печатает количество пройденных тестов. Команда каждой проверки должна явно запускать suite из .makora-tests (например node --test .makora-tests/test.js). Путь и схему исходных файлов бери только из CONTRACTS.md и ACCEPTANCE.md; suite обязан проверять именно эту спецификацию, а не выдуманный соседний файл. Позже контроллер запускает suite в sandbox-каталоге проекта и помещает копию входных документов по путям `.makora-tests/context/TASK.md`, `.makora-tests/context/CONTRACTS.md`, `.makora-tests/context/ACCEPTANCE.md`, `.makora-tests/context/TEST_DESIGN.md` и `.makora-tests/context/test-manifest.json`. Эти runtime-пути предназначены для исполнения тестов и не являются расположением входных документов в текущей рабочей папке Test Designer. Не запускай команды через shell, не добавляй установщики зависимостей и сетевые действия. Для Python suite импортируй модуль по точному контрактному пути; например app/query.py доступен как app.query, а runner также добавляет app, src и lib в PYTHONPATH. Не предполагай top-level имя без основания. Тесты должны быть независимыми от тестов самого проекта, проверять контракт и критерии, завершаться ненулевым кодом при нарушении."
                 if retrying_test_design:
                     prompt += f"\n\nПредыдущая попытка не создала валидный независимый набор: {task.get('testDesignError') or 'отсутствуют обязательные артефакты'}. Исправь это сейчас; создай все требуемые файлы и убедись, что manifest ссылается на реально существующий исполняемый suite. Это попытка {attempt} из 3."
+                    if task.get('testDesignRepairEvidence'):
+                        prompt += '\n\nВывод предыдущего независимого запуска и причина перепроверки (не ослабляй контракт):\n' + json.dumps(task['testDesignRepairEvidence'], ensure_ascii=False)
                 task["testDesignStatus"] = "running"
                 task['testDesignerAttempts'] = attempt
             else:
@@ -1225,11 +1245,12 @@ class AgentRuntime:
 
     def _reviewer_prompt(self, task: dict, run: dict) -> str:
         return ((task["reviewerPrompt"] or f"Проведи независимое code review задачи {task['id']}.") + "\n\n"
-            f"Задача: {self._task_spec(task)}\nИсходная ревизия: {run['baseCommit']}\n"
+            f"Задача: {self._task_spec(task)}\nКонтракты: {json.dumps(task.get('contracts', []), ensure_ascii=False)}\nИсходная ревизия: {run['baseCommit']}\n"
             f"План тестирования, подготовленный отдельным агентом:\n{task.get('testDesignResult') or 'Результат не предоставлен.'}\n\n"
             "Проверь diff только для этой задачи, ограничения, контракты и критерии. Рабочая директория доступна только для чтения. "
             "Не изменяй код и не выполняй команды. Верни структурированный результат с полями: verdict (pass|changes_requested), "
             "findings (массив объектов severity, file, line, issue, recommendation), tests (массив {name,status,evidence}). "
+            "Для каждого замечания укажи точную цитату из задания, контракта или критерия готовности в поле requirementQuote и фактическое доказательство дефекта в evidence. Не превращай желательное улучшение или отсутствующее в контракте требование в обязательное; опиши его отдельно в suggestions. "
             "Если тесты не запускались, явно поставь not_run и не выдумывай результаты.")
 
     def refresh_session(self, agent_id: str) -> dict:
@@ -1296,7 +1317,17 @@ class AgentRuntime:
                     text = self._assistant_text(detail)
                     try:
                         review, _ = json.JSONDecoder().raw_decode(text[text.index('{'):])
-                        if review.get('verdict') in ('pass','changes_requested') and isinstance(review.get('findings'), list):
+                        requirements = '\n'.join([self._task_spec(task), *task.get('contracts', [])])
+                        findings = review.get('findings')
+                        grounded = isinstance(findings, list) and all(
+                            isinstance(f, dict) and isinstance(f.get('requirementQuote'), str)
+                            and len(f['requirementQuote'].strip().strip('«»“”\"\'')) >= 5
+                            and f['requirementQuote'].strip().strip('«»“”\"\'') in requirements
+                            and isinstance(f.get('evidence'), str) and bool(f['evidence'].strip())
+                            for f in findings)
+                        if (review.get('verdict') in ('pass','changes_requested') and grounded and
+                                (review['verdict'] != 'changes_requested' or findings) and
+                                (review['verdict'] != 'pass' or not findings)):
                             task['review'] = {**review,'digest':task.get('reviewDigest'),'suiteDigest':task.get('reviewSuiteDigest'),'threadId':session['threadId']}
                             if review['verdict'] == 'pass':
                                 task['status'] = 'review_completed'
@@ -1315,6 +1346,11 @@ class AgentRuntime:
                     task["testDesignStatus"] = "completed" if valid else "failed"
                     task['testDesignFiles'] = files
                     task['testDesignError'] = error
+                    if valid and task.get('testDesignRepairEvidence'):
+                        task['tests'] = None
+                        task['review'] = None
+                        task['status'] = 'review_pending'
+                        task.pop('testDesignRepairEvidence', None)
                 elif session['role'] == 'mahoraga' and task:
                     task['mahoragaResult'] = self._assistant_text(detail)
                     task['status'] = 'blocked_for_human'
@@ -1613,6 +1649,25 @@ class AgentRuntime:
             self._save()
             return {'status': 'resolved', 'worktree': str(root), 'baseCommit': run['baseCommit'], 'changedFiles': changed,
                     'requiresRetest': True, 'requiresReview': True}
+
+    def repair_test_design(self, run_id: str, task_id: str, reason: str) -> dict:
+        if not isinstance(reason, str) or not reason.strip():
+            raise AgentRuntimeError('REASON_REQUIRED', 'Укажите причину пересмотра тестов.', 400)
+        with self._lock:
+            run = self._run(run_id)
+            task = next((item for item in run['tasks'] if item['id'] == task_id), None)
+            if not task or task.get('status') != 'tests_failed' or (task.get('tests') or {}).get('status') != 'failed':
+                raise AgentRuntimeError('TEST_FAILURE_REQUIRED', 'Пересмотр возможен только после неуспешного запуска независимых тестов.', 409)
+            if task.get('testDesignerAttempts', 0) >= 3:
+                raise AgentRuntimeError('TEST_DESIGN_ATTEMPTS_EXHAUSTED', 'Лимит попыток Test Designer исчерпан.', 409)
+            from .acceptance import _suite
+            _, _, old_suite, suite_digest = _suite(task)
+            task['testDesignRepairEvidence'] = {'reason': reason[:1000], 'tests': task['tests'],
+                                                'suiteDigest': suite_digest, 'suiteFiles': old_suite}
+            task['testDesignError'] = 'Требуется проверить ошибку исполняемого набора.'
+            task['testDesignStatus'] = 'failed'
+            self._save()
+        return self.launch_agent(run_id, task_id, 'test_designer')
 
     def request_builder_fixes(self, run_id: str, task_id: str) -> dict:
         with self._lock:
