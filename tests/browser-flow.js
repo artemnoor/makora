@@ -108,6 +108,11 @@ async page => {
       await page.locator('[data-map-task="T02"]').click();
       assert((await page.locator('[data-map-detail]').innerText()).includes('Test Designer'), 'Карточка не содержит задания тест-дизайнера');
       await page.locator('[data-agent-primary]').click();
+      await page.locator('[data-workflow-step="decomposition"]').click();
+      assert(await page.locator('[data-workflow-step="simulation"]').isEnabled(), 'Возврат к декомпозиции заблокировал симуляцию');
+      await page.locator('[data-agent-primary]').click();
+      assert(await page.evaluate(()=>window.makoraDemoWorkflow.getState().agent.mapApproved), 'Повторное утверждение декомпозиции сбросило карту');
+      await page.locator('[data-workflow-step="simulation"]').click();
       await page.locator('[data-start-run]').click();
       assert((await page.locator('[data-sim-task="T01"]').innerText()).includes('Готова'), 'Первой не разблокирована T01');
       const advance=async(id,action)=>{await page.locator(`[data-sim-task="${id}"]`).click();await page.locator(`[data-task-action="${action}"]`).click()};
