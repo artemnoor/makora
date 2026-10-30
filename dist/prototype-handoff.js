@@ -9,8 +9,9 @@ window.createPrototypeHandoff = function(root, mascot, getSourceFile) {
   const dock = document.createElement('div');
   dock.className = 'mascot-capabilities';
   dock.hidden = true;
-  dock.innerHTML = `<button type="button" class="capabilities-toggle" aria-expanded="false">✳ Возможности</button><div class="capabilities-menu" hidden><button type="button" data-prototype-open><span>01</span><strong>Рабочий прототип</strong><span>↗</span></button><button type="button" data-example-open><span>02</span><strong>Тестовый кейс</strong><span>↗</span></button></div>`;
+  dock.innerHTML = `<button type="button" class="capabilities-toggle" aria-expanded="false">✳ Возможности</button><div class="capabilities-menu" hidden><button type="button" data-prototype-open><span>01</span><strong>Рабочий прототип</strong><span>↗</span></button><button type="button" data-example-open><span>02</span><strong>Тестовый кейс</strong><span>↗</span></button><button type="button" data-agent-plan-open><span>03</span><strong>План агентов · демо</strong><span>↗</span></button></div>`;
   root.append(dock);
+  const agentPlan = window.createAgentPlan(root, mascot);
   const panel = document.createElement('section');
   panel.className = 'prototype-dialog';
   panel.hidden = true;
@@ -27,11 +28,13 @@ window.createPrototypeHandoff = function(root, mascot, getSourceFile) {
     dock.style.top = top + 'px';
     dock.classList.toggle('menu-above', top > window.innerHeight - 130);
     dock.classList.toggle('menu-align-right', left + 225 > window.innerWidth - 8);
+    agentPlan.position();
   }
   const toggle = dock.querySelector('.capabilities-toggle'), menu = dock.querySelector('.capabilities-menu');
   toggle.onclick = () => { menu.hidden = !menu.hidden; toggle.setAttribute('aria-expanded', String(!menu.hidden)); };
   dock.querySelector('[data-prototype-open]').onclick = () => { menu.hidden = true; toggle.setAttribute('aria-expanded', 'false'); open(); };
   dock.querySelector('[data-example-open]').onclick = () => { menu.hidden = true; toggle.setAttribute('aria-expanded', 'false'); openExample(); };
+  dock.querySelector('[data-agent-plan-open]').onclick = () => { menu.hidden = true; toggle.setAttribute('aria-expanded', 'false'); agentPlan.open(); };
   const dbOpen = () => new Promise((resolve, reject) => {
     const request = indexedDB.open('makora-prototype-result', 1);
     request.onupgradeneeded = () => request.result.createObjectStore('files');
@@ -363,6 +366,6 @@ window.createPrototypeHandoff = function(root, mascot, getSourceFile) {
   window.addEventListener('makora-open-prototype', open);
   window.addEventListener('resize', updatePosition);
   document.addEventListener('keydown', e => {if(e.key==='Escape' && !panel.hidden){e.stopImmediatePropagation();close();}}, true);
-  return {show(){dock.hidden=false;updatePosition();}, updatePosition, open,
+  return {show(){dock.hidden=false;updatePosition();agentPlan.open();}, updatePosition, open,
     currentDocuments(stage){return api('/api/revisions/current/documents?stage='+encodeURIComponent(String(stage).padStart(2,'0')));}};
 };
