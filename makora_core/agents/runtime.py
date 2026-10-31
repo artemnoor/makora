@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import json
 import hashlib
+import logging
 import os
 import re
 import secrets
@@ -19,6 +20,9 @@ from pathlib import Path, PurePosixPath
 from typing import Any
 
 
+_LOG = logging.getLogger(__name__)
+
+
 MODEL_ID = "gpt-6-luna"
 API_BASE = "http://127.0.0.1:4182"
 MAX_TASKS = 40
@@ -26,6 +30,7 @@ AUTOPILOT_MAX_ACTIONS = 160
 AUTOPILOT_MAX_DECISIONS = 80
 AUTOPILOT_MAX_ACTIVE_AGENTS = 4
 AUTOPILOT_POLL_SECONDS = 1.0
+MAHORAGA_PLAN_REVISION_LIMIT = 2
 
 
 class AgentRuntimeError(Exception):
@@ -58,6 +63,21 @@ class CodexLocalApi:
         self._lock = threading.Lock()
         self._process: subprocess.Popen | None = None
         self._log_stream = None
+        self._metadata_lock = threading.Lock()
+        self._metadata_refreshing = False
+        self._metadata_last_attempt = 0.0
+        self._metadata = {
+            "connected": False,
+            "transport": "Codex App Server · persistent local threads",
+            "appServerVersion": None,
+            "model": None,
+            "modelAvailable": False,
+            "availableModels": [],
+            "desktopBridge": "not_used",
+            "desktopVisibility": "App Server threads are persistent; Codex Desktop UI visibility is not guaranteed by this transport.",
+            "warming": False,
+        }
+        self._approvals_cache: list[dict] = []
         with socket.socket() as listener:
             listener.bind(('127.0.0.1', 0))
             self._port = listener.getsockname()[1]
@@ -96,6 +116,14 @@ class CodexLocalApi:
                 parsed = {}
             if 'cannot enforce split filesystem read restrictions' in str(parsed.get('error', '')):
                 raise AgentRuntimeError('SANDBOX_UNAVAILABLE', 'Windows unelevated sandbox не поддерживает изоляцию чтения. Настрой MXC, elevated sandbox или отдельную Linux-среду. Запуск без изоляции заблокирован.', 503) from exc
+            if exc.code == 404 and path.startswith('/api/operations/'):
+                raise AgentRuntimeError('OPERATION_NOT_FOUND', 'Запись Codex operation недоступна; состояние turn нужно подтвердить по его точному ID.', 404) from exc
+            error_text = str(parsed.get('error') or parsed.get('message') or detail).lower()
+            if exc.code == 409 and 'already being processed for this thread' in error_text:
+                # This exact response confirms rejection before a new message
+                # was accepted, so the caller may retry after rechecking state.
+                raise AgentRuntimeError('SESSION_BUSY',
+                    'Codex thread ещё обрабатывает предыдущий turn; сообщение отклонено и не доставлено.', 409) from exc
             if parsed.get("deliveryUnknown") or parsed.get("threadId"):
                 raise AgentRuntimeError("DELIVERY_UNKNOWN", "Codex не подтвердил доставку. Проверь историю перед повторной отправкой.", 409, parsed) from exc
             raise AgentRuntimeError("CODEX_API_ERROR", f"Codex API HTTP {exc.code}: {detail}", 502) from exc
@@ -154,26 +182,68 @@ class CodexLocalApi:
             raise AgentRuntimeError("CODEX_BRIDGE_TIMEOUT", f"Codex API did not become ready. See {log}", 503)
 
     def status(self) -> dict:
-        self.ensure_started()
-        status = self._request("/api/status")
-        models = self._request("/api/models", timeout=15)
-        catalog = models.get("data", [])
-        luna = next((model for model in catalog if model.get("id") == MODEL_ID or model.get("model") == MODEL_ID), None)
-        return {
-            "connected": bool(status.get("ready")),
-            "transport": "Codex App Server · persistent local threads",
-            "appServerVersion": status.get("appServerVersion"),
-            "model": MODEL_ID if luna else None,
-            "modelAvailable": luna is not None,
-            "availableModels": [m.get("id") or m.get("model") for m in catalog if isinstance(m, dict)],
-            "desktopBridge": "not_used",
-            "desktopVisibility": "App Server threads are persistent; Codex Desktop UI visibility is not guaranteed by this transport.",
-        }
+        self._schedule_metadata_refresh()
+        with self._metadata_lock:
+            return {**self._metadata, "warming": self._metadata_refreshing}
+
+    def _schedule_metadata_refresh(self) -> None:
+        """Warm the local bridge without making the board's first render wait for it."""
+        with self._metadata_lock:
+            now = time.monotonic()
+            if self._metadata_refreshing or now - self._metadata_last_attempt < 5.0:
+                return
+            self._metadata_refreshing = True
+            self._metadata_last_attempt = now
+            threading.Thread(target=self._refresh_metadata, name="makora-codex-status", daemon=True).start()
+
+    def _refresh_metadata(self) -> None:
+        try:
+            self.ensure_started()
+            status = self._request("/api/status")
+            models = self._request("/api/models", timeout=15)
+            if not isinstance(status, dict) or not isinstance(models, dict):
+                raise AgentRuntimeError("CODEX_API_INVALID", "Codex status/catalog response has an invalid shape", 502)
+            catalog = models.get("data", [])
+            luna = next((model for model in catalog if isinstance(model, dict) and
+                         (model.get("id") == MODEL_ID or model.get("model") == MODEL_ID)), None)
+            try:
+                approvals = self._request("/api/approvals")
+            except AgentRuntimeError:
+                approvals = []
+            with self._metadata_lock:
+                self._metadata = {
+                    "connected": bool(status.get("ready")),
+                    "transport": "Codex App Server · persistent local threads",
+                    "appServerVersion": status.get("appServerVersion"),
+                    "model": MODEL_ID if luna else None,
+                    "modelAvailable": luna is not None,
+                    "availableModels": [m.get("id") or m.get("model") for m in catalog if isinstance(m, dict)],
+                    "desktopBridge": "not_used",
+                    "desktopVisibility": "App Server threads are persistent; Codex Desktop UI visibility is not guaranteed by this transport.",
+                    "warming": False,
+                }
+                self._approvals_cache = approvals if isinstance(approvals, list) else []
+        except AgentRuntimeError as exc:
+            with self._metadata_lock:
+                self._metadata = {
+                    **self._metadata,
+                    "connected": False,
+                    "model": None,
+                    "modelAvailable": False,
+                    "error": {"code": exc.code, "message": str(exc)},
+                    "warming": False,
+                }
+        finally:
+            with self._metadata_lock:
+                self._metadata_refreshing = False
 
     def create_thread(self, *, cwd: Path, name: str, prompt: str, sandbox: str = "workspaceWrite", denied_paths: list[str] | None = None) -> dict:
         self.ensure_started()
-        status = self.status()
-        if not status["modelAvailable"]:
+        models = self._request("/api/models", timeout=15)
+        catalog = models.get("data", [])
+        luna = next((model for model in catalog if isinstance(model, dict) and
+                     (model.get("id") == MODEL_ID or model.get("model") == MODEL_ID)), None)
+        if not luna:
             raise AgentRuntimeError("MODEL_UNAVAILABLE", f"Обязательная модель {MODEL_ID} недоступна в локальном каталоге Codex.", 409)
         sandbox_mode = {"workspaceWrite": "workspace-write", "readOnly": "read-only"}.get(sandbox)
         if sandbox_mode is None:
@@ -213,9 +283,9 @@ class CodexLocalApi:
         return self._request(f"/api/threads/{thread_id}?tail=1", timeout=15)
 
     def approvals(self) -> list[dict]:
-        self.ensure_started()
-        value = self._request("/api/approvals")
-        return value if isinstance(value, list) else []
+        self._schedule_metadata_refresh()
+        with self._metadata_lock:
+            return list(self._approvals_cache)
 
     def resolve_approval(self, request_id: str, decision: str) -> dict:
         self.ensure_started()
@@ -256,6 +326,8 @@ class AgentRuntime:
         self.worktrees_dir.mkdir(parents=True, exist_ok=True)
         self.provider = provider or CodexLocalApi(self.integration_dir, self.workspace)
         self._lock = threading.RLock()
+        self._state_save_lock = threading.Lock()
+        self._mahoraga_launch_guard = threading.Lock()
         self._autopilot_guard = threading.Lock()
         self._autopilot_stop = threading.Event()
         self._autopilot_thread: threading.Thread | None = None
@@ -273,9 +345,25 @@ class AgentRuntime:
             self._ensure_autopilot_worker()
 
     def _save(self) -> None:
-        temp = self.state_path.with_suffix(".tmp")
-        temp.write_text(json.dumps(self.state, ensure_ascii=False, indent=2), "utf-8")
-        os.replace(temp, self.state_path)
+        # Windows scanners/readers can briefly deny replace, and concurrent
+        # callbacks must never collide on a shared state.tmp filename.
+        with self._state_save_lock:
+            temp = self.state_path.with_name(f'{self.state_path.name}.{os.getpid()}.{uuid.uuid4().hex}.tmp')
+            try:
+                temp.write_text(json.dumps(self.state, ensure_ascii=False, indent=2), 'utf-8')
+                for attempt in range(8):
+                    try:
+                        os.replace(temp, self.state_path)
+                        return
+                    except PermissionError:
+                        if attempt == 7:
+                            raise
+                        time.sleep(min(0.05 * (2 ** attempt), 1.0))
+            finally:
+                try:
+                    temp.unlink(missing_ok=True)
+                except OSError:
+                    pass
 
     def _event(self, kind: str, detail: str, run_id: str | None = None, task_id: str | None = None) -> None:
         self.state["events"].append({"id": str(uuid.uuid4()), "type": kind, "detail": detail,
@@ -304,9 +392,22 @@ class AgentRuntime:
         return path
 
     @staticmethod
+    def _git_environment() -> dict[str, str]:
+        # Git honors these process-wide overrides even when -C is supplied.
+        # A Codex Desktop process can inherit them from an unrelated checkout,
+        # which would redirect otherwise-scoped worktree operations.
+        env = os.environ.copy()
+        for name in ('GIT_DIR', 'GIT_WORK_TREE', 'GIT_INDEX_FILE', 'GIT_COMMON_DIR',
+                     'GIT_OBJECT_DIRECTORY', 'GIT_ALTERNATE_OBJECT_DIRECTORIES',
+                     'GIT_CEILING_DIRECTORIES'):
+            env.pop(name, None)
+        return env
+
+    @staticmethod
     def _run_git(root: Path, *args: str) -> str:
+        env = AgentRuntime._git_environment()
         result = subprocess.run(["git", "-C", str(root), *args], capture_output=True, text=True,
-                                encoding='utf-8', errors='replace', timeout=30)
+                                encoding='utf-8', errors='replace', timeout=30, env=env)
         if result.returncode:
             raise AgentRuntimeError("GIT_OPERATION_FAILED", (result.stderr or '').strip() or "Git operation failed", 409)
         return (result.stdout or '').strip()
@@ -361,6 +462,7 @@ class AgentRuntime:
             if any(d not in seen or d == task["id"] for d in task["dependsOn"]):
                 raise AgentRuntimeError("INVALID_DEPENDENCY", f"{task['id']}: зависимость отсутствует или указывает на саму задачу.")
         self._assert_acyclic(normalized)
+        self._assert_non_overlapping_independent_scopes(normalized)
         run_id = "run-" + uuid.uuid4().hex[:12]
         run = {"id": run_id, "projectRoot": str(root), "baseCommit": self._run_git(root, "rev-parse", "HEAD"),
                "createdAt": _now(), "maxParallel": 2, "tasks": normalized,
@@ -391,6 +493,43 @@ class AgentRuntime:
             visit(task["id"])
 
     @staticmethod
+    def _assert_non_overlapping_independent_scopes(tasks: list[dict]) -> None:
+        """Reject parallel-ready tasks whose write allowlists share a path."""
+        by_id = {task['id']: task for task in tasks}
+        def depends_on(task_id: str, ancestor_id: str) -> bool:
+            pending = list(by_id[task_id].get('dependsOn', []))
+            visited = set()
+            while pending:
+                dependency = pending.pop()
+                if dependency == ancestor_id:
+                    return True
+                if dependency not in visited and dependency in by_id:
+                    visited.add(dependency)
+                    pending.extend(by_id[dependency].get('dependsOn', []))
+            return False
+
+        def parts(path: str) -> tuple[str, ...]:
+            return tuple(part.casefold() for part in PurePosixPath(path.replace('\\', '/')).parts)
+
+        for index, left in enumerate(tasks):
+            for right in tasks[index + 1:]:
+                # Dependencies serialize the two write scopes, so a shared
+                # file can be intentional when the DAG orders those tasks.
+                if depends_on(left['id'], right['id']) or depends_on(right['id'], left['id']):
+                    continue
+                for left_path in left.get('allowedPaths', []):
+                    left_parts = parts(left_path)
+                    for right_path in right.get('allowedPaths', []):
+                        right_parts = parts(right_path)
+                        shortest = min(len(left_parts), len(right_parts))
+                        if left_parts[:shortest] == right_parts[:shortest]:
+                            raise AgentRuntimeError(
+                                'TASK_SCOPE_OVERLAP',
+                                f"Независимые задачи {left['id']} и {right['id']} имеют пересекающиеся allowedPaths "
+                                f"({left_path!r}, {right_path!r}); раздели общий файл или добавь зависимость, "
+                                'чтобы сериализовать изменения.', 409)
+
+    @staticmethod
     def _public_run(run: dict) -> dict:
         return {k: v for k, v in run.items() if k not in ("internal",)}
 
@@ -416,6 +555,8 @@ class AgentRuntime:
             'если у задачи нет зависимостей или доступных файлов-моков, верни [] (не текстовое объяснение). mocks содержит только относительные пути уже существующих файлов проекта; '
             'не перечисляй там критерии, которые нужно реализовать. allowedPaths — точный список относительных файлов приложения, которые '
             'задача вправе создавать или менять. У КАЖДОЙ задачи обязательно должен быть непустой allowedPaths, включая тестовые и финальные интеграционные задачи. '
+            'Не назначай один файл двум независимым задачам: пересекающиеся allowedPaths разрешены только если DAG явно упорядочивает эти задачи зависимостью. '
+            'Если общий файл нужен, выдели его одному владельцу или добавь зависимость до начала параллельной работы. '
             'Не используй широкие каталоги и не включай .git, скрытые/секретные файлы или тесты Макоры. '
             'Каждая задача и её независимые приёмочные тесты должны быть выполнимы на базе её интегрированных зависимостей. '
             'Тесты, импортирующие ещё не реализованный модуль, зависят от задачи реализации этого модуля; не делай их параллельной независимой задачей. '
@@ -423,9 +564,16 @@ class AgentRuntime:
             'собственные acceptance-критерии и независимый тест-дизайн; интеграционные/E2E задачи добавь отдельно при необходимости. '
             'Ограничь план 40 задачами и не запускай Builder. Верни только JSON-объект формы '
             '{"summary":"...","tasks":[...],"risks":[...],"openQuestions":[...],"queueStrategy":"...",'
-            '"e2e":{"launch":["python|node", "..."],"portEnv":"PORT","route":"/api/...",'
-            '"searchParameter":"...","invalidQuery":{"...":"..."},"nameField":"...","listKey":null}}. '
-            'Задачи должны ссылаться только на существующие ID зависимостей, без циклов. Макора проверит этот граф и оставит запуск человеку.'
+            '"e2e":{"mode":"http","launch":["python|node", "..."],"portEnv":"PORT","route":"/api/...",'
+            '"searchParameter":"...","invalidQuery":{"...":"..."},"nameField":"...","listKey":null}} '
+            'для HTTP-приложения ИЛИ {"e2e":{"mode":"cli","commands":[{"name":"...",'
+            '"argv":["python|python3|node","..."],"expectedExitCode":0,"expectedContains":"..."},'
+            '{"name":"invalid input","argv":["python|python3|node","..."],"expectedExitCode":2,"expectedContains":"..."}]}} '
+            'для CLI. Команды CLI должны проверять успешный и ошибочный ввод; используй argv, не shell-строку и не inline code. '
+            'Не добавляй HTTP-сервер к CLI-задаче без необходимости. '
+            'Задачи должны ссылаться только на существующие ID зависимостей, без циклов. Макора проверит этот граф и оставит запуск человеку. '
+            'Если постановка задаёт минимум задач, параллельную работу или отдельный финальный этап интеграции, выполни эти ограничения буквально: '
+            'финальная интеграция должна зависеть от всех необходимых ветвей, а не быть несвязанной конечной задачей.'
         )
         try:
             created = self.provider.create_thread(cwd=folder, name='Makora Mahoraga project planning', prompt=prompt,
@@ -440,6 +588,10 @@ class AgentRuntime:
         agent_id = 'agent-' + uuid.uuid4().hex[:12]
         session = {'id': agent_id, 'role': 'mahoraga_planner', 'taskId': None, 'runId': None,
                    'threadId': thread_id, 'operationId': operation['id'], 'turnId': created.get('turnId'),
+                   'turnHistory': [{'operationId': operation['id'], 'turnId': created.get('turnId'),
+                                    'requestedAt': _now(), 'kind': 'initial', 'status': operation.get('state', 'accepted'),
+                                    'executionObservedStartAt': None, 'executionObservedEndAt': None,
+                                    'executionObservedDurationMs': None, 'providerTurnTiming': {}}],
                    'model': MODEL_ID, 'cwd': str(folder), 'projectRoot': str(root), 'planId': plan_id,
                    'status': operation.get('state', 'accepted'), 'createdAt': _now(), 'lastCheckedAt': None,
                    'result': None, 'proposal': None, 'error': None, 'transport': 'codex-app-server'}
@@ -448,6 +600,82 @@ class AgentRuntime:
             self._event('mahoraga_planning_started', f'Махорага готовит план для {root}')
             self._save()
         return dict(session)
+
+    def revise_mahoraga_plan(self, agent_id: str, feedback: str) -> dict:
+        """Ask the same planner thread to correct a rejected plan, with bounded retries."""
+        feedback = feedback.strip()
+        if not feedback or len(feedback) > 5000:
+            raise AgentRuntimeError('PLAN_REVISION_FEEDBACK_INVALID', 'Обратная связь должна содержать 1–5000 символов.', 400)
+        with self._lock:
+            session = self.state['sessions'].get(agent_id)
+            if not session or session.get('role') != 'mahoraga_planner':
+                raise AgentRuntimeError('PLAN_SESSION_NOT_FOUND', 'Сессия планирования Махораги не найдена.', 404)
+            if session.get('approvedRunId'):
+                raise AgentRuntimeError('PLAN_ALREADY_APPROVED', 'Утверждённый план нельзя незаметно заменить.', 409)
+            if session.get('status') != 'completed':
+                raise AgentRuntimeError('PLAN_NOT_READY', 'Исправлять можно только завершённый ответ планировщика.', 409)
+            if session.get('planRevisionPending'):
+                raise AgentRuntimeError('PLAN_REVISION_PENDING', 'Предыдущий запрос исправления ещё не подтверждён.', 409)
+            attempts = int(session.get('planRevisionAttempts', 0) or 0)
+            if attempts >= MAHORAGA_PLAN_REVISION_LIMIT:
+                raise AgentRuntimeError('PLAN_REVISION_LIMIT', 'Лимит исправлений плана исчерпан; требуется решение человека.', 409)
+            busy_retries = int(session.get('planRevisionBusyRetries', 0) or 0)
+            if busy_retries >= 3:
+                raise AgentRuntimeError('PLAN_REVISION_BUSY_LIMIT', 'Planner thread трижды отклонил запрос исправления как занятый; проверь точный turn перед продолжением.', 409)
+            if not session.get('planError') and not isinstance(session.get('proposal'), dict):
+                raise AgentRuntimeError('PLAN_REVISION_NOT_REQUIRED', 'Нет сохранённого плана или ошибки для исправления.', 409)
+            attempt = attempts + 1
+            session['planRevisionPending'] = True
+            session['planRevisionAttempts'] = attempt
+            session.pop('proposal', None)
+            session.pop('planError', None)
+            session['planValidation'] = {'status': 'revision_requested', 'attempt': attempt}
+            self._event('mahoraga_plan_revision_requested',
+                        f'Планировщику отправлена обратная связь; исправление {attempt}/{MAHORAGA_PLAN_REVISION_LIMIT}.')
+            self._save()
+        message = (
+            f'Контроллер отклонил предыдущий план. Исправление {attempt}/{MAHORAGA_PLAN_REVISION_LIMIT}.\n'
+            'Исправь только перечисленные ошибки, сохранив продуктовую постановку. Верни полный исправленный JSON-план, '
+            'не запускай исполнителей и не меняй файлы. Не объясняй текстом вне JSON.\n\n'
+            'Ошибки проверки:\n' + feedback
+        )
+        try:
+            result = self.send_message(agent_id, message)
+        except AgentRuntimeError as exc:
+            with self._lock:
+                current = self.state['sessions'][agent_id]
+                if exc.code == 'SESSION_BUSY':
+                    # A 409 active-writer response is an explicit rejection,
+                    # not an uncertain delivery. Do not consume a correction
+                    # turn; let the caller poll and retry the same feedback.
+                    current['planRevisionAttempts'] = attempts
+                    current['planRevisionBusyRetries'] = busy_retries + 1
+                    current.pop('planRevisionPending', None)
+                    current['planError'] = {'code': 'PLAN_REVISION_THREAD_BUSY', 'message': str(exc)}
+                    current['planValidation'] = {'status': 'retryable', 'attempt': attempts,
+                                                 'busyRetries': busy_retries + 1}
+                    self._event('mahoraga_plan_revision_deferred',
+                                'Codex отклонил turn из-за активного writer; планировщик будет перепроверен без повторной доставки.',
+                                None)
+                    self._save()
+                    raise
+                # DELIVERY_UNKNOWN becomes unconfirmed in send_message; never
+                # send another planner turn when delivery cannot be established.
+                if current.get('status') != 'unconfirmed':
+                    current.pop('planRevisionPending', None)
+                    current['planError'] = {'code': 'PLAN_REVISION_SEND_FAILED', 'message': str(exc)}
+                self._save()
+            raise
+        with self._lock:
+            current = self.state['sessions'][agent_id]
+            current.pop('planRevisionPending', None)
+            current['planRevisionBusyRetries'] = 0
+            current['planRevisionTurnId'] = result.get('turnId')
+            current['planRevisionOperationId'] = result.get('operationId')
+            self._event('mahoraga_plan_revision_sent',
+                        f'Запущен turn {result.get("turnId")} в исходном planner thread.', None)
+            self._save()
+            return dict(current)
 
     def start_mahoraga_orchestrator(self, run_id: str) -> dict:
         """Ask Mahoraga to inspect the current queue and propose controller-gated actions."""
@@ -464,18 +692,23 @@ class AgentRuntime:
             for task in run['tasks']:
                 item = {k:task.get(k) for k in ('id','title','goal','acceptance','dependsOn','contracts','mocks','allowedPaths','status','worktree','worktreeBase','testDesignStatus','tests','review','repairAttempts')}
                 item['controllerAllowedActions'] = self._mahoraga_allowed_actions(run,task)
+                item['waitingOn'] = [dependency for dependency in task['dependsOn']
+                                     if next(candidate for candidate in run['tasks'] if candidate['id'] == dependency)['status'] != 'integrated']
                 task_view.append(item)
             correction = (run.get('mahoragaAutopilot') or {}).get('pendingRejections') or []
             (folder / 'RUN_PLAN.json').write_text(json.dumps({'runId':run_id,'baseCommit':run['baseCommit'],'tasks':task_view}, ensure_ascii=False, indent=2), 'utf-8')
             prompt = (
                 'Ты — Махорага, главный агент-координатор разработки Макоры. Изучи приложенный актуальный план запуска и предложи следующий безопасный набор действий. '
                 'Ты не запускаешь инструменты и не меняешь файлы; контроллер исполнит только допустимые действия. '
-                'Верни только JSON: {"summary":"...","actions":[{"action":"prepare_worktree|launch_test_designer|repair_test_design|launch_builder|run_tests|launch_reviewer|request_fixes|refresh_task_base|recommend_integration|ask_human","taskId":"T01","reason":"..."}],"openQuestions":[]}. '
+                'Верни только JSON: {"summary":"...","actions":[{"action":"prepare_worktree|launch_test_designer|repair_test_design|launch_builder|run_tests|launch_reviewer|request_fixes|refresh_task_base|recommend_integration|escalate_mahoraga|ask_human","taskId":"T01","reason":"..."}],"openQuestions":[]}. '
                 'Если вывод тестов указывает на ошибку самого набора (например рекурсивный импорт или ошибка загрузки), предложи repair_test_design с обоснованием; если нарушен контракт продукта, выбирай request_fixes. '
                 'Действуй по зависимостям; одновременно допускай максимум двух Builder. Для run_tests поле allowedPaths не указывай: контроллер выведет список изменённых файлов сам. '
                 'Используй taskId буквально из плана и предлагай только действия из controllerAllowedActions для конкретной задачи. '
                 'Если независимый тест-дизайн завершился ошибкой и controllerAllowedActions содержит launch_test_designer, повтори Test Designer в пределах контроллерного лимита; не спрашивай человека до исчерпания этих попыток. '
                 'Если ниже приведены отклонённые рекомендации, это обратная связь контроллера: не повторяй их. Выбери только указанные controllerAllowedActions; если нужного действия нет, объясни блокер через ask_human. '
+                'Задачи с непустым waitingOn нормально ожидают завершения зависимостей: не спрашивай по ним человека и не предлагай менять утверждённый DAG. Продолжай планировать другие независимые доступные задачи, даже если некоторые агенты уже работают. Жди завершения только когда нет доступных независимых действий или достигнут лимит исполнителей; никогда не дублируй уже активную задачу. '
+                'Для status=integrated пустой controllerAllowedActions — нормальное конечное состояние: не спрашивай о нём человека и переходи к доступным задачам. '
+                'Не запрашивай человека о связи двух задач, если ответ уже указан в dependsOn утверждённого плана. '
                 'Если список пуст, предложи ask_human с реальным вопросом, не повторяй уже выполненное действие. Интеграцию только рекомендуй: окончательное подтверждение всегда даёт человек. '
                 '\n\nАКТУАЛЬНЫЙ ПЛАН И СТАТУСЫ ЗАДАЧ:\n' + json.dumps({'runId':run_id,'baseCommit':run['baseCommit'],'tasks':task_view,
                     'controllerFeedback':correction},ensure_ascii=False)
@@ -493,7 +726,12 @@ class AgentRuntime:
             raise AgentRuntimeError('SESSION_UNCONFIRMED', 'Координатор создан без подтверждённых thread/operation ID.', 502)
         agent_id = 'agent-' + uuid.uuid4().hex[:12]
         session = {'id':agent_id,'role':'mahoraga_orchestrator','taskId':None,'runId':run_id,'threadId':thread_id,
-                   'operationId':operation['id'],'turnId':created.get('turnId'),'model':MODEL_ID,'cwd':str(folder),
+                   'operationId':operation['id'],'turnId':created.get('turnId'),
+                   'turnHistory':[{'operationId':operation['id'],'turnId':created.get('turnId'),
+                                   'requestedAt':_now(),'kind':'initial','status':operation.get('state','accepted'),
+                                   'executionObservedStartAt':None,'executionObservedEndAt':None,
+                                   'executionObservedDurationMs':None,'providerTurnTiming':{}}],
+                   'model':MODEL_ID,'cwd':str(folder),
                    'status':operation.get('state','accepted'),'createdAt':_now(),'lastCheckedAt':None,
                    'result':None,'proposal':None,'error':None,'transport':'codex-app-server'}
         with self._lock:
@@ -551,6 +789,7 @@ class AgentRuntime:
                     self._resolve_scoped_autopilot_approvals(run_id)
                     self.advance_mahoraga_autopilot(run_id)
                 except Exception as exc:
+                    _LOG.exception('Mahoraga autopilot failed for run %s', run_id)
                     self._pause_autopilot(run_id, 'needs_human', f'{type(exc).__name__}: {exc}')
 
     def _resolve_scoped_autopilot_approvals(self, run_id: str) -> dict:
@@ -752,12 +991,17 @@ class AgentRuntime:
             self._save()
             sessions = [session for session in self.state['sessions'].values() if session.get('runId') == run_id]
             active = [session for session in sessions if session.get('status') in ('accepted', 'delivered', 'running')]
-            if active:
+            active_orchestrator = any(item.get('role') == 'mahoraga_orchestrator' for item in active)
+            active_workers = sum(item.get('role') in ('test_designer', 'builder', 'reviewer', 'mahoraga')
+                                 for item in active)
+            has_schedulable_work = any(self._mahoraga_allowed_actions(run, task) for task in run['tasks'])
+            if (active and (active_orchestrator or active_workers >= AUTOPILOT_MAX_ACTIVE_AGENTS or
+                            not has_schedulable_work)):
                 return {'status': 'waiting_for_agents', 'activeSessions': [item['threadId'] for item in active]}
             uncertain = [session for session in sessions if session.get('status') == 'unconfirmed']
             failed = [session for session in sessions if session.get('status') == 'failed']
             blocked_tasks = [task for task in run['tasks'] if task.get('status') in
-                             ('failed', 'unconfirmed', 'review_unconfirmed', 'mahoraga_required', 'blocked_for_human', 'rebase_conflict')]
+                             ('failed', 'unconfirmed', 'review_unconfirmed', 'blocked_for_human', 'rebase_conflict')]
             if uncertain or failed or blocked_tasks:
                 items = uncertain or failed
                 reason = ('Есть сессия с неопределённой доставкой/состоянием: ' + ', '.join(s['threadId'] for s in items)
@@ -866,6 +1110,16 @@ class AgentRuntime:
         if any(by_id[dependency]['status'] != 'integrated' for dependency in task['dependsOn']):
             return []
         status = task.get('status')
+        if status == 'mahoraga_required':
+            specialist_exists = any(session.get('runId') == run['id'] and
+                                    session.get('taskId') == task['id'] and
+                                    session.get('role') == 'mahoraga'
+                                    for session in self.state['sessions'].values())
+            escalation_was_sent = bool(task.get('mahoragaEscalationRequestedAt'))
+            return ['escalate_mahoraga'] if (task.get('repairAttempts', 0) >= 3 and
+                                             not specialist_exists and not escalation_was_sent) else []
+        if status == 'tests_failed' and task.get('repairAttempts', 0) >= 3:
+            return ['escalate_mahoraga']
         if task.get('testDesignStatus') == 'running':
             return []
         if task.get('testDesignStatus') == 'failed':
@@ -907,6 +1161,23 @@ class AgentRuntime:
         if status == 'rebase_conflict':
             return ['ask_human']
         return []
+
+    @staticmethod
+    def _dependency_question_answer(run: dict, task: dict, question: str) -> str | None:
+        """Resolve a dependency question from the already approved DAG when possible."""
+        lowered = question.casefold()
+        if not any(marker in lowered for marker in ('завис', 'ожид', 'после', 'depend', 'wait', 'after')):
+            return None
+        task_ids = {item['id'] for item in run['tasks']}
+        referenced = {ident for ident in task_ids
+                      if re.search(rf'(?<![A-Za-z0-9_-]){re.escape(ident)}(?![A-Za-z0-9_-])', question, re.IGNORECASE)}
+        if task['id'] not in referenced:
+            return None
+        for dependency in task.get('dependsOn', []):
+            if dependency in referenced:
+                return (f"Вопрос уже разрешён утверждённым планом: {task['id']} зависит от {dependency}. "
+                        'Не меняй DAG; продолжай доступные задачи и дождись интеграции зависимости.')
+        return None
 
     @staticmethod
     def _extract_json_object(text: str) -> dict:
@@ -979,7 +1250,7 @@ class AgentRuntime:
                 raise AgentRuntimeError('ORCHESTRATOR_ACTIONS_INVALID', 'Ожидался список не более чем из 12 действий.', 409)
             run_id = session['runId']
         results = []
-        allowed_actions = {'prepare_worktree','launch_test_designer','repair_test_design','launch_builder','run_tests','launch_reviewer','request_fixes','refresh_task_base','recommend_integration','ask_human'}
+        allowed_actions = {'prepare_worktree','launch_test_designer','repair_test_design','launch_builder','run_tests','launch_reviewer','request_fixes','refresh_task_base','recommend_integration','escalate_mahoraga','ask_human'}
         for item in actions:
             if not isinstance(item, dict) or item.get('action') not in allowed_actions or not isinstance(item.get('taskId'), str):
                 results.append({'status':'rejected','action':item,'reason':'Неизвестное действие или отсутствует taskId.'})
@@ -996,7 +1267,7 @@ class AgentRuntime:
                                             {'allowedActions':permitted})
                 if action in ('launch_test_designer','repair_test_design','launch_builder','launch_reviewer'):
                     active_agents = sum(session.get('runId') == run_id and session.get('role') in
-                                        ('test_designer','builder','reviewer') and session.get('status') in
+                                        ('test_designer','builder','reviewer','mahoraga') and session.get('status') in
                                         ('accepted','delivered','running') for session in self.state['sessions'].values())
                     if active_agents >= AUTOPILOT_MAX_ACTIVE_AGENTS:
                         raise AgentRuntimeError('AUTOPILOT_CONCURRENCY_LIMIT', 'Достигнут лимит 4 одновременных исполнителей.', 409)
@@ -1023,6 +1294,22 @@ class AgentRuntime:
                     outcome = self.launch_agent(run_id,task_id,'reviewer')
                 elif action == 'request_fixes':
                     outcome = self.request_builder_fixes(run_id,task_id)
+                elif action == 'escalate_mahoraga':
+                    with self._mahoraga_launch_guard:
+                        status = task.get('status')
+                        specialist_exists = any(existing.get('runId') == run_id and
+                                                existing.get('taskId') == task_id and
+                                                existing.get('role') == 'mahoraga'
+                                                for existing in self.state['sessions'].values())
+                        exhausted_tests = status == 'tests_failed' and task.get('repairAttempts', 0) >= 3
+                        pending_escalation = status == 'mahoraga_required' and task.get('repairAttempts', 0) >= 3
+                        if not (exhausted_tests or pending_escalation) or specialist_exists:
+                            raise AgentRuntimeError('MAHORAGA_ESCALATION_NOT_READY',
+                                'Эскалация допустима только после трёх циклов исправления и не может запускаться повторно.', 409)
+                        task['status'] = 'mahoraga_required'
+                        task['mahoragaEscalationRequestedAt'] = _now()
+                        self._save()
+                        outcome = self.launch_agent(run_id, task_id, 'mahoraga')
                 elif action == 'refresh_task_base':
                     paths = self.run_diff(run_id,task_id)['changedFiles']
                     allowed_paths = set(task.get('allowedPaths', []))
@@ -1039,6 +1326,14 @@ class AgentRuntime:
                     outcome = {'status':'human_confirmation_required'}
                 else:
                     question = str(item.get('reason',''))[:1000]
+                    if task.get('status') == 'integrated':
+                        raise AgentRuntimeError('TASK_ALREADY_INTEGRATED',
+                            'Задача уже интегрирована; пустой список действий для неё нормален. Продолжай доступные задачи.',
+                            409, {'allowedActions':[], 'taskStatus':'integrated'})
+                    resolved = self._dependency_question_answer(run, task, question)
+                    if resolved:
+                        raise AgentRuntimeError('QUESTION_ANSWERED_BY_PLAN', resolved, 409,
+                                                {'allowedActions':permitted, 'dependsOn':list(task.get('dependsOn', []))})
                     task['humanQuestion'] = {'question':question,'at':_now(),'source':'mahoraga'}
                     self._event('mahoraga_asked_human',question or 'Махорага запросила решение человека.',run_id,task_id)
                     self._save()
@@ -1118,6 +1413,7 @@ class AgentRuntime:
                     from .acceptance import snapshot
                     _, _, files, digest = snapshot(self,run_id,task_id,task['allowedPaths'])
                     task['reviewDigest'] = digest
+                    task['reviewedFiles'] = sorted(files)
                     from .acceptance import _suite
                     _, _, suite_files, suite_digest = _suite(task)
                     task['reviewSuiteDigest'] = suite_digest
@@ -1125,7 +1421,7 @@ class AgentRuntime:
                                '\nНезависимый набор Test Designer (файлы и содержимое):\n' + json.dumps(suite_files,ensure_ascii=False) +
                                '\nSHA256 независимого набора: ' + suite_digest +
                                '\nРезультаты независимых тестов:\n' + json.dumps(task['tests'],ensure_ascii=False) +
-                               '\nОтветь только JSON: {"verdict":"pass|changes_requested","findings":[],"tests":[]}. '
+                               '\nОтветь только JSON: {"verdict":"pass|changes_requested","findings":[],"defects":[],"suggestions":[],"tests":[]}. '
                                'Проверь сами тесты и diff, а не только текст результата. При отсутствии данных не ставь pass.')
                 task["status"] = "reviewing"
             elif role == "test_designer":
@@ -1182,12 +1478,13 @@ class AgentRuntime:
                 task['testDesignerAttempts'] = attempt
             else:
                 if task.get('status') != 'mahoraga_required':
-                    raise AgentRuntimeError('MAHORAGA_NOT_READY', 'Передача Махораге доступна после трёх неудачных циклов Reviewer.', 409)
+                    raise AgentRuntimeError('MAHORAGA_NOT_READY', 'Передача Махораге доступна после трёх неудачных циклов Reviewer или независимых тестов.', 409)
                 cwd = Path(task['worktree'])
                 prompt = (f"Проанализируй блокирующую задачу {task_id} после трёх безуспешных циклов исправления. "
                           f"Не меняй файлы. ТЗ: {self._task_spec(task)}\nПоследний отчёт Reviewer:\n"
                           f"{json.dumps(task.get('review',{}), ensure_ascii=False)}\n"
                           f"Результаты независимых тестов:\n{json.dumps(task.get('tests',{}),ensure_ascii=False)}\n"
+                          f"Диагностика Test Designer: {task.get('testDesignError') or 'нет'}\n"
                           "Верни конкретный диагноз, минимальный план исправления и вопросы человеку, если есть блокеры.")
             agent_id = "agent-" + uuid.uuid4().hex[:12]
             requested_at = _now()
@@ -1199,7 +1496,10 @@ class AgentRuntime:
         except Exception as exc:
             with self._lock:
                 uncertain = isinstance(exc, AgentRuntimeError) and exc.code == "DELIVERY_UNKNOWN"
-                task["status"] = "unconfirmed" if uncertain else ("ready" if role == "builder" else ("review_pending" if role == "reviewer" else "pending"))
+                if role == 'mahoraga':
+                    task['status'] = 'unconfirmed' if uncertain else 'mahoraga_required'
+                else:
+                    task["status"] = "unconfirmed" if uncertain else ("ready" if role == "builder" else ("review_pending" if role == "reviewer" else "pending"))
                 task["deliveryUnknown"] = bool(uncertain)
                 task["testDesignStatus"] = "failed" if role == "test_designer" else task.get("testDesignStatus")
                 self._event("agent_start_failed", str(exc), run_id, task_id)
@@ -1215,7 +1515,12 @@ class AgentRuntime:
                    "requestedAt": requested_at, "acceptedAt": _now(), "createdAt": _now(), "lastCheckedAt": None,
                    "executionObservedStartAt": None, "executionObservedEndAt": None, "executionObservedDurationMs": None,
                    "providerTurnTiming": {}, "result": None, "error": None,
-                   "transport": "codex-app-server", "turnId": created.get("turnId")}
+                   "transport": "codex-app-server", "turnId": created.get("turnId"),
+                   "turnHistory": [{"operationId": operation["id"], "turnId": created.get("turnId"),
+                                    "requestedAt": requested_at, "acceptedAt": _now(), "kind": "initial",
+                                    "status": operation.get("state", "accepted"),
+                                    "executionObservedStartAt": None, "executionObservedEndAt": None,
+                                    "executionObservedDurationMs": None, "providerTurnTiming": {}}]}
         with self._lock:
             self.state["sessions"][agent_id] = session
             if role == "builder": task["builderSessionId"] = agent_id
@@ -1233,6 +1538,95 @@ class AgentRuntime:
         return (f"# {task['id']} — {task['title']}\n\n## Цель\n{task['goal']}\n\n## Критерии готовности\n{task['acceptance']}\n"
                 f"\n## Разрешённые файлы\n{json.dumps(task.get('allowedPaths', []), ensure_ascii=False)}\n")
 
+    @staticmethod
+    def _review_requirement_sources(task: dict) -> list[str]:
+        """Only product intent and contracts can ground a Reviewer finding."""
+        return [task.get('title', ''), task.get('goal', ''), task.get('acceptance', ''),
+                *(value for value in task.get('contracts', []) if isinstance(value, str))]
+
+    @staticmethod
+    def _review_task_spec(task: dict) -> str:
+        """Provide requirements without turning the write allowlist into a feature checklist."""
+        return (f"# {task['id']} — {task['title']}\n\n## Цель\n{task['goal']}\n\n"
+                f"## Критерии готовности\n{task['acceptance']}\n")
+
+    @staticmethod
+    def _review_evidence_matches(evidence: object, files: dict, test_result: object,
+                                 file_name: str | None = None) -> bool:
+        if not isinstance(evidence, str) or not evidence.strip():
+            return False
+        needle = re.sub(r'\s+', ' ', evidence.strip().strip('`'))
+        if len(needle) < 5:
+            return False
+        if file_name is not None:
+            if file_name not in files or not isinstance(files[file_name], str):
+                return False
+            sources = [files[file_name]]
+        else:
+            sources = [value for value in files.values() if isinstance(value, str)]
+        if isinstance(test_result, dict):
+            for command in test_result.get('commands', []):
+                if isinstance(command, dict):
+                    sources.append(command.get('output') or '')
+        return any(needle in re.sub(r'\s+', ' ', source) for source in sources if isinstance(source, str))
+
+    @classmethod
+    def _normalize_reviewer_result(cls, review: dict, task: dict, changed_contents: dict | None = None) -> dict | None:
+        """Keep contract violations, evidenced defects, and optional suggestions distinct."""
+        if not isinstance(review, dict) or review.get('verdict') not in ('pass', 'changes_requested'):
+            return None
+        findings = review.get('findings', [])
+        defects = review.get('defects', [])
+        suggestions = review.get('suggestions', [])
+        if not isinstance(findings, list) or not isinstance(defects, list) or not isinstance(suggestions, list):
+            return None
+
+        sources = cls._review_requirement_sources(task)
+        changed_files = set(task.get('reviewedFiles') or [])
+        changed_contents = changed_contents if isinstance(changed_contents, dict) else task.get('reviewedContents', {})
+        if not isinstance(changed_contents, dict):
+            changed_contents = {}
+        test_result = task.get('tests')
+        contract_findings = []
+        for item in findings:
+            if not isinstance(item, dict):
+                return None
+            quote = item.get('requirementQuote')
+            normalized_quote = quote.strip().strip('«»“”\"\'') if isinstance(quote, str) else ''
+            grounded = len(normalized_quote) >= 5 and any(normalized_quote in source for source in sources)
+            finding_file = item.get('file')
+            evidence_matches = (isinstance(finding_file, str) and finding_file in changed_files and
+                                cls._review_evidence_matches(item.get('evidenceQuote'), changed_contents,
+                                                             test_result, finding_file))
+            if grounded and evidence_matches:
+                contract_findings.append(item)
+            else:
+                # Missing requirements and findings with no quote from the actual
+                # reviewed snapshot cannot block delivery.
+                suggestions.append({key: item.get(key) for key in ('file', 'line', 'issue', 'recommendation')
+                                    if item.get(key) is not None} | {
+                                        'kind': 'unconfirmed_requirement' if not grounded else 'unverified_evidence'})
+
+        verified_defects = []
+        for item in defects:
+            if (not isinstance(item, dict) or not isinstance(item.get('file'), str) or
+                    item['file'] not in changed_files or
+                    not all(isinstance(item.get(key), str) and item[key].strip()
+                            for key in ('issue', 'evidence', 'evidenceQuote', 'recommendation'))):
+                return None
+            if cls._review_evidence_matches(item['evidenceQuote'], changed_contents, test_result, item['file']):
+                verified_defects.append(item)
+            else:
+                suggestions.append({key: item.get(key) for key in ('file', 'line', 'issue', 'recommendation')
+                                    if item.get(key) is not None} | {'kind': 'unverified_defect'})
+
+        has_blocking_issue = bool(contract_findings or verified_defects)
+        if review['verdict'] == 'pass' and has_blocking_issue:
+            return None
+        verdict = 'changes_requested' if has_blocking_issue else 'pass'
+        return {**review, 'verdict': verdict, 'findings': contract_findings,
+                'defects': verified_defects, 'suggestions': suggestions}
+
     def _builder_prompt(self, task: dict, run: dict) -> str:
         return ((task["builderPrompt"] or f"Реализуй задачу {task['id']}: {task['goal']}") + "\n\n"
             f"Рабочий проект: {run['projectRoot']}\nЗадача работает в отдельном Git worktree: {task['worktree']}\n"
@@ -1245,12 +1639,17 @@ class AgentRuntime:
 
     def _reviewer_prompt(self, task: dict, run: dict) -> str:
         return ((task["reviewerPrompt"] or f"Проведи независимое code review задачи {task['id']}.") + "\n\n"
-            f"Задача: {self._task_spec(task)}\nКонтракты: {json.dumps(task.get('contracts', []), ensure_ascii=False)}\nИсходная ревизия: {run['baseCommit']}\n"
+            f"Задача: {self._review_task_spec(task)}\nКонтракты: {json.dumps(task.get('contracts', []), ensure_ascii=False)}\n"
+            f"Разрешённые пути (только граница изменений, не требование создать каждый файл): {json.dumps(task.get('allowedPaths', []), ensure_ascii=False)}\n"
+            f"Исходная ревизия: {run['baseCommit']}\n"
             f"План тестирования, подготовленный отдельным агентом:\n{task.get('testDesignResult') or 'Результат не предоставлен.'}\n\n"
             "Проверь diff только для этой задачи, ограничения, контракты и критерии. Рабочая директория доступна только для чтения. "
-            "Не изменяй код и не выполняй команды. Верни структурированный результат с полями: verdict (pass|changes_requested), "
-            "findings (массив объектов severity, file, line, issue, recommendation), tests (массив {name,status,evidence}). "
-            "Для каждого замечания укажи точную цитату из задания, контракта или критерия готовности в поле requirementQuote и фактическое доказательство дефекта в evidence. Не превращай желательное улучшение или отсутствующее в контракте требование в обязательное; опиши его отдельно в suggestions. "
+            "Не изменяй код и не выполняй команды. Верни JSON с полями verdict (pass|changes_requested), findings, defects, suggestions и tests. "
+            "В findings указывай только нарушения требований задачи; для каждого дай изменённый file, точную буквальную цитату из цели, контракта или acceptance в requirementQuote, объяснение в evidence и evidenceQuote — дословный фрагмент именно этого файла или вывода теста. "
+            "В defects указывай только реально наблюдаемые дефекты кода или тестов, даже если их нет в контракте: назови изменённый file, issue, recommendation, объяснение в evidence и evidenceQuote — дословный фрагмент именно этого файла или вывода теста; не придумывай новые продуктовые требования. "
+            "В suggestions указывай улучшения и отсутствующие в контракте ожидания, которые сами по себе не являются доказанным дефектом. Они не должны менять verdict на changes_requested. "
+            "Не превращай желательное улучшение или отсутствующее требование в обязательное. "
+            "Для defects file должен быть одним из фактически изменённых файлов задачи. tests — массив {name,status,evidence}. "
             "Если тесты не запускались, явно поставь not_run и не выдумывай результаты.")
 
     def refresh_session(self, agent_id: str) -> dict:
@@ -1261,10 +1660,19 @@ class AgentRuntime:
             result = dict(session)
         turn = None
         operation_error = None
+        operation_assistant_response = None
+        operation_state = None
         try:
             operation = self.provider.operation(result["operationId"])
             state = operation.get("state", "unconfirmed")
+            operation_state = state
             detail = operation.get("result") or operation.get("error")
+            # The local bridge deliberately keeps a thread busy until it has
+            # observed the assistant's final response. A Codex turn can already
+            # say "completed" while that delivery tracker still has work to do.
+            # In that window, treating the turn alone as terminal races the
+            # bridge's active-writer guard and can lose a follow-up message.
+            operation_assistant_response = operation.get("assistantResponse")
         except AgentRuntimeError as exc:
             operation_error = {"code": exc.code, "message": str(exc)}
             state, detail = 'unconfirmed', operation_error
@@ -1275,11 +1683,53 @@ class AgentRuntime:
             turns = history.get("turns", [])
             turn = next((item for item in turns if isinstance(item, dict) and item.get('id') == result.get('turnId')), None)
             if turn:
+                def has_final_answer(value: dict) -> bool:
+                    for item in value.get('items', []):
+                        if not isinstance(item, dict):
+                            continue
+                        role = item.get('role') or item.get('type')
+                        text = item.get('text')
+                        phase = item.get('phase')
+                        if (role in ('assistant', 'agentMessage', 'assistantMessage')
+                                and isinstance(text, str) and text.strip()
+                                and phase in (None, 'final_answer')):
+                            return True
+                    return False
                 if turn.get('status') == 'completed':
-                    state, detail = 'completed', history
+                    if operation_error:
+                        # The bridge drops completed operation records after its
+                        # retention window or restart. An exact saved turn with
+                        # a final assistant response is sufficient recovery in
+                        # that case; generic transport errors remain unconfirmed.
+                        if operation_error.get('code') == 'OPERATION_NOT_FOUND' and has_final_answer(turn):
+                            state, detail = 'completed', history
+                        else:
+                            state, detail = 'unconfirmed', operation_error
+                    elif operation_assistant_response is False:
+                        # Keep an accepted/delivered operation active until the
+                        # bridge confirms final delivery. A terminal turn status
+                        # is not permission to send another turn into this thread.
+                        if state not in ('accepted', 'delivered', 'running'):
+                            state, detail = 'unconfirmed', {
+                                'message': 'Turn завершён, но Codex App Server ещё не подтвердил финальный ответ операции.',
+                                'operationId': result['operationId'], 'turnId': result.get('turnId')}
+                        else:
+                            detail = history
+                    else:
+                        state, detail = 'completed', history
                 elif turn.get('status') in ('failed', 'interrupted'):
-                    state, detail = 'failed', {'turnId': result.get('turnId'), 'turnStatus': turn.get('status'), 'history': history}
+                    if not operation_error and state in ('accepted', 'delivered', 'running'):
+                        # The bridge retains its writer briefly while it verifies
+                        # that a failed turn has no final assistant response.
+                        detail = history
+                    else:
+                        state, detail = 'failed', {'turnId': result.get('turnId'), 'turnStatus': turn.get('status'), 'history': history}
                 elif turn.get('status') in ('inProgress', 'running', 'streaming'):
+                    # An exact active turn in this thread proves that the
+                    # writer is still occupied. Operation summaries can race
+                    # the live history (including reporting a terminal state
+                    # early), so retain active status and keep polling. This
+                    # can only delay a follow-up; it can never duplicate one.
                     state, detail = 'running', history
             elif not operation_error and state == 'completed':
                 state, detail = 'unconfirmed', {'message': 'Операция завершена, но связанный turn не найден в истории.', 'operationId': result['operationId'], 'turnId': result.get('turnId')}
@@ -1293,6 +1743,13 @@ class AgentRuntime:
             session = self.state["sessions"][agent_id]
             session["status"] = state
             session["lastCheckedAt"] = _now()
+            session['lastRefreshEvidence'] = {
+                'operationState': operation_state,
+                'operationErrorCode': (operation_error or {}).get('code'),
+                'turnId': result.get('turnId'),
+                'turnStatus': turn.get('status') if isinstance(turn, dict) else None,
+                'decision': state,
+            }
             if state == 'running' and not session.get('executionObservedStartAt'):
                 session['executionObservedStartAt'] = session['lastCheckedAt']
             if state in ('completed','failed') and not session.get('executionObservedEndAt'):
@@ -1308,6 +1765,20 @@ class AgentRuntime:
                         timing[target] = value
                 session['providerTurnTiming'] = timing
             session['executionObservedDurationMs'] = _elapsed_ms(session.get('executionObservedStartAt'), session.get('executionObservedEndAt'))
+            turn_history = session.setdefault('turnHistory', [])
+            current_turn = next((item for item in turn_history
+                                 if item.get('operationId') == result.get('operationId')
+                                 and item.get('turnId') == result.get('turnId')), None)
+            if current_turn is None:
+                current_turn = {'operationId': result.get('operationId'), 'turnId': result.get('turnId'),
+                                'requestedAt': session.get('requestedAt'), 'acceptedAt': session.get('acceptedAt'),
+                                'kind': 'initial' if not turn_history else 'followup'}
+                turn_history.append(current_turn)
+            current_turn.update({'status': state,
+                                 'executionObservedStartAt': session.get('executionObservedStartAt'),
+                                 'executionObservedEndAt': session.get('executionObservedEndAt'),
+                                 'executionObservedDurationMs': session.get('executionObservedDurationMs'),
+                                 'providerTurnTiming': session.get('providerTurnTiming', {})})
             if state == "completed":
                 session["result"] = detail
                 task = self._task_for_session(session)
@@ -1317,25 +1788,31 @@ class AgentRuntime:
                     text = self._assistant_text(detail)
                     try:
                         review, _ = json.JSONDecoder().raw_decode(text[text.index('{'):])
-                        requirements = '\n'.join([self._task_spec(task), *task.get('contracts', [])])
-                        findings = review.get('findings')
-                        grounded = isinstance(findings, list) and all(
-                            isinstance(f, dict) and isinstance(f.get('requirementQuote'), str)
-                            and len(f['requirementQuote'].strip().strip('«»“”\"\'')) >= 5
-                            and f['requirementQuote'].strip().strip('«»“”\"\'') in requirements
-                            and isinstance(f.get('evidence'), str) and bool(f['evidence'].strip())
-                            for f in findings)
-                        if (review.get('verdict') in ('pass','changes_requested') and grounded and
-                                (review['verdict'] != 'changes_requested' or findings) and
-                                (review['verdict'] != 'pass' or not findings)):
-                            task['review'] = {**review,'digest':task.get('reviewDigest'),'suiteDigest':task.get('reviewSuiteDigest'),'threadId':session['threadId']}
-                            if review['verdict'] == 'pass':
+                        evidence_files = task.get('reviewedContents', {})
+                        snapshot_is_current = True
+                        if session.get('runId') and task.get('worktree'):
+                            try:
+                                from .acceptance import snapshot
+                                _, _, evidence_files, current_digest = snapshot(
+                                    self, session['runId'], task['id'], task.get('allowedPaths', []))
+                                snapshot_is_current = current_digest == task.get('reviewDigest')
+                            except (AgentRuntimeError, OSError, UnicodeError):
+                                snapshot_is_current = False
+                        normalized_review = (self._normalize_reviewer_result(review, task, evidence_files)
+                                             if snapshot_is_current else None)
+                        if normalized_review is not None:
+                            task['review'] = {**normalized_review,'digest':task.get('reviewDigest'),
+                                              'suiteDigest':task.get('reviewSuiteDigest'),
+                                              'threadId':session['threadId']}
+                            if normalized_review['verdict'] == 'pass':
                                 task['status'] = 'review_completed'
                             elif task.get('repairAttempts', 0) >= 3:
                                 task['status'] = 'mahoraga_required'
                             else:
                                 task['status'] = 'changes_requested'
                         else:
+                            task['review'] = {'verdict':'unconfirmed',
+                                'reason':'Reviewed files changed or Reviewer evidence did not match the verified snapshot.'}
                             task['status'] = 'review_unconfirmed'
                     except (ValueError,AttributeError):
                         task['review'] = {'verdict':'unconfirmed'}
@@ -1355,6 +1832,8 @@ class AgentRuntime:
                     task['mahoragaResult'] = self._assistant_text(detail)
                     task['status'] = 'blocked_for_human'
                 elif session['role'] == 'mahoraga_planner':
+                    session.pop('planError', None)
+                    session.pop('planRevisionPending', None)
                     try:
                         proposal = self._extract_json_object(self._assistant_text(detail))
                         tasks = proposal.get('tasks')
@@ -1393,6 +1872,7 @@ class AgentRuntime:
                         if any(dep not in seen or dep == item['id'] for item in normalized for dep in item['dependsOn']):
                             raise AgentRuntimeError('PLAN_INVALID','План содержит отсутствующую или самозависимую задачу.',409)
                         self._assert_acyclic(normalized)
+                        self._assert_non_overlapping_independent_scopes(normalized)
                         session['proposal'] = proposal
                         session['planValidation'] = {'status':'valid','taskCount':len(tasks),'dag':'acyclic'}
                     except AgentRuntimeError as exc:
@@ -1583,7 +2063,8 @@ class AgentRuntime:
 
                 self._run_git(root, 'worktree', 'add', '-b', branch, str(folder), run['baseCommit'])
                 replay = subprocess.run(['git', '-C', str(folder), 'cherry-pick', '--no-commit', replay_commit],
-                                        capture_output=True, text=True, encoding='utf-8', errors='replace', timeout=60)
+                                        capture_output=True, text=True, encoding='utf-8', errors='replace', timeout=60,
+                                        env=self._git_environment())
                 if replay.returncode:
                     conflicts = self._run_git(folder, 'diff', '--name-only', '--diff-filter=U', '--', '.').splitlines()
                     if not conflicts:
@@ -1598,15 +2079,18 @@ class AgentRuntime:
                             'branch': branch, 'changedFiles': sorted(changed), 'conflicts': conflicts,
                             'message': 'Разреши конфликт в новом worktree. Интегрированная база не изменена.'}
                 # --no-commit keeps the replay as uncommitted changes for normal validation.
-                subprocess.run(['git', '-C', str(folder), 'cherry-pick', '--quit'], capture_output=True, text=True, timeout=30)
+                subprocess.run(['git', '-C', str(folder), 'cherry-pick', '--quit'], capture_output=True, text=True,
+                               timeout=30, env=self._git_environment())
                 self._run_git(folder, 'reset', '--quiet')
             except Exception:
                 if folder.exists():
-                    subprocess.run(['git', '-C', str(root), 'worktree', 'remove', '--force', str(folder)], capture_output=True, timeout=30)
+                    subprocess.run(['git', '-C', str(root), 'worktree', 'remove', '--force', str(folder)],
+                                   capture_output=True, timeout=30, env=self._git_environment())
                 raise
             finally:
                 if scratch.exists():
-                    subprocess.run(['git', '-C', str(root), 'worktree', 'remove', '--force', str(scratch)], capture_output=True, timeout=30)
+                    subprocess.run(['git', '-C', str(root), 'worktree', 'remove', '--force', str(scratch)],
+                                   capture_output=True, timeout=30, env=self._git_environment())
             task.setdefault('previousWorktrees', []).append({'worktree': str(old_root), 'branch': task.get('branch'), 'baseCommit': old_base})
             task.update(worktree=str(folder), branch=branch, worktreeBase=run['baseCommit'], status='review_pending',
                         integration='not_integrated', allowedPaths=allowed, tests=None, review=None, reviewDigest=None, reviewSuiteDigest=None)
@@ -1642,7 +2126,8 @@ class AgentRuntime:
                     text = path.read_text('utf-8', errors='replace')
                     if any(line.startswith(('<<<<<<< ', '=======', '>>>>>>> ')) for line in text.splitlines()):
                         raise AgentRuntimeError('CONFLICT_MARKERS_REMAIN', f'В {name} остались маркеры конфликта.', 409)
-            subprocess.run(['git', '-C', str(root), 'cherry-pick', '--quit'], capture_output=True, text=True, timeout=30)
+            subprocess.run(['git', '-C', str(root), 'cherry-pick', '--quit'], capture_output=True, text=True,
+                           timeout=30, env=self._git_environment())
             self._run_git(root, 'reset', '--quiet')
             task.update(status='review_pending', conflictPaths=[], tests=None, review=None, reviewDigest=None, reviewSuiteDigest=None)
             self._event('parallel_conflict_resolved', 'Проверено разрешение конфликта; независимые тесты и Reviewer требуются заново', run_id, task_id)
@@ -1752,6 +2237,24 @@ class AgentRuntime:
                 task.pop('reviewDigest', None)
                 task.pop('reviewSuiteDigest', None)
                 task['status'] = 'implementing'
+            previous_turn = {'operationId': session.get('operationId'), 'turnId': session.get('turnId'),
+                             'requestedAt': session.get('requestedAt'), 'acceptedAt': session.get('acceptedAt'),
+                             'kind': 'initial', 'status': session.get('status'),
+                             'executionObservedStartAt': session.get('executionObservedStartAt'),
+                             'executionObservedEndAt': session.get('executionObservedEndAt'),
+                             'executionObservedDurationMs': session.get('executionObservedDurationMs'),
+                             'providerTurnTiming': session.get('providerTurnTiming', {})}
+            turn_history = session.setdefault('turnHistory', [])
+            if not turn_history and (previous_turn['operationId'] or previous_turn['turnId']):
+                turn_history.append(previous_turn)
+            next_turn = {'operationId': operation['id'], 'turnId': result.get('turnId'),
+                         'requestedAt': requested_at, 'acceptedAt': _now(), 'kind': 'followup',
+                         'status': operation.get('state', 'accepted'), 'executionObservedStartAt': None,
+                         'executionObservedEndAt': None, 'executionObservedDurationMs': None,
+                         'providerTurnTiming': {}}
+            if not any(item.get('operationId') == next_turn['operationId'] and
+                       item.get('turnId') == next_turn['turnId'] for item in turn_history):
+                turn_history.append(next_turn)
             session["operationId"] = operation["id"]
             session["turnId"] = result.get('turnId')
             session["status"] = operation.get("state", "accepted")

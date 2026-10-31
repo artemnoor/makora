@@ -5,7 +5,10 @@ import tempfile
 import unittest
 import json
 import os
+import time
 import threading
+import io
+import urllib.error
 from concurrent.futures import ThreadPoolExecutor
 from unittest.mock import patch, Mock
 from pathlib import Path
@@ -29,7 +32,7 @@ class FakeProvider:
         operation = f"operation-{self.next}"
         turn=f"turn-{self.next}"
         self.sessions[thread] = {"operation": operation, "state": "accepted", "turn":turn, "cwd": cwd,
-                                 "prompt": prompt, "sandbox": sandbox}
+                                 "prompt": prompt, "sandbox": sandbox, "messages": []}
         return {"id": thread, "turnId": turn,
                 "operation": {"id": operation, "state": "accepted"}}
 
@@ -42,6 +45,7 @@ class FakeProvider:
         return {"id": thread_id, "turns": [{"id":turn,"status": "completed", "items": [{"type": "agentMessage", "text": "Done."}]}]}
 
     def send(self, thread_id, text):
+        self.sessions[thread_id]['messages'].append(text)
         self.next += 1
         operation=f"followup-{self.next}"
         turn=f"new-turn-{self.next}"
@@ -113,6 +117,71 @@ class AgentRuntimeTests(unittest.TestCase):
         with patch('makora_core.agents.runtime.subprocess.run'):
             api.close()
 
+    def test_status_and_approvals_return_while_local_app_server_is_warming(self):
+        api = CodexLocalApi(self.integration, self.workspace)
+        startup_entered = threading.Event()
+        release_startup = threading.Event()
+
+        def wait_for_startup():
+            startup_entered.set()
+            release_startup.wait(2)
+
+        def request(path, payload=None, timeout=8):
+            if path == '/api/status':
+                return {'ready': True, 'appServerVersion': 'test'}
+            if path == '/api/models':
+                return {'data': [{'id': MODEL_ID}]}
+            if path == '/api/approvals':
+                return [{'requestId': 'approval-1'}]
+            raise AssertionError(path)
+
+        api.ensure_started = wait_for_startup
+        api._request = request
+        started = time.monotonic()
+        first = api.status()
+        approvals = api.approvals()
+        elapsed = time.monotonic() - started
+        self.assertTrue(startup_entered.wait(1))
+        self.assertLess(elapsed, 0.5)
+        self.assertTrue(first['warming'])
+        self.assertEqual([], approvals)
+        release_startup.set()
+        deadline = time.monotonic() + 2
+        while api._metadata_refreshing and time.monotonic() < deadline:
+            time.sleep(0.01)
+        self.assertTrue(api._metadata['connected'])
+        self.assertTrue(api._metadata['modelAvailable'])
+        self.assertEqual('approval-1', api.approvals()[0]['requestId'])
+
+    def test_create_thread_checks_live_model_catalog_not_cached_ui_status(self):
+        api = CodexLocalApi(self.integration, self.workspace)
+        api.ensure_started = lambda: None
+        api._metadata.update({'connected': False, 'modelAvailable': False, 'warming': True})
+        calls = []
+
+        def request(path, payload=None, timeout=8):
+            calls.append(path)
+            if path == '/api/models':
+                return {'data': [{'id': MODEL_ID}]}
+            if path == '/api/threads':
+                return {'id': 'real-thread'}
+            raise AssertionError(path)
+
+        api._request = request
+        result = api.create_thread(cwd=self.project, name='builder', prompt='Build it')
+        self.assertEqual('real-thread', result['id'])
+        self.assertEqual(['/api/models', '/api/threads'], calls)
+
+    def test_codex_active_writer_409_is_a_confirmed_rejection(self):
+        api = CodexLocalApi(self.integration, self.workspace)
+        error = urllib.error.HTTPError('http://localhost/api/threads/t/messages', 409, 'Conflict', {},
+            io.BytesIO(b'{"error":"A message is already being processed for this thread"}'))
+        with patch('makora_core.agents.runtime.urllib.request.urlopen', side_effect=error):
+            with self.assertRaises(AgentRuntimeError) as caught:
+                api._request('/api/threads/t/messages', {'text': 'correction'})
+        self.assertEqual('SESSION_BUSY', caught.exception.code)
+        self.assertNotEqual('DELIVERY_UNKNOWN', caught.exception.code)
+
     def test_python_independent_suite_receives_conventional_source_roots(self):
         from makora_core.agents.acceptance import _test_environment
         (self.project / 'app').mkdir()
@@ -134,6 +203,27 @@ class AgentRuntimeTests(unittest.TestCase):
         self.assertEqual(['taskkill', '/PID', '12345', '/T', '/F'], kill.call_args.args[0])
         process.terminate.assert_not_called()
         process.wait.assert_called_once()
+
+    def test_atomic_state_save_retries_windows_permission_error_and_uses_unique_temp(self):
+        import json
+        import errno
+        real_replace = os.replace
+        calls = []
+
+        def flaky_replace(source, target):
+            calls.append(Path(source))
+            if len(calls) < 3:
+                raise PermissionError(errno.EACCES, 'temporarily locked')
+            return real_replace(source, target)
+
+        with patch('makora_core.agents.runtime.os.replace', side_effect=flaky_replace), \
+             patch('makora_core.agents.runtime.time.sleep'):
+            self.runtime._save()
+        self.assertEqual(3, len(calls))
+        self.assertEqual(1, len({path.name for path in calls}))
+        self.assertNotEqual('state.tmp', calls[0].name)
+        self.assertEqual([], list(self.runtime.state_path.parent.glob('*.tmp')))
+        self.assertEqual(self.runtime.state['version'], json.loads(self.runtime.state_path.read_text('utf-8'))['version'])
 
     def git(self, *args):
         result = subprocess.run(["git", "-C", str(self.project), *args], capture_output=True, text=True)
@@ -192,10 +282,20 @@ class AgentRuntimeTests(unittest.TestCase):
         with self.assertRaises(AgentRuntimeError):
             self.create_run([self.task("T01", ["T02"]), self.task("T02", ["T01"])])
 
+    def test_git_operations_ignore_inherited_repository_overrides(self):
+        head = self.git('rev-parse', 'HEAD')
+        with patch.dict(os.environ, {'GIT_DIR': str(self.base / 'wrong-git-dir'),
+                                     'GIT_WORK_TREE': str(self.base / 'wrong-worktree'),
+                                     'GIT_INDEX_FILE': str(self.base / 'wrong-index')}):
+            self.assertEqual(head, AgentRuntime._run_git(self.project, 'rev-parse', 'HEAD'))
+
     def test_mahoraga_decomposes_case_and_controller_validates_plan_before_run_creation(self):
         session=self.runtime.start_mahoraga_planning({'projectRoot':str(self.project),'brief':'Build a small feature.','context':'Requirements: fast and accessible.'})
         self.assertEqual('mahoraga_planner',session['role'])
         self.assertEqual('workspaceWrite',self.provider.sessions[session['threadId']]['sandbox'])
+        planner_prompt = self.provider.sessions[session['threadId']]['prompt']
+        self.assertIn('"mode":"cli"', planner_prompt)
+        self.assertIn('"expectedExitCode":0', planner_prompt)
         self.assertTrue((Path(session['cwd'])/'BRIEF.md').is_file())
         planned_task=self.task('T01');planned_task['acceptance']=['Criterion A','Criterion B'];planned_task['allowedPaths']=['src/example.py']
         proposal={'summary':'One independently testable slice.','queueStrategy':'Dependency order, max two builders.',
@@ -245,6 +345,98 @@ class AgentRuntimeTests(unittest.TestCase):
         self.assertIsNone(recovered.get('proposal'))
         self.assertIn('allowedPaths',recovered['planError']['message'])
 
+    def test_mahoraga_plan_rejects_overlapping_scopes_for_independent_tasks(self):
+        session = self.runtime.start_mahoraga_planning({'projectRoot': str(self.project), 'brief': 'Build a feature.'})
+        first = self.task('T01') | {'allowedPaths': ['expense_tracker/__init__.py', 'expense_tracker/domain.py']}
+        second = self.task('T02') | {'allowedPaths': ['expense_tracker/__init__.py', 'expense_tracker/store.py']}
+        proposal = {'tasks': [first, second]}
+        self.provider.history = lambda _: {'turns': [{'id': session['turnId'], 'status': 'completed',
+            'items': [{'type': 'agentMessage', 'text': json.dumps(proposal)}]}]}
+
+        self.runtime.refresh_session(session['id'])
+        recovered = self.runtime.get_session(session['id'], refresh=False)
+
+        self.assertIsNone(recovered.get('proposal'))
+        self.assertEqual('TASK_SCOPE_OVERLAP', recovered['planError']['code'])
+        self.assertIn('T01', recovered['planError']['message'])
+        self.assertIn('T02', recovered['planError']['message'])
+
+    def test_dependency_serializes_tasks_with_a_shared_write_path(self):
+        first = self.task('T01') | {'allowedPaths': ['expense_tracker/__init__.py']}
+        second = self.task('T02', ['T01']) | {'allowedPaths': ['expense_tracker/__init__.py']}
+        run = self.create_run([first, second])
+        self.assertEqual(['T01', 'T02'], [task['id'] for task in run['tasks']])
+
+    def test_run_creation_rejects_overlapping_independent_write_scopes(self):
+        first = self.task('T01') | {'allowedPaths': ['expense_tracker/__init__.py']}
+        second = self.task('T02') | {'allowedPaths': ['expense_tracker/__init__.py']}
+        with self.assertRaises(AgentRuntimeError) as caught:
+            self.runtime.create_run({'projectRoot': str(self.project), 'tasks': [first, second]})
+        self.assertEqual('TASK_SCOPE_OVERLAP', caught.exception.code)
+
+    def test_invalid_mahoraga_plan_can_be_corrected_in_same_thread_with_bounded_attempts(self):
+        session = self.runtime.start_mahoraga_planning({'projectRoot':str(self.project),'brief':'Build a feature.'})
+        session_id = session['id']
+        original_thread = session['threadId']
+        stored = self.runtime.state['sessions'][session_id]
+        stored.update(status='completed', planError={'code':'PLAN_INVALID','message':'fixture contracts missing'})
+
+        first = self.runtime.revise_mahoraga_plan(session_id, 'fixture task needs a non-empty contract')
+        self.assertEqual(original_thread, first['threadId'])
+        self.assertEqual(1, first['planRevisionAttempts'])
+        self.assertEqual('new-turn-2', first['turnId'])
+        self.assertEqual(['turn-1', 'new-turn-2'], [item['turnId'] for item in first['turnHistory']])
+        self.assertIn('non-empty contract', self.provider.sessions[original_thread]['messages'][-1])
+        self.assertNotIn('planError', first)
+
+        stored.update(status='completed', proposal={'tasks': []})
+        second = self.runtime.revise_mahoraga_plan(session_id, 'plan needs a final integration task')
+        self.assertEqual(original_thread, second['threadId'])
+        self.assertEqual(2, second['planRevisionAttempts'])
+        self.assertEqual(2, len(self.provider.sessions[original_thread]['messages']))
+        stored.update(status='completed', proposal={'tasks': []})
+        with self.assertRaisesRegex(AgentRuntimeError, 'Лимит исправлений'):
+            self.runtime.revise_mahoraga_plan(session_id, 'one more correction')
+        self.assertEqual(2, len(self.provider.sessions[original_thread]['messages']))
+
+    def test_plan_revision_fails_closed_on_uncertain_delivery(self):
+        session = self.runtime.start_mahoraga_planning({'projectRoot':str(self.project),'brief':'Build a feature.'})
+        stored = self.runtime.state['sessions'][session['id']]
+        stored.update(status='completed', planError={'code':'PLAN_INVALID','message':'bad DAG'})
+        def uncertain(_thread, _message):
+            raise AgentRuntimeError('DELIVERY_UNKNOWN', 'delivery unknown', 409)
+        self.provider.send = uncertain
+        with self.assertRaises(AgentRuntimeError) as caught:
+            self.runtime.revise_mahoraga_plan(session['id'], 'fix the DAG')
+        self.assertEqual('DELIVERY_UNKNOWN', caught.exception.code)
+        self.assertEqual('unconfirmed', stored['status'])
+        self.assertEqual(1, stored['planRevisionAttempts'])
+        with self.assertRaises(AgentRuntimeError):
+            self.runtime.revise_mahoraga_plan(session['id'], 'do not duplicate')
+
+    def test_confirmed_planner_busy_does_not_consume_revision_and_is_bounded(self):
+        session = self.runtime.start_mahoraga_planning({'projectRoot': str(self.project), 'brief': 'Build a feature.'})
+        stored = self.runtime.state['sessions'][session['id']]
+        stored.update(status='completed', planError={'code': 'PLAN_INVALID', 'message': 'Fix the plan.'})
+        calls = []
+        def busy(_thread, _message):
+            calls.append('rejected')
+            raise AgentRuntimeError('SESSION_BUSY', 'Codex rejected the message because the thread is busy.', 409)
+        self.provider.send = busy
+
+        for _ in range(3):
+            with self.assertRaises(AgentRuntimeError) as caught:
+                self.runtime.revise_mahoraga_plan(session['id'], 'Keep the DAG valid and disjoint.')
+            self.assertEqual('SESSION_BUSY', caught.exception.code)
+            self.assertEqual(0, stored['planRevisionAttempts'])
+            self.assertEqual('completed', stored['status'])
+            self.assertEqual('PLAN_REVISION_THREAD_BUSY', stored['planError']['code'])
+
+        with self.assertRaises(AgentRuntimeError) as caught:
+            self.runtime.revise_mahoraga_plan(session['id'], 'Do not duplicate the request.')
+        self.assertEqual('PLAN_REVISION_BUSY_LIMIT', caught.exception.code)
+        self.assertEqual(3, len(calls))
+
     def test_failed_test_design_can_be_retried_in_a_fresh_scoped_directory(self):
         run=self.create_run()
         first=self.runtime.launch_agent(run['id'],'T01','test_designer')
@@ -275,6 +467,28 @@ class AgentRuntimeTests(unittest.TestCase):
         self.assertEqual('ACTION_NOT_ALLOWED',result['results'][1]['code'])
         self.assertIn('launch_test_designer',result['results'][1]['details']['allowedActions'])
         self.assertEqual('Неизвестное действие или отсутствует taskId.',result['results'][2]['reason'])
+
+    def test_three_failed_independent_test_fixes_escalate_read_only_to_mahoraga(self):
+        run = self.create_run()
+        self.runtime.create_task_worktree(run['id'], 'T01')
+        task = self.runtime._run(run['id'])['tasks'][0]
+        task.update(status='tests_failed', repairAttempts=3, testDesignStatus='completed',
+                    tests={'status':'failed','commands':[{'command':['python','-m','unittest'],
+                        'output':'AssertionError: expected error code'}]})
+        queue = self.runtime.start_mahoraga_orchestrator(run['id'])
+        proposal = {'summary':'Escalate exhausted test repairs for diagnosis.', 'actions':[
+            {'action':'escalate_mahoraga','taskId':'T01','reason':'Three Builder correction cycles did not satisfy the independent suite.'}]}
+        self.provider.history = lambda _: {'turns':[{'id':queue['turnId'],'status':'completed',
+            'items':[{'type':'agentMessage','text':json.dumps(proposal)}]}]}
+        self.runtime.refresh_session(queue['id'])
+        result = self.runtime.apply_mahoraga_actions(queue['id'])
+        self.assertEqual('accepted', result['results'][0]['status'])
+        self.assertEqual('mahoraga_required', task['status'])
+        analysis = result['results'][0]['result']
+        self.assertEqual('mahoraga', analysis['role'])
+        self.assertEqual('readOnly', self.provider.sessions[analysis['threadId']]['sandbox'])
+        self.assertIn('expected error code', self.provider.sessions[analysis['threadId']]['prompt'])
+        self.assertEqual([], self.runtime._mahoraga_allowed_actions(self.runtime._run(run['id']), task))
 
     def test_autopilot_requires_approved_mahoraga_plan_and_exact_file_scopes(self):
         run=self.create_run()
@@ -323,6 +537,43 @@ class AgentRuntimeTests(unittest.TestCase):
         current=self.runtime.advance_mahoraga_autopilot(run['id'])
         self.assertEqual('waiting_for_agents',current['status'])
         self.assertEqual(1,self.runtime.get_run(run['id'])['mahoragaAutopilot']['decisions'])
+
+    def test_autopilot_schedules_ready_independent_builder_while_another_builder_runs(self):
+        first = self.task('T01') | {'allowedPaths':['src/first.py']}
+        second = self.task('T02') | {'allowedPaths':['src/second.py']}
+        planner = self.runtime.start_mahoraga_planning({
+            'projectRoot':str(self.project), 'brief':'Build two independent modules and integrate them.'})
+        proposal = {'summary':'Two independent modules then integration.','tasks':[first, second]}
+        self.provider.history = lambda _thread_id: {'turns':[{
+            'id':planner['turnId'], 'status':'completed',
+            'items':[{'type':'agentMessage','text':json.dumps(proposal)}]}]}
+        self.runtime.refresh_session(planner['id'])
+        run = self.runtime.approve_mahoraga_plan(planner['id'])
+        self.runtime._ensure_autopilot_worker = lambda: None
+
+        self.runtime.create_task_worktree(run['id'], 'T01')
+        self.runtime.create_task_worktree(run['id'], 'T02')
+        tasks = {item['id']:item for item in self.runtime._run(run['id'])['tasks']}
+        tasks['T01']['testDesignStatus'] = 'completed'
+        tasks['T02']['testDesignStatus'] = 'completed'
+        first_builder = self.runtime.launch_agent(run['id'], 'T01', 'builder')
+        self.runtime.set_mahoraga_autopilot(run['id'], True)
+
+        scheduled = self.runtime.advance_mahoraga_autopilot(run['id'])
+        self.assertEqual('decision_requested', scheduled['status'])
+        self.assertNotEqual(first_builder['threadId'], scheduled['threadId'])
+        run_sessions = [item for item in self.runtime.snapshot()['sessions'] if item.get('runId') == run['id']]
+        active_builders = [item for item in run_sessions
+                           if item.get('role') == 'builder' and item.get('status') in ('accepted','delivered','running')]
+        active_orchestrators = [item for item in run_sessions
+                                if item.get('role') == 'mahoraga_orchestrator' and item.get('status') in ('accepted','delivered','running')]
+        self.assertEqual([first_builder['threadId']], [item['threadId'] for item in active_builders])
+        self.assertEqual([scheduled['threadId']], [item['threadId'] for item in active_orchestrators])
+        waiting = self.runtime.advance_mahoraga_autopilot(run['id'])
+        self.assertEqual('waiting_for_agents', waiting['status'])
+        self.assertEqual(1, sum(item.get('runId') == run['id'] and item.get('role') == 'mahoraga_orchestrator' and
+                                item.get('status') in ('accepted','delivered','running')
+                                for item in self.runtime.snapshot()['sessions']))
 
     def test_mahoraga_controller_caps_simultaneous_agents_at_four(self):
         tasks=[self.task(f'T0{i}') for i in range(1,6)]
@@ -419,6 +670,74 @@ class AgentRuntimeTests(unittest.TestCase):
         self.assertEqual('completed',refreshed['status'])
         self.assertEqual('completed',self.runtime._run(run['id'])['tasks'][0]['testDesignStatus'])
 
+    def test_exact_active_turn_recovers_unconfirmed_operation_without_resending(self):
+        run = self.create_run()
+        session = self.runtime.launch_agent(run['id'], 'T01', 'test_designer')
+        self.provider.sessions[session['threadId']]['state'] = 'unconfirmed'
+        self.provider.operation = lambda _: {'id': session['operationId'], 'state': 'unconfirmed'}
+        self.provider.history = lambda _: {'turns': [{
+            'id': session['turnId'], 'status': 'inProgress', 'items': []}]}
+        autopilot = self.runtime._run(run['id'])['mahoragaAutopilot']
+        autopilot.update(enabled=True, status='running', actions=0, decisions=0)
+
+        refreshed = self.runtime.get_session(session['id'])
+        self.assertEqual('running', refreshed['status'])
+        self.assertEqual('unconfirmed', refreshed['lastRefreshEvidence']['operationState'])
+        self.assertEqual('inProgress', refreshed['lastRefreshEvidence']['turnStatus'])
+        self.assertEqual('running', refreshed['lastRefreshEvidence']['decision'])
+        self.assertEqual([], self.provider.sessions[session['threadId']]['messages'])
+
+        result = self.runtime.advance_mahoraga_autopilot(run['id'])
+        self.assertEqual('waiting_for_agents', result['status'])
+        self.assertEqual([], self.provider.sessions[session['threadId']]['messages'])
+
+    def test_exact_active_turn_remains_pollable_when_operation_lookup_fails(self):
+        run = self.create_run()
+        session = self.runtime.launch_agent(run['id'], 'T01', 'test_designer')
+        self.provider.operation = lambda _: (_ for _ in ()).throw(
+            AgentRuntimeError('OPERATION_NOT_FOUND', 'operation record expired', 404))
+        self.provider.history = lambda _: {'turns': [{
+            'id': session['turnId'], 'status': 'running', 'items': []}]}
+
+        refreshed = self.runtime.get_session(session['id'])
+
+        self.assertEqual('running', refreshed['status'])
+        self.assertEqual('OPERATION_NOT_FOUND', refreshed['lastRefreshEvidence']['operationErrorCode'])
+        self.assertEqual('running', refreshed['lastRefreshEvidence']['decision'])
+        self.assertIsNone(refreshed.get('result'))
+        self.assertEqual([], self.provider.sessions[session['threadId']]['messages'])
+
+    def test_exact_active_turn_wins_over_premature_completed_operation_summary(self):
+        run = self.create_run()
+        session = self.runtime.launch_agent(run['id'], 'T01', 'test_designer')
+        self.provider.operation = lambda _: {'id': session['operationId'], 'state': 'completed',
+                                              'assistantResponse': True}
+        self.provider.history = lambda _: {'turns': [{
+            'id': session['turnId'], 'status': 'inProgress', 'items': []}]}
+
+        refreshed = self.runtime.get_session(session['id'])
+
+        self.assertEqual('running', refreshed['status'])
+        self.assertEqual('completed', refreshed['lastRefreshEvidence']['operationState'])
+        self.assertEqual('inProgress', refreshed['lastRefreshEvidence']['turnStatus'])
+        self.assertIsNone(refreshed.get('result'))
+        self.assertEqual([], self.provider.sessions[session['threadId']]['messages'])
+
+    def test_completed_exact_turn_with_unavailable_operation_stays_unconfirmed(self):
+        run = self.create_run()
+        session = self.runtime.launch_agent(run['id'], 'T01', 'test_designer')
+        self.provider.operation = lambda _: (_ for _ in ()).throw(
+            AgentRuntimeError('CODEX_API_ERROR', 'temporary transport error', 502))
+        self.provider.history = lambda _: {'turns': [{
+            'id': session['turnId'], 'status': 'completed',
+            'items': [{'type': 'agentMessage', 'text': 'Done.'}]}]}
+
+        refreshed = self.runtime.get_session(session['id'])
+
+        self.assertEqual('unconfirmed', refreshed['status'])
+        self.assertEqual('CODEX_API_ERROR', refreshed['lastRefreshEvidence']['operationErrorCode'])
+        self.assertEqual([], self.provider.sessions[session['threadId']]['messages'])
+
     def test_exact_completed_turn_overrides_stale_delivered_operation(self):
         run=self.create_run()
         session=self.prepare_test_design(run['id'])
@@ -426,6 +745,35 @@ class AgentRuntimeTests(unittest.TestCase):
         refreshed=self.runtime.get_session(session['id'])
         self.assertEqual('completed',refreshed['status'])
         self.assertEqual(session['turnId'],refreshed['turnId'])
+        self.assertEqual('completed',self.runtime._run(run['id'])['tasks'][0]['testDesignStatus'])
+
+    def test_completed_turn_does_not_release_writer_before_bridge_confirms_final_response(self):
+        run=self.create_run()
+        session=self.runtime.launch_agent(run['id'],'T01','test_designer')
+        spec=Path(session['cwd'])
+        (spec/'TEST_DESIGN.md').write_text('# Independent tests\nChecks public contract.\n',encoding='utf-8')
+        (spec/'.makora-tests').mkdir()
+        (spec/'.makora-tests'/'test_contract.py').write_text(
+            'import unittest\nclass Contract(unittest.TestCase):\n def test_smoke(self): self.assertTrue(True)\n',
+            encoding='utf-8')
+        (spec/'test-manifest.json').write_text(json.dumps({
+            'version':1,'framework':'unittest','files':['.makora-tests/test_contract.py'],
+            'commands':[['python','-m','unittest','discover','-s','.makora-tests','-v']]}),encoding='utf-8')
+        self.provider.history=lambda _: {'turns':[{'id':session['turnId'],'status':'completed',
+            'items':[{'type':'agentMessage','text':'The turn is complete, delivery tracking is still active.'}]}]}
+        self.provider.operation=lambda _: {'id':session['operationId'],'state':'delivered',
+                                           'userDelivered':True,'assistantResponse':False}
+
+        refreshed=self.runtime.get_session(session['id'])
+
+        self.assertEqual('delivered',refreshed['status'])
+        self.assertIsNone(refreshed.get('result'))
+        self.assertEqual('pending',self.runtime._run(run['id'])['tasks'][0]['status'])
+
+        self.provider.operation=lambda _: {'id':session['operationId'],'state':'completed',
+                                           'userDelivered':True,'assistantResponse':True}
+        completed=self.runtime.get_session(session['id'])
+        self.assertEqual('completed',completed['status'])
         self.assertEqual('completed',self.runtime._run(run['id'])['tasks'][0]['testDesignStatus'])
 
     def test_diff_includes_staged_unstaged_and_untracked_paths(self):
@@ -551,7 +899,81 @@ class AgentRuntimeTests(unittest.TestCase):
         response = {'verdict':'changes_requested', 'findings':[{'requirementQuote':'invented requirement', 'evidence':'missing'}]}
         self.provider.history = lambda _: {'turns':[{'id':'review-turn', 'status':'completed', 'items':[{'type':'agentMessage', 'text':json.dumps(response)}]}]}
         self.runtime.refresh_session('review-agent')
-        self.assertEqual('review_unconfirmed', task['status'])
+        self.assertEqual('review_completed', task['status'])
+        self.assertEqual('pass', task['review']['verdict'])
+        self.assertEqual('unconfirmed_requirement', task['review']['suggestions'][0]['kind'])
+
+    def test_reviewer_does_not_treat_allowed_paths_as_required_outputs(self):
+        task_spec = self.task() | {'allowedPaths':['data/customers.json','tests/fixtures.test.js']}
+        run = self.create_run([task_spec])
+        task = self.runtime._run(run['id'])['tasks'][0]
+        task.update(status='reviewing', reviewDigest='digest', reviewSuiteDigest='suite',
+                    reviewedFiles=['data/customers.json'])
+        self.provider.sessions['review-path-thread'] = {'operation':'review-path-op', 'state':'completed'}
+        self.runtime.state['sessions']['review-path-agent'] = {'id':'review-path-agent', 'role':'reviewer',
+            'taskId':task['id'], 'runId':run['id'], 'status':'running', 'threadId':'review-path-thread',
+            'operationId':'review-path-op', 'turnId':'review-path-turn'}
+        response = {'verdict':'changes_requested', 'findings':[{'requirementQuote':'tests/fixtures.test.js',
+            'evidence':'The allowlisted file is absent.'}]}
+        self.provider.history = lambda _: {'turns':[{'id':'review-path-turn','status':'completed',
+            'items':[{'type':'agentMessage','text':json.dumps(response)}]}]}
+        self.runtime.refresh_session('review-path-agent')
+        self.assertEqual('review_completed', task['status'])
+        self.assertEqual('pass', task['review']['verdict'])
+        self.assertEqual('unconfirmed_requirement', task['review']['suggestions'][0]['kind'])
+
+    def test_reviewer_accepts_verified_defect_without_invented_contract_quote(self):
+        run = self.create_run()
+        task = self.runtime._run(run['id'])['tasks'][0]
+        task.update(status='reviewing', reviewDigest='digest', reviewSuiteDigest='suite',
+                    reviewedFiles=['src/server.py'],
+                    reviewedContents={'src/server.py': 'const target = path.join(publicRoot, fileName);\nfs.readFileSync(target);\n'})
+        self.provider.sessions['review-defect-thread'] = {'operation':'review-defect-op', 'state':'completed'}
+        self.runtime.state['sessions']['review-defect-agent'] = {'id':'review-defect-agent', 'role':'reviewer',
+            'taskId':'T01', 'runId':run['id'], 'status':'running', 'threadId':'review-defect-thread',
+            'operationId':'review-defect-op', 'turnId':'review-defect-turn'}
+        response = {'verdict':'changes_requested', 'findings':[], 'defects':[{
+            'file':'src/server.py', 'issue':'A symlink can escape the public directory.',
+            'recommendation':'Resolve the target and verify it remains under public.',
+            'evidence':'The file is read without verifying the resolved target.',
+            'evidenceQuote':'fs.readFileSync(target);'}], 'suggestions':[]}
+        self.provider.history = lambda _: {'turns':[{'id':'review-defect-turn','status':'completed',
+            'items':[{'type':'agentMessage','text':json.dumps(response)}]}]}
+        self.runtime.refresh_session('review-defect-agent')
+        self.assertEqual('changes_requested', task['status'])
+        self.assertEqual('A symlink can escape the public directory.', task['review']['defects'][0]['issue'])
+
+    def test_reviewer_unverified_defect_is_a_suggestion_not_a_blocker(self):
+        task = self.task() | {'reviewedFiles':['src/server.py']}
+        review = {'verdict':'changes_requested', 'findings':[], 'defects':[{
+            'file':'src/server.py', 'issue':'Possible traversal issue.',
+            'recommendation':'Normalize and check the path.', 'evidence':'The code is unsafe.',
+            'evidenceQuote':'not present in source'}], 'suggestions':[]}
+        result = self.runtime._normalize_reviewer_result(review, task, {'src/server.py':'safeJoin(root, name);'})
+        self.assertEqual('pass', result['verdict'])
+        self.assertEqual('unverified_defect', result['suggestions'][0]['kind'])
+        self.assertEqual([], result['defects'])
+
+    def test_reviewer_result_is_unconfirmed_if_reviewed_snapshot_changes(self):
+        task_spec=self.task() | {'allowedPaths':['result.py']}
+        run=self.create_run([task_spec])
+        worktree=Path(self.runtime.create_task_worktree(run['id'],'T01')['worktree'])
+        (worktree/'result.py').write_text('def values(): return []\n', encoding='utf-8')
+        from makora_core.agents.acceptance import snapshot
+        _, _, _, reviewed_digest=snapshot(self.runtime,run['id'],'T01',['result.py'])
+        task=self.runtime._run(run['id'])['tasks'][0]
+        task.update(status='reviewing',reviewDigest=reviewed_digest,reviewSuiteDigest='suite',
+                    reviewedFiles=['result.py'])
+        self.provider.sessions['stale-review-thread']={'operation':'stale-review-op','state':'completed'}
+        self.runtime.state['sessions']['stale-review-agent']={'id':'stale-review-agent','role':'reviewer',
+            'taskId':'T01','runId':run['id'],'status':'running','threadId':'stale-review-thread',
+            'operationId':'stale-review-op','turnId':'stale-review-turn'}
+        self.provider.history=lambda _: {'turns':[{'id':'stale-review-turn','status':'completed','items':[
+            {'type':'agentMessage','text':json.dumps({'verdict':'pass','findings':[],'defects':[],'suggestions':[]})}]}]}
+        (worktree/'result.py').write_text('def values(): return [1]\n', encoding='utf-8')
+        self.runtime.refresh_session('stale-review-agent')
+        self.assertEqual('review_unconfirmed',task['status'])
+        self.assertEqual('unconfirmed',task['review']['verdict'])
 
     def test_autopilot_queue_handles_null_test_and_review_artifacts_after_rebase(self):
         tasks = [self.task('T01') | {'allowedPaths': ['src/one.py']},
@@ -605,6 +1027,36 @@ class AgentRuntimeTests(unittest.TestCase):
         self.assertIn('refresh_task_base', prompt)
         self.assertIn('не повторяй их', prompt)
 
+    def test_mahoraga_must_not_escalate_dependency_already_answered_by_approved_dag(self):
+        first = self.task('T01') | {'allowedPaths':['src/first.py']}
+        second = self.task('T02', ['T01']) | {'allowedPaths':['src/second.py']}
+        run = self.create_run([first, second])
+        session = self.runtime.start_mahoraga_orchestrator(run['id'])
+        stored = self.runtime.state['sessions'][session['id']]
+        stored.update(status='completed', proposal={'summary':'Queue check', 'actions':[
+            {'action':'ask_human','taskId':'T02','reason':'Should T02 wait for T01?'}]})
+        prompt = self.provider.sessions[session['threadId']]['prompt']
+        self.assertIn('waitingOn', prompt)
+        self.assertIn('не спрашивай по ним человека', prompt)
+        result = self.runtime.apply_mahoraga_actions(session['id'])['results'][0]
+        self.assertEqual('rejected', result['status'])
+        self.assertEqual('QUESTION_ANSWERED_BY_PLAN', result['code'])
+        self.assertNotIn('humanQuestion', self.runtime._run(run['id'])['tasks'][1])
+
+    def test_mahoraga_must_not_escalate_an_integrated_task_with_no_actions(self):
+        task = self.task('T01') | {'allowedPaths':['src/first.py']}
+        run = self.create_run([task])
+        run_state = self.runtime._run(run['id'])
+        run_state['tasks'][0]['status'] = 'integrated'
+        session = self.runtime.start_mahoraga_orchestrator(run['id'])
+        stored = self.runtime.state['sessions'][session['id']]
+        stored.update(status='completed', proposal={'summary':'Queue check', 'actions':[
+            {'action':'ask_human','taskId':'T01','reason':'Why is there no available action?'}]})
+        result = self.runtime.apply_mahoraga_actions(session['id'])['results'][0]
+        self.assertEqual('rejected', result['status'])
+        self.assertEqual('TASK_ALREADY_INTEGRATED', result['code'])
+        self.assertNotIn('humanQuestion', run_state['tasks'][0])
+
     def test_autopilot_recovers_unconfirmed_repeatable_test_action(self):
         task = self.task() | {'allowedPaths':['src/catalog.py']}
         run = self.runtime.create_run({'projectRoot':str(self.project), 'tasks':[task]})
@@ -623,6 +1075,85 @@ class AgentRuntimeTests(unittest.TestCase):
         self.assertEqual('actions_applied', result['status'])
         apply.assert_called_once_with(session['id'])
         self.assertEqual('applied', self.runtime.state['sessions'][session['id']]['autoApplication'])
+
+    def test_autopilot_asks_mahoraga_to_diagnose_task_already_marked_for_escalation(self):
+        task = self.task() | {'allowedPaths':['src/catalog.py']}
+        run = self.create_run([task])
+        self.runtime.create_task_worktree(run['id'], task['id'])
+        state = self.runtime._run(run['id'])
+        state['plannerSessionId'] = 'approved-planner'
+        state['mahoragaAutopilot'] = {'enabled':True, 'status':'running', 'actions':0,
+                                      'decisions':0, 'seenQueueFingerprints':[]}
+        state['tasks'][0].update(status='mahoraga_required', repairAttempts=3,
+                                 testDesignStatus='completed',
+                                 tests={'status':'failed','commands':[{'command':['python','-m','unittest'],
+                                     'output':'Independent assertion failed.'}]})
+
+        result = self.runtime.advance_mahoraga_autopilot(run['id'])
+
+        self.assertEqual('decision_requested', result['status'])
+        self.assertEqual('running', state['mahoragaAutopilot']['status'])
+        self.assertIn('escalate_mahoraga', self.runtime._mahoraga_allowed_actions(state, state['tasks'][0]))
+
+    def test_mahoraga_required_task_can_launch_one_specialist_and_cannot_escalate_twice(self):
+        run = self.create_run()
+        task = self.runtime._run(run['id'])['tasks'][0]
+        self.runtime.create_task_worktree(run['id'], task['id'])
+        task = self.runtime._run(run['id'])['tasks'][0]
+        task.update(status='mahoraga_required', repairAttempts=3,
+                    tests={'status':'failed','commands':[{'command':['python','-m','unittest'],
+                        'output':'Independent assertion failed.'}]})
+        session = self.runtime.start_mahoraga_orchestrator(run['id'])
+        stored = self.runtime.state['sessions'][session['id']]
+        stored.update(status='completed', proposal={'summary':'Analyze the failed task.', 'actions':[
+            {'action':'escalate_mahoraga','taskId':'T01','reason':'Three correction cycles failed.'}]})
+
+        result = self.runtime.apply_mahoraga_actions(session['id'])
+
+        self.assertEqual('accepted', result['results'][0]['status'])
+        specialist = result['results'][0]['result']
+        self.assertEqual('mahoraga', specialist['role'])
+        self.assertEqual([], self.runtime._mahoraga_allowed_actions(self.runtime._run(run['id']), task))
+        duplicate = self.runtime.apply_mahoraga_actions(session['id'])['results'][0]
+        self.assertEqual('rejected', duplicate['status'])
+
+    def test_concurrent_mahoraga_escalation_requests_create_only_one_specialist(self):
+        run = self.create_run()
+        task = self.runtime._run(run['id'])['tasks'][0]
+        self.runtime.create_task_worktree(run['id'], task['id'])
+        task = self.runtime._run(run['id'])['tasks'][0]
+        task.update(status='mahoraga_required', repairAttempts=3)
+        session = self.runtime.start_mahoraga_orchestrator(run['id'])
+        stored = self.runtime.state['sessions'][session['id']]
+        stored.update(status='completed', proposal={'summary':'Diagnose.', 'actions':[
+            {'action':'escalate_mahoraga','taskId':'T01','reason':'Three correction cycles failed.'}]})
+        barrier = threading.Barrier(2)
+
+        def apply_once():
+            barrier.wait(timeout=2)
+            return self.runtime.apply_mahoraga_actions(session['id'])['results'][0]
+
+        with ThreadPoolExecutor(max_workers=2) as pool:
+            results = list(pool.map(lambda _: apply_once(), range(2)))
+
+        self.assertEqual(1, sum(result['status'] == 'accepted' for result in results))
+        specialists = [item for item in self.runtime.state['sessions'].values()
+                       if item.get('runId') == run['id'] and item.get('taskId') == 'T01'
+                       and item.get('role') == 'mahoraga']
+        self.assertEqual(1, len(specialists))
+
+    def test_uncertain_mahoraga_launch_is_not_resent_after_controller_restart(self):
+        run = self.create_run()
+        task = self.runtime._run(run['id'])['tasks'][0]
+        task.update(status='mahoraga_required', repairAttempts=3,
+                    mahoragaEscalationRequestedAt='2026-10-31T10:00:00+00:00')
+        self.runtime._save()
+
+        restarted = AgentRuntime(self.runtime.workspace, self.runtime.integration_dir, provider=self.provider)
+        recovered_run = restarted._run(run['id'])
+
+        self.assertEqual([], restarted._mahoraga_allowed_actions(recovered_run, recovered_run['tasks'][0]))
+        self.assertEqual('mahoraga_required', recovered_run['tasks'][0]['status'])
 
     def test_failed_builder_fix_delivery_preserves_review_and_retry_count(self):
         task = self.task() | {'allowedPaths':['src/catalog.py']}
@@ -951,9 +1482,17 @@ class AgentRuntimeTests(unittest.TestCase):
         self.assertEqual(2,_executed_tests('unittest','Ran 2 tests in 0.002s\n\nOK',{}))
         self.assertEqual(6,_executed_tests('Python unittest','Ran 6 tests in 0.006s\n\nOK',{}))
         self.assertEqual(1,_executed_tests('node:test','TAP version 13\n# tests 1\n# pass 1\n# fail 0',{}))
+        self.assertEqual(5,_executed_tests('node:test','TAP version 13\n# tests 5\n# pass 5\n# fail 0',{'countPrefix':'ℹ tests '}))
+        self.assertEqual(3,_executed_tests('node:test','ℹ tests 3\nℹ pass 3\nℹ fail 0',{}))
         self.assertEqual(3,_executed_tests('cargo test','test result: ok. 3 passed; 0 failed; 0 ignored',{}))
         self.assertEqual(4,_executed_tests('custom runner','verified 4 specs',{'countPrefix':'verified'}))
         self.assertIsNone(_executed_tests('custom runner','all good',{}))
+
+    def test_captured_output_tolerates_a_missing_subprocess_stream(self):
+        from types import SimpleNamespace
+        from makora_core.agents.acceptance import _captured_output
+        self.assertEqual('stderr detail',_captured_output(SimpleNamespace(stdout=None,stderr='stderr detail')))
+        self.assertEqual('stdout detail',_captured_output(SimpleNamespace(stdout='stdout detail',stderr=None)))
 
     def test_independent_suite_executes_in_actual_codex_sandbox(self):
         import os
@@ -983,11 +1522,15 @@ class AgentRuntimeTests(unittest.TestCase):
         self.assertEqual(0,evidence['commands'][0]['exitCode'])
 
     def test_third_failed_review_cycle_routes_to_mahoraga(self):
-        run=self.create_run()
+        task_spec=self.task()
+        task_spec['acceptance']='Output must contain ready marker.'
+        task_spec['allowedPaths']=['result.txt']
+        run=self.create_run([task_spec])
         self.prepare_test_design(run['id'])
-        self.runtime.create_task_worktree(run['id'],'T01')
+        worktree=Path(self.runtime.create_task_worktree(run['id'],'T01')['worktree'])
         builder=self.runtime.launch_agent(run['id'],'T01','builder')
         task=self.runtime._run(run['id'])['tasks'][0]
+        (worktree/'result.txt').write_text('still failing\n', encoding='utf-8')
         for attempt in range(1,4):
             task.update(status='changes_requested',review={'verdict':'changes_requested','findings':[{'issue':'fix'}]})
             self.provider.sessions[builder['threadId']]['state']='completed'
@@ -999,13 +1542,16 @@ class AgentRuntimeTests(unittest.TestCase):
             self.runtime.refresh_session(builder['id'])
             if attempt < 3:
                 task.update(status='changes_requested',review={'verdict':'changes_requested','findings':[{'issue':'still failing'}]})
-        task.update(status='reviewing',repairAttempts=3,reviewDigest='code-digest',reviewSuiteDigest='suite-digest')
+        from makora_core.agents.acceptance import snapshot
+        _, _, _, review_digest=snapshot(self.runtime,run['id'],'T01',['result.txt'])
+        task.update(status='reviewing',repairAttempts=3,reviewDigest=review_digest,reviewSuiteDigest='suite-digest',
+                    reviewedFiles=['result.txt'])
         self.provider.sessions['thread-final-review']={'operation':'operation-final-review','state':'completed'}
         reviewer_id='agent-final-review'
         self.runtime.state['sessions'][reviewer_id]={'id':reviewer_id,'role':'reviewer','taskId':'T01','runId':run['id'],
             'threadId':'thread-final-review','operationId':'operation-final-review','turnId':'turn-final-review','status':'running',
-            'reviewDigest':'code-digest','reviewSuiteDigest':'suite-digest'}
-        self.provider.history=lambda _: {'turns':[{'id':'turn-final-review','status':'completed','items':[{'type':'agentMessage','text':json.dumps({'verdict':'changes_requested','findings':[{'issue':'still failing','requirementQuote':'«The expected file exists.»','evidence':'file absent'}]})}]}]}
+            'reviewDigest':review_digest,'reviewSuiteDigest':'suite-digest'}
+        self.provider.history=lambda _: {'turns':[{'id':'turn-final-review','status':'completed','items':[{'type':'agentMessage','text':json.dumps({'verdict':'changes_requested','findings':[{'file':'result.txt','issue':'still failing','requirementQuote':'Output must contain ready marker.','evidence':'The current output does not contain the required marker.','evidenceQuote':'still failing'}]})}]}]}
         self.runtime.refresh_session(reviewer_id)
         self.assertEqual('mahoraga_required',task['status'])
         specialist=self.runtime.launch_agent(run['id'],'T01','mahoraga')
@@ -1026,6 +1572,11 @@ class AgentRuntimeTests(unittest.TestCase):
         task.update(tests={'status':'passed'},review={'verdict':'pass'},reviewDigest='old')
         result=self.runtime.send_message(session['id'],'Исправь замечания')
         self.assertTrue(result['turnId'].startswith('new-turn'))
+        history=result['turnHistory']
+        self.assertEqual(2,len(history))
+        self.assertEqual('completed',history[0]['status'])
+        self.assertTrue(history[0]['executionObservedEndAt'])
+        self.assertEqual('accepted',history[1]['status'])
         self.assertEqual(task['status'],'implementing')
         self.assertNotIn('tests',task)
         self.assertNotIn('review',task)

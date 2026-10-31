@@ -16,7 +16,7 @@ ALLOWED_TEST_RUNNERS = {"python", "python3", "pytest", "node", "npm", "go", "car
 TEST_COUNT_PATTERNS = {
     "unittest": r"\bRan\s+(\d+)\s+tests?\b",
     "pytest": r"(?m)^(\d+)\s+passed\b",
-    "node:test": r"(?m)^# pass\s+(\d+)\s*$",
+    "node:test": r"(?m)^(?:#|ℹ)\s*pass\s+(\d+)\s*$",
     "jest": r"(?m)^Tests:\s+(\d+)\s+passed\b",
     "vitest": r"(?m)^\s*Tests\s+(\d+)\s+passed\b",
     "cargo test": r"test result: [^\r\n]*?(\d+) passed;",
@@ -33,6 +33,22 @@ def _runner_name(value):
 
 def _executed_tests(framework, output, manifest):
     """Return a positive test count only when runner output proves tests executed."""
+    key=str(framework).strip().lower()
+    if key in {'python unittest', 'python unittest (standard library)', 'unittest (standard library)'}:
+        key = 'unittest'
+    if key=='go test':
+        native_count = len(re.findall(r'^--- PASS:',output,re.MULTILINE)) or None
+    else:
+        pattern=TEST_COUNT_PATTERNS.get(key)
+        matches = [] if not pattern else [
+            int(group) for match in re.finditer(pattern,output,re.MULTILINE|re.IGNORECASE)
+            for group in match.groups() if group is not None
+        ]
+        native_count = sum(matches) or None
+    # A known runner's own summary is authoritative. Test Designer may include
+    # a mistaken countPrefix; it must not override the runner's native evidence.
+    if native_count is not None:
+        return native_count
     custom_prefix = manifest.get('countPrefix')
     if custom_prefix is not None:
         if not isinstance(custom_prefix, str) or not custom_prefix or len(custom_prefix) > 120:
@@ -43,18 +59,12 @@ def _executed_tests(framework, output, manifest):
                 match=re.match(r'\s*(\d+)',output[index+len(custom_prefix):])
                 if match: values.append(int(match.group(1)))
         return sum(values) or None
-    key=str(framework).strip().lower()
-    if key in {'python unittest', 'python unittest (standard library)', 'unittest (standard library)'}:
-        key = 'unittest'
-    if key=='go test':
-        return len(re.findall(r'^--- PASS:',output,re.MULTILINE)) or None
-    pattern=TEST_COUNT_PATTERNS.get(key)
-    if not pattern:
-        return None
-    values=[]
-    for match in re.finditer(pattern,output,re.MULTILINE|re.IGNORECASE):
-        values.extend(int(group) for group in match.groups() if group is not None)
-    return sum(values) or None
+    return None
+
+
+def _captured_output(result):
+    """Combine optional subprocess streams without failing on a missing pipe."""
+    return (getattr(result, 'stdout', None) or '') + (getattr(result, 'stderr', None) or '')
 
 
 def snapshot(runtime, run_id, task_id, allowed_paths):
@@ -166,8 +176,9 @@ def _codex_binary():
 
 def _materialize_project(runtime, root, files, suite_data, destination):
     """Build an isolated source snapshot from committed base plus exactly approved changes."""
-    from .runtime import AgentRuntimeError
-    archive = subprocess.run(['git', '-C', str(root), 'archive', '--format=tar', 'HEAD'], capture_output=True, timeout=30)
+    from .runtime import AgentRuntime, AgentRuntimeError
+    archive = subprocess.run(['git', '-C', str(root), 'archive', '--format=tar', 'HEAD'], capture_output=True,
+                             timeout=30, env=AgentRuntime._git_environment())
     if archive.returncode:
         raise AgentRuntimeError('TEST_SNAPSHOT_FAILED', archive.stderr.decode('utf-8', 'replace')[-2000:], 409)
     import tarfile
@@ -254,7 +265,7 @@ def test_task(runtime, run_id, task_id, allowed_paths):
                 try:
                     result = subprocess.run(command, cwd=sandbox_root, capture_output=True, text=True,
                                             timeout=180, env=_test_environment(sandbox_root, raw_command))
-                    output = (result.stdout + result.stderr)[-16000:]
+                    output = _captured_output(result)[-16000:]
                     executed = _executed_tests(manifest['framework'], output, manifest)
                     minimum = manifest.get('minimumTests', 1)
                     passed = result.returncode == 0 and executed is not None and executed >= minimum

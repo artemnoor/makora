@@ -187,6 +187,11 @@ class MakoraHandler(SimpleHTTPRequestHandler):
                 self._agent_json(lambda:self.server.agent_runtime.resolve_approval(match.group(1),str(value.get('decision',''))));return
             if path == '/api/agents/plans':
                 self._agent_json(lambda:self.server.agent_runtime.start_mahoraga_planning(self._read_json()),201);return
+            match=re.fullmatch(r'/api/agents/plans/([\w-]+)/revise',path)
+            if match:
+                value=self._read_json()
+                self._agent_json(lambda:self.server.agent_runtime.revise_mahoraga_plan(
+                    match.group(1),str(value.get('feedback',''))),202);return
             match=re.fullmatch(r'/api/agents/plans/([\w-]+)/approve',path)
             if match:self._agent_json(lambda:self.server.agent_runtime.approve_mahoraga_plan(match.group(1)),201);return
             if path == '/api/agents/runs':

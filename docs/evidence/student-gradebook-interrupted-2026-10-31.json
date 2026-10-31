@@ -1,0 +1,58 @@
+{
+  "scenarioId": "student-gradebook",
+  "case": "Student Gradebook",
+  "status": "BLOCKED",
+  "classification": "operator_requested_early_finalization",
+  "modelRequired": "gpt-6-luna",
+  "modelObserved": "gpt-6-luna",
+  "appServerVersion": "Codex Desktop/0.166.0 (Windows 10.0.19045; x86_64) dumb (codex-localhost; 0.1.0)",
+  "runId": "run-46af61e9d13d",
+  "observedAt": "2026-10-31T17:39:29.891908+00:00",
+  "operatorAction": "The user asked to finish the current run in its current state and prepare the report.",
+  "makoraAutopilotStatusAtSnapshot": "running",
+  "taskStatusesAtSnapshot": [
+    {
+      "id": "domain",
+      "status": "integrated",
+      "integration": "integrated"
+    },
+    {
+      "id": "storage",
+      "status": "integrated",
+      "integration": "integrated"
+    },
+    {
+      "id": "service",
+      "status": "integrated",
+      "integration": "integrated"
+    },
+    {
+      "id": "cli",
+      "status": "integrated",
+      "integration": "integrated"
+    },
+    {
+      "id": "e2e",
+      "status": "ready",
+      "integration": "not_integrated"
+    }
+  ],
+  "integratedTasks": 4,
+  "totalTasks": 5,
+  "activeSessionsAtSnapshot": [
+    {
+      "sessionId": "agent-52b6def50b0f",
+      "role": "test_designer",
+      "taskId": "e2e",
+      "threadId": "01a19309-5b7b-7011-a001-576d9f81eb20",
+      "turnId": "01a19309-7b3f-7d82-bc16-6ad7d03f5828",
+      "model": "gpt-6-luna",
+      "status": "running"
+    }
+  ],
+  "finalFunctionalSmoke": "not_run",
+  "runnerInterruptedByOperator": true,
+  "makoraTaskStateManuallyChanged": false,
+  "rawStatePath": "C:\\m\\batch-20261031-194539-7ad254\\student-gradebook\\makora-e2e-20261031-201415-7ac6cf\\makora-workspace\\agents\\state.json",
+  "rawHarnessEvidencePath": "C:\\m\\batch-20261031-194539-7ad254\\student-gradebook\\makora-e2e-20261031-201415-7ac6cf\\evidence.json"
+}
