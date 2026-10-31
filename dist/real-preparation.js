@@ -16,13 +16,14 @@
   async function extract(file){const token=await(await fetch('/api/agents/token',{headers:{'X-Makora-Request':'token'}})).json();const response=await fetch('/api/preparation/extract?name='+encodeURIComponent(file.name),{method:'POST',headers:{'X-Makora-Token':token.result.token},body:file});const result=await response.json();if(!response.ok)throw Error(result.error?.message||'Не удалось прочитать файл');return result.result.text}
   const root=()=>document.querySelector('#first-stage');
   function error(message){const host=root()?.querySelector('.board-content');if(host){let el=host.querySelector('[data-real-error]');if(!el){el=document.createElement('p');el.dataset.realError='';el.setAttribute('role','alert');host.prepend(el)}el.textContent=message;el.hidden=false}}
-  async function start(brief){state=await api('/api/preparation/1/start',{brief});stage=1;file=null}
+  async function start(brief){state=await api('/api/preparation/1/start',{brief});stage=1;file=null;localStorage.setItem('makora.real-stage','1');history.replaceState(null,'',location.pathname)}
   function schedule(){clearTimeout(timer);if(stage<=4&&['running','unconfirmed'].includes(state.stages[stage]?.status)){timer=setTimeout(async()=>{try{state=await api(`/api/preparation/${stage}/refresh`,{});paint()}catch(e){error(e.message);schedule()}},4000)}}
   function paint(){
     const scene=root();if(!scene||!state.brief)return;
     const board=scene.querySelector('.board'),content=scene.querySelector('.board-content');
     window.makoraRealAgents?.cancel?.();
     if(!board.classList.contains('rp-board')){board.classList.add('rp-board');requestAnimationFrame(()=>window.dispatchEvent(new Event('resize')))}
+    if(!board.querySelector('.board-size')){const size=document.createElement('button');size.type='button';size.className='board-size';size.textContent='＋';size.setAttribute('aria-label','Увеличить доску');size.onclick=()=>{const large=board.classList.toggle('rp-large');size.textContent=large?'−':'＋';size.setAttribute('aria-label',large?'Уменьшить доску':'Увеличить доску');window.dispatchEvent(new Event('resize'))};board.querySelector('.board-expand').before(size)}
     board.classList.remove('idea-board','plan-index-board','revision-view');board.classList.add('workspace-board');
     board.classList.toggle('agent-real-mode',stage>=5);
     scene.querySelector('.board-kicker').textContent='ПРОЕКТ · GPT-6 LUNA';

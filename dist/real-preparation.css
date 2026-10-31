@@ -155,12 +155,10 @@
 #first-stage .rp-actions button{min-width:0;white-space:normal;overflow-wrap:anywhere}
 #first-stage .board.rp-board .board-footer{padding-top:10px;font:9px/1.5 Manrope,sans-serif;gap:12px;flex-shrink:0}
 #first-stage .board.rp-board .board-footer span:first-child{max-width:85%}
-#first-stage.departing:has(.rp-board) .mascot-area{left:calc((100vw - min(820px,66vw) - 24px)/2 - 114px)!important;top:calc(50dvh - 100px)!important}
 #first-stage .board.rp-board.expanded .board-inner{inset:98px max(24px,calc((100vw - 1000px)/2)) 24px!important}
 #first-stage .board.rp-board.expanded .board-stages{max-width:1000px;margin-inline:auto}
 @media(max-width:899px){
  #first-stage .board.rp-board:not(.expanded){height:calc(100dvh - 200px)!important}
- #first-stage.departing:has(.rp-board) .mascot-area{left:calc(50vw - 114px)!important;top:55px!important;height:120px!important}
  #first-stage .board.rp-board .board-inner{inset:91px 16px 14px!important}
  #first-stage .board.rp-board .board-stages{inset:14px 13px auto!important;gap:3px}
  #first-stage .board.rp-board .board-bar h2{font-size:26px}
@@ -171,3 +169,26 @@
 #first-stage .rp-runtime .rp-details>summary{justify-content:flex-start;font-size:12px;line-height:1.5}
 #first-stage .rp-runtime :is(p,li,label){font-size:13px;line-height:1.65}
 #first-stage .rp-file-grid:has(>.rp-file:only-child){grid-template-columns:1fr}
+
+/* Original illustrated board, compact by default; dragging uses inline coordinates. */
+#first-stage .board.rp-board:not(.expanded){height:min(460px,calc(100dvh - 190px))!important}
+#first-stage .board.rp-board.rp-large:not(.expanded){height:calc(100dvh - 180px)!important}
+#first-stage .board.rp-board .board-sprite{inset:0!important;background:none!important;border:0;box-shadow:none;clip-path:none}
+#first-stage .board.rp-board .board-art,#first-stage .board.rp-board .board-shadow-art{display:block;object-fit:fill!important}
+#first-stage .board.rp-board .board-inner{inset:20% 11% 24%!important;overflow:hidden}
+#first-stage .board.rp-board .board-stages{inset:-54px 6% auto!important}
+#first-stage .board.rp-board .board-stages [data-real-stage]{min-height:48px;flex-direction:column;gap:3px;text-align:center}
+#first-stage .board.rp-board .board-stages small{display:none}
+#first-stage .board.rp-board .board-bar h2{font-size:23px}
+#first-stage .board.rp-board .board-bar{padding-bottom:7px}
+#first-stage .board.rp-board .board-content{padding-top:10px}
+#first-stage .board.rp-board .board-footer{font-size:8px;padding-top:5px}
+#first-stage .board.rp-board .board-size{background:transparent;border:1px solid #555;color:#eee;font:18px monospace;cursor:pointer;padding:2px 6px;margin-left:auto;flex-shrink:0}
+#first-stage .board.rp-board.expanded .board-size{display:none}
+#first-stage .board.rp-board.expanded .board-stages{inset:16px 20px auto!important}
+#first-stage .first-new-task{color:#bbb;font:11px Manrope,sans-serif;border:1px solid #555;padding:8px 12px;text-decoration:none}
+#first-stage .rp-lifecycle{margin-bottom:14px}
+#first-stage .rp-summary{padding-bottom:12px!important}
+#first-stage .mascot-area{touch-action:none;cursor:grab}
+#first-stage .mascot-area.carried{cursor:grabbing}
+@media(max-width:899px){#first-stage .board.rp-board:not(.expanded){height:calc(100dvh - 255px)!important}#first-stage .board.rp-board .board-inner{inset:18% 10% 23%!important}#first-stage .first-top>span{display:none}}

@@ -8,6 +8,10 @@
   <label class="pixel-drop"><input type="file" accept=".pdf,.docx,.txt,.md" class="sr-only"><span class="pixel-plus" aria-hidden="true"><svg viewBox="0 0 24 24" width="28" height="28" shape-rendering="crispEdges"><path fill="currentColor" d="M2 5h8v2h12v14H2zm2 4v10h16V9z"/><path fill="currentColor" d="M11 11h2v2h2v2h-2v2h-2v-2H9v-2h2z"/></svg></span><strong class="file-label">Выбрать файл</strong><small>или перетащить сюда<br>PDF, DOCX, TXT, MD · до 20 МБ</small></label><div class="or-line"><span>ИЛИ ВСТАВЬ ТЕКСТ</span></div><label class="sr-only" for="first-text">Текст задания</label><textarea id="first-text" placeholder="Вставь условие задания сюда…"></textarea><p class="first-error" role="alert" hidden></p><button class="pixel-start" type="submit" disabled>Начать анализ <span aria-hidden="true">▶</span></button><p class="first-disclaimer">Анализ выполняет Codex GPT-6 Luna. Результаты сохраняются локально и требуют утверждения.</p></form></div>
   <div class="board-scene" hidden><div class="board-heading"><span>01 / АНАЛИЗ ЗАДАНИЯ</span><span>01_CASE_ANALYSIS.MD</span></div><div class="board-stage"><div class="board-mascot" aria-hidden="true"></div><div class="board" aria-label="Доска рабочего пространства"><nav class="board-stages" aria-label="Этапы проекта"><button type="button" data-board-stage="1">01 <span>Анализ</span></button><button type="button" data-board-stage="2">02 <span>Идея</span></button><button type="button" data-board-stage="3">03 <span>План</span></button><button type="button" data-board-stage="4">04 <span>Мок-данные</span></button></nav><div class="board-stage-message" role="status" hidden></div><div class="board-sprite"><img class="board-shadow-art" src="analysis-board.png" alt="" draggable="false"><img class="board-art" src="analysis-board.png" alt="" draggable="false"></div><div class="board-inner"><div class="board-bar"><div><span class="board-kicker">ДЕМО-КЕЙС / ТИХИЙ КАМПУС</span><h2>Анализ задания<span>.</span></h2></div><button type="button" class="board-expand" aria-label="Развернуть доску" title="Развернуть доску">⛶</button></div><div class="board-content"></div><div class="board-footer"><span>ТЯНИ ЗА РАМКУ · ДВОЙНОЙ КЛИК — НА ВЕСЬ ЭКРАН</span><span>01 / 06</span></div></div></div></div><div class="scene-bottom"><p>Демо-анализ: показан пример, файл не анализируется.</p><button type="button" class="board-next">Далее <span>→</span></button></div></div>`;
   document.body.append(root);
+  const newTask = new URLSearchParams(location.search).has('new');
+  const newLink = document.createElement('a');
+  newLink.href='?new=1';newLink.textContent='Новое задание';newLink.className='first-new-task';
+  root.querySelector('.first-top').append(newLink);
   document.body.classList.add('first-stage-active');
   const underneath = document.querySelectorAll('body > header, body > main');
   underneath.forEach(el => el.inert = true);
@@ -456,9 +460,13 @@
   function placeBoard(mascotRect) {
     if (board.classList.contains('rp-board')) {
       const compact = window.innerWidth < 900;
-      const width = compact ? window.innerWidth - 24 : Math.min(820, Math.floor(window.innerWidth * .66));
+      const width = compact ? window.innerWidth - 24 : Math.min(board.classList.contains('rp-large')?900:660, Math.floor(window.innerWidth * .64));
       board.style.setProperty('--board-width', width + 'px');
-      moveBoard(compact ? 12 : window.innerWidth - width - 24, compact ? 184 : 96);
+      if(!mascotArea.dataset.workspacePlaced){
+        mascotArea.dataset.workspacePlaced='1';
+        moveMascot(compact?(window.innerWidth-mascotArea.offsetWidth)/2:Math.max(16,(window.innerWidth-width-24-mascotArea.offsetWidth)/2),compact?65:window.innerHeight/2-100);
+      }
+      moveBoard(compact ? 12 : window.innerWidth - width - 24, compact ? 238 : Math.max(160,(window.innerHeight-460)/2));
       return;
     }
     const narrow = window.innerWidth < 900;
@@ -486,6 +494,7 @@
     if(window.makoraPreparation)content.innerHTML='<div class="board-document">Загружаем реальные артефакты проекта…</div>';
     window.makoraPreparation?.mount().catch(e=>{content.innerHTML='<div class="board-document" role="alert">'+esc(e.message)+'</div>';error.textContent=e.message;error.hidden=false});
     placeBoard(mascotRect);
+    if(restore)setTimeout(()=>{if(frame.isConnected)frame.contentWindow.location.reload()},100);
     if(restore)root.classList.add('board-visible');
     else requestAnimationFrame(()=>requestAnimationFrame(()=>root.classList.add('board-visible')));
     if(!window.makoraPreparation&&window.makoraDemoWorkflow.isDemoPrototypeReady())setTimeout(()=>window.makoraAgentPlan?.open(),restore?350:1250);
@@ -542,8 +551,8 @@
     if(boardStage===1){const result=window.makoraDemoWorkflow.approveAnalysis();if(!result.ok){stageMessage.textContent=result.error;stageMessage.hidden=false;return;}}
     openBoardStage(next);
   });
-  const previousSource=localStorage.getItem('makora.real-project')==='1'?window.makoraProject.source():null;
-  if(!previousSource&&window.makoraPreparation){fetch('/api/preparation',{cache:'no-store'}).then(r=>r.json()).then(data=>{const source=data.result?.brief;if(!source||textarea.value.trim()||selectedFile||root.classList.contains('departing'))return;window.makoraProject.setSource({name:'Сохранённое условие проекта',text:source});localStorage.setItem('makora.real-project','1');textarea.value=source;update();revealWorkspace(root.querySelector('.mascot-area').getBoundingClientRect(),{restore:true})}).catch(()=>{})}
+  const previousSource=!newTask&&localStorage.getItem('makora.real-project')==='1'?window.makoraProject.source():null;
+  if(!newTask&&!previousSource&&window.makoraPreparation){fetch('/api/preparation',{cache:'no-store'}).then(r=>r.json()).then(data=>{const source=data.result?.brief;if(!source||textarea.value.trim()||selectedFile||root.classList.contains('departing'))return;window.makoraProject.setSource({name:'Сохранённое условие проекта',text:source});localStorage.setItem('makora.real-project','1');textarea.value=source;update();revealWorkspace(root.querySelector('.mascot-area').getBoundingClientRect(),{restore:true})}).catch(()=>{})}
   if(previousSource){
     textarea.value=previousSource.text||previousSource.name||'';
     update();

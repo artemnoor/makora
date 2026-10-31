@@ -48,7 +48,7 @@ async page => {
     const bounds=await page.locator('.rp-board').evaluate(board=>{
       const frame=board.getBoundingClientRect();
       return {inside:frame.left>=0&&frame.top>=0&&frame.right<=innerWidth+1&&frame.bottom<=innerHeight+1,
-        children:['.board-stages','.board-inner','.board-content','.board-footer'].every(selector=>{
+        children:['.board-inner','.board-content','.board-footer'].every(selector=>{
           const r=board.querySelector(selector).getBoundingClientRect();
           return r.left>=frame.left&&r.right<=frame.right+1&&r.top>=frame.top&&r.bottom<=frame.bottom+1;
         })};
@@ -56,6 +56,15 @@ async page => {
     assert(bounds.inside&&bounds.children,'Содержимое выходит за доску: '+JSON.stringify(viewport));
   }
   await page.setViewportSize({width:1280,height:720});
+  const mascot=page.locator('.mascot-area'),before=await mascot.boundingBox();
+  await page.mouse.move(before.x+before.width/2,before.y+before.height/2);await page.mouse.down();
+  await page.mouse.move(before.x+before.width/2+60,before.y+before.height/2+35,{steps:8});await page.mouse.up();
+  assert((await mascot.boundingBox()).x>before.x+40,'Персонаж не перетаскивается');
+  await page.locator('.board-size').click();
+  assert(await page.locator('.board').evaluate(e=>e.classList.contains('rp-large')),'Доска не увеличивается');
+  await page.goto(new URL('/?new=1',page.url()).href);
+  assert(await page.locator('#first-text').inputValue()==='','Новое задание восстановило старый текст');
+  assert(await page.locator('.pixel-start').isVisible(),'Нет формы нового задания');
   assert(errors.length===0,errors.join('; '));
   return {provider:'fake-http',briefSubmitted:true,realArtifactsRendered:true,approval:true,invalidation:true,reload:true,errors};
 }
