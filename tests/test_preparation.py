@@ -77,6 +77,29 @@ class PreparationTests(unittest.TestCase):
         files['mocks/fixtures/invalid.json'] = '[]'
         self.assertTrue(any(c['status'] == 'failed' for c in Preparation.validate(files, 4)))
 
+    def test_scenario_index_follows_local_file_and_checks_actual_payload(self):
+        files={'mocks/fixtures/data.json':'{"cases":[{"payload":{"id":"ok"}},{"payload":{}}]}',
+               '04_validation_report.md':'# Проверки', 'mocks/item.schema.json':'{"$defs":{"Item":{"type":"object","required":["id"]}}}',
+               'mocks/scenarios.json':'{"scenariosFile":"mocks/scenarios/items.json"}',
+               'mocks/scenarios/items.json':json.dumps({'scenarios':[
+                   {'id':'valid','fixture':'mocks/fixtures/data.json#/cases/0/payload','schema':'mocks/item.schema.json#/$defs/Item','expectedValid':True},
+                   {'id':'invalid','fixture':'mocks/fixtures/data.json#/cases/1/payload','schema':'mocks/item.schema.json#/$defs/Item','expectedValid':False}]})}
+        self.assertTrue(all(c['status']=='passed' for c in Preparation.validate(files,4)))
+        files['mocks/fixtures/data.json']='{"cases":[{"payload":{"id":"ok"}},{"payload":{"id":"also-valid"}}]}'
+        self.assertTrue(any(c['status']=='failed' for c in Preparation.validate(files,4)))
+        files['mocks/scenarios/items.json']='{"scenariosFile":"mocks/scenarios.json"}'
+        with self.assertRaisesRegex(ValueError,'Цикл'):Preparation.validate(files,4)
+        files['mocks/scenarios/items.json']='{"scenariosFile":"https://example.com/scenarios.json"}'
+        with self.assertRaisesRegex(ValueError,'внутри mocks'):Preparation.validate(files,4)
+
+    def test_failed_validation_keeps_generated_files_for_inspection(self):
+        self.pipeline.start(1,{'brief':'Проверка сохранения документов'})
+        record=self.pipeline.state['stages']['1']
+        (Path(record['folder'])/'result.json').write_text('{"files":{"unexpected.json":"not JSON"}}','utf-8')
+        result=self.pipeline.refresh(1)['stages']['1']
+        self.assertEqual('failed',result['status'])
+        self.assertIn('unexpected.json',result['files'])
+
     def test_development_uses_separate_git_project_and_refuses_dirty_updates(self):
         self.pipeline.state['brief'] = 'Локальный каталог'
         self.pipeline.state['stages'] = {'1': {'status': 'approved', 'files': {'01_case_analysis.md': '# Пользовательский кейс'}},

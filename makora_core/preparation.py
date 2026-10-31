@@ -137,6 +137,10 @@ class Preparation:
                 'например mocks/fixtures/data.json, либо пустой массив; описания заглушек размещай в goal. allowedPaths — точные относительные пути файлов, без wildcard. '
                 'Исправь ошибки previousChecks/previousError, если они переданы. Для этапа 4 создай каждый файл из tasks[*].mocks в 03_tasks.json; не заменяй пути общим набором без согласования. Для этапа 4 создавай синтетические JSON-фикстуры по контрактам: успешный, пустой, устаревший, невалидный и ошибка; '
                 'приложи JSON Schema и scenarios с fixture, schema (путь к схеме) и expectedValid. Не пиши, что проверки выполнены: контроллер проверит файлы отдельно. '
+                'scenarios.json содержит массив scenarios либо scenariosFile со ссылкой на JSON внутри mocks/. '
+                'Каждый fixture указывает именно на проверяемые данные: для набора используй JSON Pointer, например mocks/fixtures/data.json#/cases/0/payload. '
+                'schema должна проверять сам payload по контракту API, а не только упаковку cases/source. '
+                'expectedValid:false означает, что реальные данные не проходят указанную схему; нельзя ставить false для валидного контейнера. '
                 'Не меняй исходные утверждённые артефакты; изменения предлагай в questions. Пиши документы по-русски.'
             )
             record = {'status': 'launching', 'folder': str(folder), 'files': {}, 'checks': [], 'model': MODEL_ID}
@@ -220,7 +224,21 @@ class Preparation:
             schemas = {name: json.loads(text) for name, text in files.items() if name.endswith('.schema.json')}
             if not schemas:
                 raise ValueError('Нет JSON Schema для проверки фикстур')
-            scenarios = json.loads(files.get('mocks/scenarios.json', '[]'))
+            scenario_path = 'mocks/scenarios.json'
+            visited = set()
+            while True:
+                if scenario_path in visited:
+                    raise ValueError('Цикл ссылок scenariosFile: '+scenario_path)
+                visited.add(scenario_path)
+                if scenario_path not in files:
+                    raise ValueError('Отсутствует файл сценариев: '+scenario_path)
+                scenarios = json.loads(files[scenario_path])
+                if not isinstance(scenarios, dict) or 'scenariosFile' not in scenarios:
+                    break
+                reference = scenarios['scenariosFile']
+                if not isinstance(reference,str) or not reference.startswith('mocks/') or reference not in files:
+                    raise ValueError('scenariosFile должен ссылаться на файл внутри mocks/ в этом пакете')
+                scenario_path = reference
             if isinstance(scenarios, dict):
                 scenarios = scenarios.get('scenarios', [])
             if not isinstance(scenarios, list) or not scenarios:
@@ -231,12 +249,15 @@ class Preparation:
             base = 'https://makora.invalid/'
             registry = Registry().with_resources((base+name, Resource.from_contents(schema, default_specification=DRAFT202012)) for name, schema in schemas.items())
             for scenario in scenarios:
+                if not isinstance(scenario,dict):
+                    raise ValueError('Сценарий должен быть объектом с fixture, schema и expectedValid')
                 fixture, schema_name = scenario.get('fixture'), scenario.get('schema')
                 expected = scenario.get('expectedValid')
                 fixture_path, _, pointer = str(fixture).partition('#')
-                if fixture_path not in files or schema_name not in schemas or not isinstance(expected, bool):
+                schema_path = str(schema_name).partition('#')[0]
+                if fixture_path not in files or schema_path not in schemas or not isinstance(expected, bool):
                     raise ValueError('Каждый сценарий должен иметь fixture, schema и expectedValid')
-                schema = schemas[schema_name]
+                schema = schemas[schema_path]
                 validator = validators.validator_for(schema)
                 validator.check_schema(schema)
                 data = json.loads(files[fixture_path])
@@ -247,8 +268,9 @@ class Preparation:
                     for token in pointer[1:].split('/'):
                         token = token.replace('~1', '/').replace('~0', '~')
                         data = data[int(token)] if isinstance(data, list) else data[token]
-                actual = validator({**schema, '$id': base+schema_name}, registry=registry).is_valid(data)
-                checks.append({'name': f'Схема: {fixture}', 'status': 'passed' if actual == expected else 'failed'})
+                actual = validator({'$ref': base+schema_name}, registry=registry).is_valid(data)
+                checks.append({'name': f'Сценарий {scenario.get("id", fixture)}: {fixture}', 'status': 'passed' if actual == expected else 'failed',
+                               'expectedValid': expected, 'actualValid': actual})
         return checks
 
     def refresh(self, stage, recheck=False):
@@ -270,6 +292,7 @@ class Preparation:
                         raise ValueError('files должен быть объектом')
                     if set(files) & set(self.context(stage)):
                         raise ValueError('Результат пытается заменить артефакт утверждённого предыдущего этапа')
+                    record.update(files=files, checks=[])
                     checks = self.validate(files, stage)
                     if stage == 4:
                         tasks = json.loads(self.context(stage).get('03_tasks.json', '[]'))
