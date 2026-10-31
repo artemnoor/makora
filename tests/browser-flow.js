@@ -40,6 +40,7 @@ async page => {
   for (let i = 0; i < 9; i++) {
     await page.locator(`[data-plan-item="${i}"]`).click();
     await page.locator('.demo-context-note').first().waitFor({state:'attached'});
+    await page.waitForFunction(()=>document.querySelector('.board-content')?.innerText.trim().length>30);
     assert(await page.locator('.demo-context-note').count() > 0, `Нет пояснения о демо в разделе плана ${i}`);
     const text = await page.locator('.board-content').innerText();
     assert(text.trim().length > 30, `Пустой раздел плана ${i}`);
@@ -66,6 +67,7 @@ async page => {
   for (let i = 0; i < 5; i++) {
     await page.locator(`[data-mock-item="${i}"]`).click();
     await page.locator('.demo-context-note').first().waitFor({state:'attached'});
+    await page.waitForFunction(()=>document.querySelector('.plan-title')?.innerText.trim().length>2);
     assert(await page.locator('.demo-context-note').count() > 0, `Нет пояснения о демо в моках ${i}`);
     assert((await page.locator('.plan-title').first().innerText()).length > 2, `Пустой раздел моков ${i}`);
     if (i === 1) {
@@ -219,6 +221,9 @@ async page => {
       await advance('T02','integrate');
       for(const action of ['prepare-tests','complete-tests','start-builder','complete-builder','review','integrate'])await advance('T03',action);
       assert((await page.locator('[data-sim-task="T04"]').innerText()).includes('Готова'), 'T04 не разблокировалась после интеграции зависимостей');
+      const finalTaskNode=await page.locator('[data-sim-task="T04"]').elementHandle();
+      await page.locator('[data-sim-task="T04"]').click();
+      assert(await finalTaskNode.evaluate(el=>el.isConnected), 'Выбор задачи без изменения статуса не должен перестраивать список');
       for(const action of ['prepare-tests','complete-tests','start-builder','complete-builder','review','integrate'])await advance('T04',action);
       assert((await page.locator('.agent-completion-report').innerText()).includes('ВСЕ ЗАДАЧИ УСЛОВНО ИНТЕГРИРОВАНЫ'), 'Финальное состояние не показано');
       await page.evaluate(()=>sessionStorage.setItem('__agent_before_reload',JSON.stringify({plan:window.makoraStage3.getContext(),workflow:window.makoraDemoWorkflow.getState(),stage4:localStorage.getItem('makora.stage4.review.v1')})));
