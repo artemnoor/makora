@@ -5,7 +5,7 @@
   root.innerHTML = `<div class="first-top"><a class="first-logo" href="/">✳ <span>макора</span></a><span>РАБОЧЕЕ ПРОСТРАНСТВО / 01</span><span>ЭТАП 01 / 06</span></div>
   <div class="first-intro"><div class="mascot-area" tabindex="0" role="img" aria-label="Макора. Перетащите мышью или перемещайте стрелками." title="Перетащить Макору"><iframe class="mascot-frame" src="mascot.html" title="Персонаж Макоры" tabindex="-1"></iframe></div>
   <form class="first-form"><div class="speech-label">ПЕРВЫЙ ШАГ <span>01 / 06</span></div><h1>Привет!<br>Разберём задание?</h1><p>Пришли условие хакатона — соберём всё важное в одном месте.</p>
-  <label class="pixel-drop"><input type="file" accept=".pdf,.doc,.docx,.txt,.md" class="sr-only"><span class="pixel-plus" aria-hidden="true"><svg viewBox="0 0 24 24" width="28" height="28" shape-rendering="crispEdges"><path fill="currentColor" d="M2 5h8v2h12v14H2zm2 4v10h16V9z"/><path fill="currentColor" d="M11 11h2v2h2v2h-2v2h-2v-2H9v-2h2z"/></svg></span><strong class="file-label">Выбрать файл</strong><small>или перетащить сюда<br>PDF, DOCX, TXT, MD · до 20 МБ</small></label><div class="or-line"><span>ИЛИ ВСТАВЬ ТЕКСТ</span></div><label class="sr-only" for="first-text">Текст задания</label><textarea id="first-text" placeholder="Вставь условие задания сюда…"></textarea><p class="first-error" role="alert" hidden></p><button class="pixel-start" type="submit" disabled>Начать анализ <span aria-hidden="true">▶</span></button><p class="first-disclaimer">Демо: загрузка и анализ имитируются. После этапа 4 доступен учебный маршрут разработки.</p></form></div>
+  <label class="pixel-drop"><input type="file" accept=".pdf,.docx,.txt,.md" class="sr-only"><span class="pixel-plus" aria-hidden="true"><svg viewBox="0 0 24 24" width="28" height="28" shape-rendering="crispEdges"><path fill="currentColor" d="M2 5h8v2h12v14H2zm2 4v10h16V9z"/><path fill="currentColor" d="M11 11h2v2h2v2h-2v2h-2v-2H9v-2h2z"/></svg></span><strong class="file-label">Выбрать файл</strong><small>или перетащить сюда<br>PDF, DOCX, TXT, MD · до 20 МБ</small></label><div class="or-line"><span>ИЛИ ВСТАВЬ ТЕКСТ</span></div><label class="sr-only" for="first-text">Текст задания</label><textarea id="first-text" placeholder="Вставь условие задания сюда…"></textarea><p class="first-error" role="alert" hidden></p><button class="pixel-start" type="submit" disabled>Начать анализ <span aria-hidden="true">▶</span></button><p class="first-disclaimer">Анализ выполняет Codex GPT-6 Luna. Результаты сохраняются локально и требуют утверждения.</p></form></div>
   <div class="board-scene" hidden><div class="board-heading"><span>01 / АНАЛИЗ ЗАДАНИЯ</span><span>01_CASE_ANALYSIS.MD</span></div><div class="board-stage"><div class="board-mascot" aria-hidden="true"></div><div class="board" aria-label="Доска рабочего пространства"><nav class="board-stages" aria-label="Этапы проекта"><button type="button" data-board-stage="1">01 <span>Анализ</span></button><button type="button" data-board-stage="2">02 <span>Идея</span></button><button type="button" data-board-stage="3">03 <span>План</span></button><button type="button" data-board-stage="4">04 <span>Мок-данные</span></button></nav><div class="board-stage-message" role="status" hidden></div><div class="board-sprite"><img class="board-shadow-art" src="analysis-board.png" alt="" draggable="false"><img class="board-art" src="analysis-board.png" alt="" draggable="false"></div><div class="board-inner"><div class="board-bar"><div><span class="board-kicker">ДЕМО-КЕЙС / ТИХИЙ КАМПУС</span><h2>Анализ задания<span>.</span></h2></div><button type="button" class="board-expand" aria-label="Развернуть доску" title="Развернуть доску">⛶</button></div><div class="board-content"></div><div class="board-footer"><span>ТЯНИ ЗА РАМКУ · ДВОЙНОЙ КЛИК — НА ВЕСЬ ЭКРАН</span><span>01 / 06</span></div></div></div></div><div class="scene-bottom"><p>Демо-анализ: показан пример, файл не анализируется.</p><button type="button" class="board-next">Далее <span>→</span></button></div></div>`;
   document.body.append(root);
   document.body.classList.add('first-stage-active');
@@ -161,6 +161,7 @@
     next.innerHTML = (stage === 1 ? 'Далее' : 'К мок-данным') + ' <span>→</span>';
   }
   async function openBoardStage(number) {
+    if(window.makoraPreparation)return window.makoraPreparation.open(number);
     if (stageSwitchInProgress) return;
     if(!window.makoraDemoWorkflow.canOpenStage(number)){
       stageMessage.textContent=window.makoraDemoWorkflow.getGateMessage(number);
@@ -471,14 +472,16 @@
       spinWheel();
     }
     root.classList.add('departing');
-    prototypeHandoff.show();
+    if(!window.makoraPreparation)prototypeHandoff.show();
     root.querySelector('.board-scene').hidden=false;
     showIndex();
     syncBoardStage();
+    if(window.makoraPreparation)content.innerHTML='<div class="board-document">Загружаем реальные артефакты проекта…</div>';
+    window.makoraPreparation?.mount().catch(e=>{content.innerHTML='<div class="board-document" role="alert">'+esc(e.message)+'</div>';error.textContent=e.message;error.hidden=false});
     placeBoard(mascotRect);
     if(restore)root.classList.add('board-visible');
     else requestAnimationFrame(()=>requestAnimationFrame(()=>root.classList.add('board-visible')));
-    if(window.makoraDemoWorkflow.isDemoPrototypeReady())setTimeout(()=>window.makoraAgentPlan?.open(),restore?350:1250);
+    if(!window.makoraPreparation&&window.makoraDemoWorkflow.isDemoPrototypeReady())setTimeout(()=>window.makoraAgentPlan?.open(),restore?350:1250);
     if(!restore)setTimeout(()=>{form.hidden=true;},650);
   }
   board.addEventListener('pointerdown', e => {
@@ -517,7 +520,13 @@
   form.addEventListener('submit', async e => {
     e.preventDefault();
     if (start.disabled || root.classList.contains('departing')) return;
-    const sourceText=textarea.value.trim() || (selectedFile && /\.(txt|md)$/i.test(selectedFile.name) ? await selectedFile.text() : '');
+    let sourceText=textarea.value.trim() || (selectedFile && /\.(txt|md)$/i.test(selectedFile.name) ? await selectedFile.text() : '');
+    if(window.makoraPreparation){
+      if(!sourceText&&selectedFile){try{sourceText=await window.makoraPreparation.extract(selectedFile)}catch(e){error.textContent=e.message;error.hidden=false;return}}
+      if(!sourceText){error.textContent='Вставь текст задания или загрузи TXT/MD: извлечение этого формата ещё не подключено.';error.hidden=false;return}
+      start.disabled=true;start.textContent='Создаём сессию Codex…';
+      try{await window.makoraPreparation.start(sourceText);localStorage.setItem('makora.real-project','1')}catch(e){error.textContent=e.message;error.hidden=false;start.disabled=false;start.textContent='Начать анализ';return}
+    }
     if(!window.makoraProject.setSource({name:textarea.value.trim()?'Вставленный текст':selectedFile?.name||'Условие',text:sourceText})){error.textContent='Не удалось сохранить условие на устройстве. Попробуй более короткий текст.';error.hidden=false;return;}
     revealWorkspace(root.querySelector('.mascot-area').getBoundingClientRect());
   });
@@ -526,7 +535,8 @@
     if(boardStage===1){const result=window.makoraDemoWorkflow.approveAnalysis();if(!result.ok){stageMessage.textContent=result.error;stageMessage.hidden=false;return;}}
     openBoardStage(next);
   });
-  const previousSource=window.makoraProject.source();
+  const previousSource=localStorage.getItem('makora.real-project')==='1'?window.makoraProject.source():null;
+  if(!previousSource&&window.makoraPreparation){fetch('/api/preparation',{cache:'no-store'}).then(r=>r.json()).then(data=>{const source=data.result?.brief;if(!source||textarea.value.trim()||selectedFile||root.classList.contains('departing'))return;window.makoraProject.setSource({name:'Сохранённое условие проекта',text:source});localStorage.setItem('makora.real-project','1');textarea.value=source;update();revealWorkspace(root.querySelector('.mascot-area').getBoundingClientRect(),{restore:true})}).catch(()=>{})}
   if(previousSource){
     textarea.value=previousSource.text||previousSource.name||'';
     update();

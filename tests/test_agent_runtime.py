@@ -309,6 +309,22 @@ class AgentRuntimeTests(unittest.TestCase):
         self.assertEqual('- Criterion A\n- Criterion B',approved['tasks'][0]['acceptance'])
         self.assertEqual(approved['id'],self.runtime.get_session(session['id'],refresh=False)['approvedRunId'])
 
+    def test_planner_receives_complete_explicit_artifacts_in_isolated_context(self):
+        name = '03_architecture.md'
+        text = '# Architecture\n' + ('Full approved content.\n' * 4000)
+        (self.project / name).write_text(text, encoding='utf-8')
+        session = self.runtime.start_mahoraga_planning({'projectRoot': str(self.project), 'brief': 'Build according to attached artifacts.',
+                                                       'context': 'Read context files.', 'artifactPaths': [name]})
+        copied = Path(session['cwd']) / 'context' / name
+        self.assertEqual(text, copied.read_text('utf-8'))
+        self.assertEqual((self.project/name).read_bytes(), copied.read_bytes())
+        self.assertEqual(len((self.project/name).read_bytes()), session['contextArtifacts'][0]['bytes'])
+        self.assertEqual(name, session['contextArtifacts'][0]['path'])
+
+    def test_planner_rejects_unsafe_or_missing_artifacts_before_dispatch(self):
+        for name in ('../outside.json', '.git/config', 'missing.json', 'C:/auth.json'):
+            with self.subTest(name=name), self.assertRaises(AgentRuntimeError):
+                self.runtime.start_mahoraga_planning({'projectRoot': str(self.project), 'brief': 'Build with artifacts.', 'artifactPaths': [name]})
     def test_mahoraga_plan_with_cycle_is_rejected_before_approval(self):
         session=self.runtime.start_mahoraga_planning({'projectRoot':str(self.project),'brief':'Build a feature.'})
         proposal={'tasks':[self.task('T01',['T02'])|{'allowedPaths':['src/one.py']},

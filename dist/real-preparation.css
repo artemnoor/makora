@@ -1,0 +1,11 @@
+.board-stages:has([data-real-stage]){display:grid;grid-template-columns:repeat(6,minmax(0,1fr));gap:2px}
+.board-stages [data-real-stage]{min-width:0;padding:8px 4px;overflow-wrap:anywhere;font-size:11px}
+.board-document [data-real-file]{display:block;width:100%;text-align:left;padding:12px 4px;border:0;border-bottom:1px solid #333;background:transparent;color:#fff;font:inherit;overflow-wrap:anywhere;cursor:pointer}
+.board-document :is([data-real-feedback],[data-real-brief]){display:block;box-sizing:border-box;width:100%;min-height:90px;padding:12px;margin:8px 0;background:#111;color:#fff;border:1px solid #555;font:inherit}
+.board-document :is([data-real-run],[data-real-approve],[data-real-refresh],[data-prep-approval]){padding:10px 14px;margin:8px 8px 8px 0;border:1px solid #777;background:#151515;color:#fff;font:inherit;cursor:pointer}
+.board-document [data-real-approve]{background:#eee;color:#111}
+.board-document button:disabled{opacity:.45;cursor:wait}
+[data-real-error]{white-space:pre-wrap;overflow-wrap:anywhere}
+[data-real-document] pre{overflow:auto;max-width:100%}
+[data-real-mermaid] svg{width:100%;height:auto}
+.board-content .real-agent-view{padding:12px;color:#fff}

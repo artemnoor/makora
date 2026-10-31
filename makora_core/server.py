@@ -6,6 +6,7 @@ import json
 import os
 import re
 import secrets
+import socket
 from http.server import SimpleHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from urllib.parse import parse_qs, unquote, urlparse
@@ -13,6 +14,16 @@ from urllib.parse import parse_qs, unquote, urlparse
 from .iterations import IterationStore, MAX_ARCHIVE
 from .workspace import MakoraError
 from .agents import AgentRuntime, AgentRuntimeError
+from .preparation import Preparation
+
+
+class LocalHTTPServer(ThreadingHTTPServer):
+    allow_reuse_address = os.name != 'nt'
+
+    def server_bind(self):
+        if os.name == 'nt':
+            self.socket.setsockopt(socket.SOL_SOCKET, socket.SO_EXCLUSIVEADDRUSE, 1)
+        super().server_bind()
 
 
 class MakoraHandler(SimpleHTTPRequestHandler):
@@ -116,6 +127,10 @@ class MakoraHandler(SimpleHTTPRequestHandler):
                 self._json({'token':self.server.agent_token});return
             if path == '/api/agents/status':
                 self._agent_json(self.server.agent_runtime.status);return
+            if path == '/api/preparation':
+                self._agent_json(self.server.preparation.poll);return
+            if path == '/api/preparation/archive':
+                self._zip(self.server.preparation.archive(), 'makora-project-context.zip');return
             if path == '/api/agents/approvals':
                 self._agent_json(self.server.agent_runtime.approvals);return
             if path == '/api/agents/state':
@@ -170,6 +185,8 @@ class MakoraHandler(SimpleHTTPRequestHandler):
                 elif self.static_dir:
                     super().do_GET()
                 else: self._error(MakoraError('NOT_FOUND','Маршрут не найден.'),404)
+        except AgentRuntimeError as exc:
+            self._error(exc, exc.status)
         except MakoraError as exc:
             self._error(exc, 404 if exc.code.endswith('_NOT_FOUND') else 400)
         except (OSError, ValueError) as exc:
@@ -179,8 +196,21 @@ class MakoraHandler(SimpleHTTPRequestHandler):
         if not self._local_request():self._error(MakoraError('ORIGIN_NOT_ALLOWED','Доступ разрешён только локальному интерфейсу.'),403);return
         path = unquote(urlparse(self.path).path)
         try:
-            if path.startswith('/api/agents/') and not self._agent_auth():
+            if path.startswith(('/api/agents/', '/api/preparation')) and not self._agent_auth():
                 self._error(AgentRuntimeError('AUTH_REQUIRED','Нужен действующий токен этой страницы Макоры.',401),401);return
+            if path == '/api/preparation/development':
+                value=self._read_json()
+                self._agent_json(lambda:self.server.preparation.development(int(value.get('stage',5))));return
+            if path == '/api/preparation/prototype/approve':
+                self._agent_json(self.server.preparation.approve_prototype);return
+            if path == '/api/preparation/extract':
+                name=parse_qs(urlparse(self.path).query).get('name',['brief.txt'])[0]
+                self._agent_json(lambda:self.server.preparation.extract(name,self._body(20*1024*1024)));return
+            match=re.fullmatch(r'/api/preparation/([1-4])/(start|refresh|approve)',path)
+            if match:
+                stage, action = int(match.group(1)), match.group(2)
+                payload = self._read_json()
+                self._agent_json(lambda: self.server.preparation.start(stage,payload) if action=='start' else self.server.preparation.refresh(stage,recheck=True) if action=='refresh' else self.server.preparation.approve(stage,payload));return
             match=re.fullmatch(r'/api/agents/approvals/([\w-]+)',path)
             if match:
                 value=self._read_json()
@@ -283,12 +313,15 @@ def serve(workspace, static, host='127.0.0.1', port=8765, agent_roots=None):
     workspace = Path(workspace).expanduser().resolve()
     workspace.mkdir(parents=True, exist_ok=True)
     handler = lambda *args, **kwargs: MakoraHandler(*args, directory=static, **kwargs)
-    server = ThreadingHTTPServer((host, port), handler)
+    server = LocalHTTPServer((host, port), handler)
     server.daemon_threads = True
     server.iteration_store = IterationStore(workspace)
     default_root=Path(__file__).parent.parent.resolve()
     roots=[Path(p).expanduser().resolve() for p in (agent_roots or [])]
     server.agent_runtime=AgentRuntime(workspace,default_root/'integrations'/'codex-desktop-local-api',roots or [default_root])
+    server.preparation=Preparation(workspace,server.agent_runtime)
+    prepared_projects=server.preparation.root/'projects'
+    if prepared_projects.exists():server.agent_runtime.allowed_roots.extend(p.resolve() for p in prepared_projects.iterdir() if p.is_dir())
     server.agent_token=secrets.token_urlsafe(32)
     print(f'Макора API: http://{host}:{port}/api/status')
     print(f'Локальное хранилище: {workspace}')
