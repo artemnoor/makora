@@ -21,8 +21,10 @@ async page => {
   await page.locator('#first-text').fill('Создать систему тикетов с поиском по статусу и обработкой неверного запроса.');
   await page.locator('.pixel-start').click();await page.locator('[data-real-stage]').first().waitFor();
   assert(submitted.includes('систему тикетов'),'Исходный текст не отправлен API');
+  assert(await page.locator('.rp-lifecycle li').count()===3,'Нет понятного порядка работы внутри этапа');
   assert(await page.locator('[data-real-stage]').count()===6,'Нет шести реальных этапов');
   assert(await page.locator('.board-next').isHidden(),'Осталась учебная кнопка Далее');
+  await page.locator('.rp-feedback summary').click();
   await page.locator('[data-real-feedback]').fill('Сохранить уточнение пользователя');
   await page.locator('[data-real-refresh]').click();await page.locator('[data-real-file]').first().waitFor();
   assert((await page.locator('[data-real-feedback]').inputValue()).includes('Сохранить уточнение'),'Уточнение потерялось при обновлении статуса');
@@ -37,6 +39,11 @@ async page => {
   await page.locator('[data-real-stage="1"]').click();await page.locator('[data-real-run]').click();await page.locator('[data-real-refresh]').waitFor();
   assert(lastFeedback.includes('Сохранить уточнение'),'Уточнение не передано повторной генерации');
   assert(state.stages[2].status==='stale','Повторный анализ не инвалидирует последующие этапы');
+  await page.setViewportSize({width:390,height:844});
+  const layout=await page.locator('.board-content').evaluate(el=>({height:el.clientHeight,width:el.clientWidth,scroll:el.scrollWidth}));
+  assert(layout.height>=160,'Рабочая область доски слишком мала');
+  assert(layout.scroll<=layout.width+1,'Горизонтальный скролл на узком экране');
+  await page.setViewportSize({width:1280,height:720});
   assert(errors.length===0,errors.join('; '));
   return {provider:'fake-http',briefSubmitted:true,realArtifactsRendered:true,approval:true,invalidation:true,reload:true,errors};
 }

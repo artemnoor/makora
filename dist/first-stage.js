@@ -408,7 +408,7 @@
   const limit = (n, min, max) => Math.max(min, Math.min(n, Math.max(min, max)));
   function boardTarget(left, top) {
     return {x:limit(left, 8, window.innerWidth - board.offsetWidth - 8),
-      y:limit(top, 8, window.innerHeight - Math.min(board.offsetHeight, window.innerHeight - 16) - 8)};
+      y:limit(top, board.classList.contains('rp-board')?88:8, window.innerHeight - Math.min(board.offsetHeight, window.innerHeight - 16) - 8)};
   }
   function paintBoard() {
     board.style.left = motion.x + 'px';
