@@ -45,6 +45,7 @@
     if(!ctx.project)return;
     const host=ctx.content,view=host.querySelector('.real-agent-view');if(!view)return;
     view.dataset.activeAgents=String(state.sessions.filter(s=>(!run||s.runId===run.id)&&['accepted','delivered','running'].includes(s.status)).length);
+    view.dataset.agentSessions=JSON.stringify(state.sessions.filter(s=>!run||s.runId===run.id).map(s=>({id:s.id,role:s.role,task:s.taskId,status:s.status})));
     view.classList.add('rp-runtime');
     const completed=(run?.tasks||[]).filter(t=>t.status==='integrated').length,total=run?.tasks?.length||0,index=total&&completed===total?2:run?1:0;
     const header=document.createElement('header');header.className='rp-summary';header.innerHTML=`<div class="rp-eyebrow"><span>ШАГ ${String(ctx.preparationStage).padStart(2,'0')} / 06</span><span>${run?`${completed} из ${total} задач готово`:'Сначала согласуем план'}</span></div><p>${ctx.preparationStage===5?'Соберём рабочую версию на ваших мок-данных. Вы проверяете план и принимаете результат.':'Продолжим разработку утверждённого прототипа. Изменения проходят тесты и независимую проверку.'}</p><ol class="rp-lifecycle">${['Согласовать план','Работа агентов','Принять результат'].map((text,i)=>`<li class="${i===index?'is-current':i<index?'is-done':''}"><b>${i<index?'✓':i+1}</b><span>${text}</span></li>`).join('')}</ol>`;view.prepend(header);

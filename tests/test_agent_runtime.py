@@ -707,6 +707,24 @@ class AgentRuntimeTests(unittest.TestCase):
         self.assertEqual('waiting_for_agents', result['status'])
         self.assertEqual([], self.provider.sessions[session['threadId']]['messages'])
 
+    def test_expired_terminal_tracker_recovers_exact_final_response_without_resending(self):
+        run=self.create_run()
+        session=self.runtime.launch_agent(run['id'],'T01','test_designer')
+        self.provider.operation=lambda _: {'state':'unconfirmed','assistantResponse':False,'done':True}
+        self.provider.history=lambda _: {'turns':[{'id':session['turnId'],'status':'completed','items':[{'role':'assistant','phase':'final_answer','text':'Finished'}]}]}
+        refreshed=self.runtime.refresh_session(session['id'])
+        self.assertEqual('completed',refreshed['status'])
+        self.assertEqual([],self.provider.sessions[session['threadId']]['messages'])
+
+    def test_unsettled_tracker_is_not_released_by_completed_turn(self):
+        run=self.create_run()
+        session=self.runtime.launch_agent(run['id'],'T01','test_designer')
+        self.provider.operation=lambda _: {'state':'unconfirmed','assistantResponse':False,'done':False}
+        self.provider.history=lambda _: {'turns':[{'id':session['turnId'],'status':'completed','items':[{'role':'assistant','phase':'final_answer','text':'Finished'}]}]}
+        refreshed=self.runtime.refresh_session(session['id'])
+        self.assertEqual('unconfirmed',refreshed['status'])
+        self.assertEqual([],self.provider.sessions[session['threadId']]['messages'])
+
     def test_exact_active_turn_remains_pollable_when_operation_lookup_fails(self):
         run = self.create_run()
         session = self.runtime.launch_agent(run['id'], 'T01', 'test_designer')

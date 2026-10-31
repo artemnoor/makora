@@ -484,7 +484,7 @@
     }else{
       Object.assign(form.style,{position:'fixed',left:formRect.left+'px',top:formRect.top+'px',width:formRect.width+'px'});
       Object.assign(mascot.style,{position:'fixed',left:mascotRect.left+'px',top:mascotRect.top+'px',width:mascotRect.width+'px',height:mascotRect.height+'px',minHeight:'0',maxWidth:'none',margin:'0'});
-      spinWheel();
+      if(!window.makoraPreparation)spinWheel();
     }
     root.classList.add('departing');
     if(!window.makoraPreparation)prototypeHandoff.show();

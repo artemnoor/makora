@@ -80,7 +80,7 @@
     content.innerHTML='<div class="board-document"><p>Подготавливаем отдельный Git-проект по утверждённым файлам…</p></div>';
     try{const project=await api('/api/preparation/development',{stage});if(ticket!==generation||stage<5)return;
       if(stage===6&&state.prototype?.status!=='approved'){throw Error('Сначала утверди работающий прототип на этапе 5.')}
-      if(!window.makoraRealAgents){await new Promise((resolve,reject)=>{const script=document.createElement('script');script.src='agent-runtime-ui.js?v=guide-1';script.onload=resolve;script.onerror=reject;document.head.append(script)})}
+      if(!window.makoraRealAgents){await new Promise((resolve,reject)=>{const script=document.createElement('script');script.src='agent-runtime-ui.js?v=guide-2';script.onload=resolve;script.onerror=reject;document.head.append(script)})}
       if(stage===6&&localStorage.getItem('makora.real-stage6-base')!==state.prototype.commit){window.makoraRealAgents.selectRun?.('__new__');localStorage.setItem('makora.real-stage6-base',state.prototype.commit)}
       const previousDigest=localStorage.getItem('makora.real-development-digest');if(previousDigest!==project.digest){window.makoraRealAgents.selectRun?.('__new__');localStorage.setItem('makora.real-development-digest',project.digest)}
       project.brief+=stage===5?'\nСоздай работающий прототип на исходных mocks/fixtures/. Сохрани mocks/, изменения предлагай в new_mocks/.':'\nПродолжи разработку текущего проекта по утверждённым требованиям.';

@@ -723,16 +723,16 @@ async function ensureThreadLoaded(id) {
 }
 
 function operationView(operation) {
-  const { id, threadId, state, createdAt, updatedAt, userDelivered, assistantResponse, lastError } = operation;
-  return { id, threadId, state, createdAt, updatedAt, userDelivered, assistantResponse, ...(lastError ? { lastError } : {}) };
+  const { id, threadId, turnId, done, state, createdAt, updatedAt, userDelivered, assistantResponse, lastError } = operation;
+  return { id, threadId, turnId, done, state, createdAt, updatedAt, userDelivered, assistantResponse, ...(lastError ? { lastError } : {}) };
 }
 
-function startDeliveryTracking(threadId, prompt, baselineTurnId = null) {
+function startDeliveryTracking(threadId, prompt, baselineTurnId = null, turnId = null) {
   const now = Date.now();
   for (const [id, op] of operations) {
     if (op.done && now - op.updatedAt > 60 * 60 * 1000) operations.delete(id);
   }
-  const operation = { id: randomUUID(), threadId, prompt, baselineTurnId, state: 'accepted', createdAt: now, updatedAt: now, userDelivered: false, assistantResponse: false, done: false, terminalSince: 0 };
+  const operation = { id: randomUUID(), threadId, turnId, prompt, baselineTurnId, state: 'accepted', createdAt: now, updatedAt: now, userDelivered: false, assistantResponse: false, done: false, terminalSince: 0 };
   operations.set(operation.id, operation);
   activeThreadOperations.set(threadId, operation.id);
   const poll = async () => {
@@ -742,7 +742,7 @@ function startDeliveryTracking(threadId, prompt, baselineTurnId = null) {
       const history = await readThreadTimeline(threadId, { tailOnly: true });
       const turns = history.turns || [];
       const baselineIndex = baselineTurnId ? turns.findIndex(turn => turn.id === baselineTurnId) : -1;
-      const matchingTurn = turns.find((turn, index) =>
+      const matchingTurn = turnId ? turns.find(turn => turn.id === turnId) : turns.find((turn, index) =>
         (!baselineTurnId || baselineIndex < 0 || index > baselineIndex)
         && (turn.items || []).some(item => item.role === 'user' && item.text === prompt));
       if (matchingTurn) {
@@ -759,8 +759,9 @@ function startDeliveryTracking(threadId, prompt, baselineTurnId = null) {
       }
       operation.lastError = null;
     } catch (error) { operation.lastError = error.message; }
-    if (!operation.done && Date.now() - operation.createdAt >= 180000) {
-      operation.state = 'unconfirmed'; operation.done = true;
+    if (!operation.done && !operation.userDelivered && Date.now() - operation.createdAt >= 180000) {
+      // Unknown delivery is not terminal: keep watching without resending or releasing the writer.
+      operation.state = 'unconfirmed';
     }
     if (operation.state !== oldState || operation.done) {
       operation.updatedAt = Date.now();
@@ -1017,7 +1018,7 @@ const server = createServer(async (request, response) => {
           approvalPolicy: input.approvalPolicy || 'on-request',
           ...(input.permissions ? {permissions:input.permissions} : (input.sandboxPolicy && typeof input.sandboxPolicy === 'object' ? { sandboxPolicy: input.sandboxPolicy } : {})),
         });
-        const operation = startDeliveryTracking(threadId, input.prompt.trim());
+        const operation = startDeliveryTracking(threadId, input.prompt.trim(), null, turn.turn?.id);
         return json(response, 201, { id: threadId, model: input.model || null, turnId: turn.turn?.id, initialPromptSubmitted: true, transport: 'app-server', operation });
       } catch (error) {
         return json(response, 502, { error: error.message, threadId, deliveryUnknown: /timed out/i.test(error.message) });
@@ -1080,7 +1081,7 @@ const server = createServer(async (request, response) => {
       await ensureThreadLoaded(threadId);
       const result = await rpc('turn/start', { threadId, input: [{ type: 'text', text: prompt }] });
       publish({ type: 'turn-started', threadId, turnId: result.turn?.id });
-      const operation = startDeliveryTracking(threadId, prompt, baselineTurnId);
+      const operation = startDeliveryTracking(threadId, prompt, baselineTurnId, result.turn?.id);
       return json(response, 202, { threadId, turnId: result.turn?.id, status: 'accepted', transport: 'app-server', operation });
       } finally { threadSendInFlight.delete(threadId); }
     }

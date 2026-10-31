@@ -39,6 +39,15 @@ class PreparationTests(unittest.TestCase):
         inputs = json.loads((Path(restored.state['stages']['2']['folder']) / 'INPUT.json').read_text('utf-8'))
         self.assertIn('01_case_analysis.md', inputs['artifacts'])
 
+    def test_unconfirmed_is_waiting_not_raw_json_error(self):
+        self.pipeline.start(1, {'brief':'Проект каталога'})
+        self.runtime.refresh_session=lambda _: {'status':'unconfirmed','lastRefreshEvidence':{'turnStatus':'completed','decision':'unconfirmed'}}
+        record=self.pipeline.refresh(1)['stages']['1']
+        self.assertEqual('unconfirmed',record['status'])
+        self.assertEqual('',record['error'])
+        self.assertEqual('completed',record['sessionEvidence']['turnStatus'])
+        self.assertIn('повторная отправка не требуется',record['statusMessage'])
+
     def test_regeneration_invalidates_downstream_approval(self):
         self.generate_analysis()
         self.pipeline.approve(1)

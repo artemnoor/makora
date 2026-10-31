@@ -1690,6 +1690,7 @@ class AgentRuntime:
         operation_error = None
         operation_assistant_response = None
         operation_state = None
+        operation = {}
         try:
             operation = self.provider.operation(result["operationId"])
             state = operation.get("state", "unconfirmed")
@@ -1737,7 +1738,12 @@ class AgentRuntime:
                         # Keep an accepted/delivered operation active until the
                         # bridge confirms final delivery. A terminal turn status
                         # is not permission to send another turn into this thread.
-                        if state not in ('accepted', 'delivered', 'running'):
+                        if (state == 'unconfirmed' and operation.get('done', True)
+                                and has_final_answer(turn)):
+                            # Older bridges stopped tracking after 180s. Recover only
+                            # a terminal tracker and the exact saved turn's final reply.
+                            state, detail = 'completed', history
+                        elif state not in ('accepted', 'delivered', 'running'):
                             state, detail = 'unconfirmed', {
                                 'message': 'Turn завершён, но Codex App Server ещё не подтвердил финальный ответ операции.',
                                 'operationId': result['operationId'], 'turnId': result.get('turnId')}

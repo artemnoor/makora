@@ -287,7 +287,10 @@ class Preparation:
                 except Exception as exc:
                     record.update(status='failed', error=str(exc))
             elif session['status'] in ('failed', 'unconfirmed'):
-                record.update(status=session['status'], error=session.get('error') or session.get('lastRefreshEvidence'))
+                record.update(status=session['status'])
+                record['sessionEvidence'] = session.get('lastRefreshEvidence')
+                record['error'] = (session.get('error') or 'Сессия завершилась с ошибкой.') if session['status']=='failed' else ''
+                record['statusMessage'] = ('Ответ Codex пока не подтверждён. Макора продолжает проверять текущую сессию; повторная отправка не требуется.' if session['status']=='unconfirmed' else '')
             self.save()
             return self.snapshot()
 
