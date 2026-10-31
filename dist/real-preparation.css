@@ -132,3 +132,42 @@
 #first-stage .rp-board .board-version{display:none!important}
 #first-stage .rp-eyebrow>span:first-child{white-space:nowrap;flex-shrink:0}
 #first-stage .rp-eyebrow>span{font-family:monospace}
+
+/* The real workspace uses a geometric frame so its visible edges match its content. */
+#first-stage .board.rp-board:not(.expanded){width:var(--board-width)!important;max-width:calc(100vw - 24px);height:calc(100dvh - 120px)!important;min-height:0}
+#first-stage .board.rp-board .board-sprite{background:#111!important;inset:0;border:4px solid #777;box-shadow:inset 0 0 0 3px #292929,5px 5px 0 #242424;clip-path:polygon(0 8px,4px 8px,4px 4px,8px 4px,8px 0,calc(100% - 8px) 0,calc(100% - 8px) 4px,calc(100% - 4px) 4px,calc(100% - 4px) 8px,100% 8px,100% calc(100% - 8px),calc(100% - 8px) calc(100% - 8px),calc(100% - 8px) 100%,8px 100%,8px calc(100% - 4px),0 calc(100% - 4px))}
+#first-stage .board.rp-board .board-art,#first-stage .board.rp-board .board-shadow-art{display:none}
+#first-stage .board.rp-board .board-inner{inset:94px 24px 20px!important;min-width:0;min-height:0;padding:0!important;overflow:hidden}
+#first-stage .board.rp-board .board-stages{inset:16px 20px auto!important;gap:5px}
+#first-stage .board.rp-board .board-bar{gap:12px;align-items:center}
+#first-stage .board.rp-board .board-bar>div{min-width:0}
+#first-stage .board.rp-board .board-kicker{font:10px/1.5 Manrope,sans-serif;letter-spacing:.06em}
+#first-stage .board.rp-board .board-bar h2{font-size:30px;line-height:1.15;overflow-wrap:anywhere}
+#first-stage .board.rp-board .board-content{min-height:0;min-width:0;overflow:auto;overscroll-behavior:contain;padding:18px 6px 12px 0;scrollbar-width:thin;scrollbar-color:#666 #111;font:13px/1.65 Manrope,sans-serif}
+#first-stage .rp-workspace{width:100%;min-width:0;overflow-wrap:anywhere}
+#first-stage .rp-workspace :is(p,li,td,th){font-size:13px;line-height:1.65}
+#first-stage .rp-workspace :is(table,pre){max-width:100%;width:100%}
+#first-stage .rp-workspace table{table-layout:fixed;border-collapse:collapse}
+#first-stage .rp-workspace :is(td,th){overflow-wrap:anywhere;padding:8px;border:1px solid #444}
+#first-stage .rp-workspace pre{white-space:pre-wrap;overflow-wrap:anywhere}
+#first-stage .rp-actions{position:static;padding:16px 0 8px;box-shadow:none;bottom:auto}
+#first-stage .rp-actions>div{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1fr)}
+#first-stage .rp-actions button{min-width:0;white-space:normal;overflow-wrap:anywhere}
+#first-stage .board.rp-board .board-footer{padding-top:10px;font:9px/1.5 Manrope,sans-serif;gap:12px;flex-shrink:0}
+#first-stage .board.rp-board .board-footer span:first-child{max-width:85%}
+#first-stage.departing:has(.rp-board) .mascot-area{left:calc((100vw - min(820px,66vw) - 24px)/2 - 114px)!important;top:calc(50dvh - 100px)!important}
+#first-stage .board.rp-board.expanded .board-inner{inset:98px max(24px,calc((100vw - 1000px)/2)) 24px!important}
+#first-stage .board.rp-board.expanded .board-stages{max-width:1000px;margin-inline:auto}
+@media(max-width:899px){
+ #first-stage .board.rp-board:not(.expanded){height:calc(100dvh - 200px)!important}
+ #first-stage.departing:has(.rp-board) .mascot-area{left:calc(50vw - 114px)!important;top:55px!important;height:120px!important}
+ #first-stage .board.rp-board .board-inner{inset:91px 16px 14px!important}
+ #first-stage .board.rp-board .board-stages{inset:14px 13px auto!important;gap:3px}
+ #first-stage .board.rp-board .board-bar h2{font-size:26px}
+ #first-stage .board.rp-board .board-footer span:first-child{font-size:8px}
+ #first-stage .rp-actions>div{grid-template-columns:1fr}
+ #first-stage .board.rp-board.expanded .board-inner{inset:91px 16px 14px!important}
+}
+#first-stage .rp-runtime .rp-details>summary{justify-content:flex-start;font-size:12px;line-height:1.5}
+#first-stage .rp-runtime :is(p,li,label){font-size:13px;line-height:1.65}
+#first-stage .rp-file-grid:has(>.rp-file:only-child){grid-template-columns:1fr}

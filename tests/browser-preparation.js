@@ -43,6 +43,18 @@ async page => {
   const layout=await page.locator('.board-content').evaluate(el=>({height:el.clientHeight,width:el.clientWidth,scroll:el.scrollWidth}));
   assert(layout.height>=160,'Рабочая область доски слишком мала');
   assert(layout.scroll<=layout.width+1,'Горизонтальный скролл на узком экране');
+  for(const viewport of [{width:390,height:844},{width:1280,height:720},{width:1920,height:1080}]){
+    await page.setViewportSize(viewport);await page.waitForTimeout(250);
+    const bounds=await page.locator('.rp-board').evaluate(board=>{
+      const frame=board.getBoundingClientRect();
+      return {inside:frame.left>=0&&frame.top>=0&&frame.right<=innerWidth+1&&frame.bottom<=innerHeight+1,
+        children:['.board-stages','.board-inner','.board-content','.board-footer'].every(selector=>{
+          const r=board.querySelector(selector).getBoundingClientRect();
+          return r.left>=frame.left&&r.right<=frame.right+1&&r.top>=frame.top&&r.bottom<=frame.bottom+1;
+        })};
+    });
+    assert(bounds.inside&&bounds.children,'Содержимое выходит за доску: '+JSON.stringify(viewport));
+  }
   await page.setViewportSize({width:1280,height:720});
   assert(errors.length===0,errors.join('; '));
   return {provider:'fake-http',briefSubmitted:true,realArtifactsRendered:true,approval:true,invalidation:true,reload:true,errors};

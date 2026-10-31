@@ -454,6 +454,13 @@
     settleBoard();
   }
   function placeBoard(mascotRect) {
+    if (board.classList.contains('rp-board')) {
+      const compact = window.innerWidth < 900;
+      const width = compact ? window.innerWidth - 24 : Math.min(820, Math.floor(window.innerWidth * .66));
+      board.style.setProperty('--board-width', width + 'px');
+      moveBoard(compact ? 12 : window.innerWidth - width - 24, compact ? 184 : 96);
+      return;
+    }
     const narrow = window.innerWidth < 900;
     const width = narrow ? Math.min(620, window.innerWidth - 24) : Math.min(620, window.innerWidth - mascotRect.right - 26);
     board.style.setProperty('--board-width', width + 'px');
