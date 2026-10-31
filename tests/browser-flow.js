@@ -172,7 +172,9 @@ async page => {
         assert((await page.locator('.real-visibility').innerText()).includes('Потоки App Server сохраняются, но их отображение в Codex Desktop не гарантируется.'), 'Предупреждение о видимости App Server thread в Codex Desktop не показано');
       }
       await page.locator('[data-agent-mode="demo"]').click();
+      await page.waitForTimeout(3200);
       assert((await page.locator('.agent-board-content').innerText()).includes('Дерево проекта'), 'Переключение обратно на DEMO сломало учебный маршрут');
+      assert(await page.locator('[data-skeleton-check]').count()===1, 'Устаревшее обновление REAL перезаписало экран DEMO');
       assert(await page.locator('[data-workflow-step="decomposition"]').isDisabled(), 'Декомпозиция доступна до подтверждения скелета');
       await page.locator('[data-skeleton-check]').click();
       await page.waitForFunction(()=>document.querySelectorAll('.agent-check-results li').length===3);
@@ -204,6 +206,7 @@ async page => {
       assert((await page.locator('[data-sim-task="T01"]').innerText()).includes('Готова'), 'Первой не разблокирована T01');
       const advance=async(id,action)=>{await page.locator(`[data-sim-task="${id}"]`).click();await page.locator(`[data-task-action="${action}"]`).click()};
       for(const action of ['prepare-tests','complete-tests','start-builder','complete-builder','review','integrate'])await advance('T01',action);
+      await page.waitForFunction(()=>document.querySelector('.agent-parallel-note')?.innerText.includes('T02 · T03'));
       assert((await page.locator('.agent-parallel-note').innerText()).includes('T02 · T03'), 'Независимые задачи не стали доступны параллельно');
       await page.locator('[data-sim-task="T02"]').click();
       await page.locator('[data-open-lab]').click();
@@ -220,11 +223,13 @@ async page => {
       await advance('T02','review');
       await advance('T02','integrate');
       for(const action of ['prepare-tests','complete-tests','start-builder','complete-builder','review','integrate'])await advance('T03',action);
+      await page.waitForFunction(()=>document.querySelector('[data-sim-task="T04"]')?.innerText.includes('Готова'));
       assert((await page.locator('[data-sim-task="T04"]').innerText()).includes('Готова'), 'T04 не разблокировалась после интеграции зависимостей');
       const finalTaskNode=await page.locator('[data-sim-task="T04"]').elementHandle();
       await page.locator('[data-sim-task="T04"]').click();
       assert(await finalTaskNode.evaluate(el=>el.isConnected), 'Выбор задачи без изменения статуса не должен перестраивать список');
       for(const action of ['prepare-tests','complete-tests','start-builder','complete-builder','review','integrate'])await advance('T04',action);
+      await page.locator('.agent-completion-report').waitFor({state:'visible'});
       assert((await page.locator('.agent-completion-report').innerText()).includes('ВСЕ ЗАДАЧИ УСЛОВНО ИНТЕГРИРОВАНЫ'), 'Финальное состояние не показано');
       await page.evaluate(()=>sessionStorage.setItem('__agent_before_reload',JSON.stringify({plan:window.makoraStage3.getContext(),workflow:window.makoraDemoWorkflow.getState(),stage4:localStorage.getItem('makora.stage4.review.v1')})));
       await page.reload();
@@ -239,9 +244,11 @@ async page => {
       await page.locator('[data-start-escalation]').click();
       for(const action of ['prepare-tests','complete-tests','start-builder','complete-builder','review','complete-fix','review','complete-fix','review'])await advance('T01',action);
       assert(await page.evaluate(()=>window.makoraDemoWorkflow.getTaskStatus('T01')==='failed'), 'Три провала не вызвали эскалацию');
+      await page.locator('[data-escalation-choice]').first().waitFor({state:'visible'});
       assert(await page.locator('[data-escalation-choice]').count()===4, 'После трёх ошибок не появились решения Макоры');
       assert(await page.locator('[data-task-action="integrate"]').count()===0, 'Эскалированную задачу можно интегрировать');
       await page.locator('[data-escalation-choice]').last().click();
+      await page.waitForFunction(()=>document.querySelector('[data-escalation-status]')?.innerText.includes('Запросить решение пользователя'));
       assert((await page.locator('[data-escalation-status]').innerText()).includes('Запросить решение пользователя'), 'Выбор эскалации не сохранён');
       await page.evaluate(()=>{window.makoraAgentPlan.close();window.dispatchEvent(new Event('makora-open-prototype'))});
       await page.locator('.prototype-dialog').waitFor({state:'visible'});
