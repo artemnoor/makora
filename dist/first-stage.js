@@ -538,7 +538,7 @@
     if (start.disabled || root.classList.contains('departing')) return;
     let sourceText=textarea.value.trim() || (selectedFile && /\.(txt|md)$/i.test(selectedFile.name) ? await selectedFile.text() : '');
     if(window.makoraPreparation){
-      if(!sourceText&&selectedFile){try{sourceText=await window.makoraPreparation.extract(selectedFile)}catch(e){error.textContent=e.message;error.hidden=false;return}}
+      if(!sourceText&&selectedFile){start.disabled=true;start.textContent='Читаем файл…';window.dispatchEvent(new CustomEvent('makora:activity',{detail:{active:true,text:'Извлекаем текст из файла…'}}));try{sourceText=await window.makoraPreparation.extract(selectedFile)}catch(e){error.textContent=e.message;error.hidden=false;start.disabled=false;start.textContent='Начать анализ';return}finally{window.dispatchEvent(new CustomEvent('makora:activity',{detail:{active:false}}))}}
       if(!sourceText){error.textContent='Вставь текст задания или загрузи TXT/MD: извлечение этого формата ещё не подключено.';error.hidden=false;return}
       start.disabled=true;start.textContent='Создаём сессию Codex…';
       try{await window.makoraPreparation.start(sourceText);localStorage.setItem('makora.real-project','1')}catch(e){error.textContent=e.message;error.hidden=false;start.disabled=false;start.textContent='Начать анализ';return}

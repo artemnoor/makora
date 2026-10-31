@@ -7,9 +7,13 @@
   const fileTitle=path=>fileNames[path]||(/openapi/i.test(path)?'Контракты API':path.split('/').pop());
   const esc=s=>String(s??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
   async function api(path,body){
+    const foreground=body!==undefined&&!path.endsWith('/refresh');
+    if(foreground)window.dispatchEvent(new CustomEvent('makora:activity',{detail:{active:true,text:path.endsWith('/approve')?'Сохраняем утверждение…':path.endsWith('/development')?'Подготавливаем рабочий проект…':'Отправляем задание Макоре…'}}));
+    try{
     const options={credentials:'same-origin',cache:'no-store'};
     if(body!==undefined){const token=await fetch('/api/agents/token',{headers:{'X-Makora-Request':'token'},credentials:'same-origin'});const auth=await token.json();if(!token.ok)throw Error(auth.error?.message||'Нет доступа к локальному API');options.method='POST';options.headers={'Content-Type':'application/json','X-Makora-Token':auth.result.token};options.body=JSON.stringify(body)}
     const response=await fetch(path,options), data=await response.json();if(!response.ok)throw Error(data.error?.message||'Ошибка API');return data.result;
+    }finally{if(foreground)window.dispatchEvent(new CustomEvent('makora:activity',{detail:{active:false}}))}
   }
   function markdown(text){let html='',end=0;for(const match of text.matchAll(/```([^\n]*)\n([\s\S]*?)```/g)){html+=render(text.slice(end,match.index));html+=match[1].trim()==='mermaid'?'<pre data-real-mermaid>'+esc(match[2])+'</pre>':'<pre class="case-source"><code>'+esc(match[2])+'</code></pre>';end=match.index+match[0].length}return html+render(text.slice(end))}
   async function diagrams(host){const elements=[...host.querySelectorAll('[data-real-mermaid]')];if(!elements.length)return;try{const mermaid=(await import('https://cdn.jsdelivr.net/npm/mermaid@11/dist/mermaid.esm.min.mjs')).default;mermaid.initialize({startOnLoad:false,theme:'dark',securityLevel:'strict',flowchart:{htmlLabels:false}});for(const el of elements){const svg=await mermaid.render('real-'+crypto.randomUUID(),el.textContent);if(el.isConnected)el.innerHTML=svg.svg}}catch{}}
@@ -68,7 +72,7 @@
     content.querySelector('[data-real-refresh]')?.addEventListener('click',()=>action(async()=>{state=await api(`/api/preparation/${stage}/refresh`,{});paint()}));
     approvals(content);schedule();
   }
-  async function action(fn){if(busy)return;busy=true;try{await fn()}catch(e){error(e.message)}finally{busy=false}}
+  async function action(fn){if(busy)return;busy=true;root()?.querySelector('.board-content')?.setAttribute('aria-busy','true');try{await fn()}catch(e){error(e.message)}finally{busy=false;root()?.querySelector('.board-content')?.setAttribute('aria-busy','false')}}
   async function approvals(content){try{const list=await api('/api/agents/approvals');if(!content.isConnected)return;const host=content.querySelector('[data-real-approvals]');if(!host)return;host.innerHTML=list.map(item=>`<details><summary>Codex запрашивает разрешение</summary><pre>${esc(JSON.stringify(item.params,null,2))}</pre><button data-prep-approval="${esc(item.requestId)}" data-choice="accept">Разрешить</button><button data-prep-approval="${esc(item.requestId)}" data-choice="decline">Отклонить</button></details>`).join('');host.querySelectorAll('[data-prep-approval]').forEach(b=>b.onclick=()=>action(async()=>{await api(`/api/agents/approvals/${b.dataset.prepApproval}`,{decision:b.dataset.choice});paint()}))}catch(e){error(e.message)}}
   async function development(content,board){
     const ticket=++generation;
@@ -76,7 +80,7 @@
     content.innerHTML='<div class="board-document"><p>Подготавливаем отдельный Git-проект по утверждённым файлам…</p></div>';
     try{const project=await api('/api/preparation/development',{stage});if(ticket!==generation||stage<5)return;
       if(stage===6&&state.prototype?.status!=='approved'){throw Error('Сначала утверди работающий прототип на этапе 5.')}
-      if(!window.makoraRealAgents){await new Promise((resolve,reject)=>{const script=document.createElement('script');script.src='agent-runtime-ui.js?v=real-preparation';script.onload=resolve;script.onerror=reject;document.head.append(script)})}
+      if(!window.makoraRealAgents){await new Promise((resolve,reject)=>{const script=document.createElement('script');script.src='agent-runtime-ui.js?v=guide-1';script.onload=resolve;script.onerror=reject;document.head.append(script)})}
       if(stage===6&&localStorage.getItem('makora.real-stage6-base')!==state.prototype.commit){window.makoraRealAgents.selectRun?.('__new__');localStorage.setItem('makora.real-stage6-base',state.prototype.commit)}
       const previousDigest=localStorage.getItem('makora.real-development-digest');if(previousDigest!==project.digest){window.makoraRealAgents.selectRun?.('__new__');localStorage.setItem('makora.real-development-digest',project.digest)}
       project.brief+=stage===5?'\nСоздай работающий прототип на исходных mocks/fixtures/. Сохрани mocks/, изменения предлагай в new_mocks/.':'\nПродолжи разработку текущего проекта по утверждённым требованиям.';

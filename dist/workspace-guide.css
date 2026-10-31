@@ -1,0 +1,26 @@
+/* Pixel guide sits outside the board, leaving documents readable. */
+#first-stage .makora-guide{position:fixed;left:24px;bottom:24px;width:280px;max-height:calc(100dvh - 110px);overflow:auto;z-index:40;background:#111;color:#eee;border:2px solid #999;box-shadow:4px 4px 0 #353535;font:12px/1.6 Manrope,sans-serif;user-select:text}
+#first-stage .mg-head{display:flex;align-items:center;justify-content:space-between;padding:9px 12px;border-bottom:1px solid #444;font:15px MakoraSteps,monospace}
+#first-stage .mg-head button{font:19px monospace;padding:3px 8px;background:#191919;border:1px solid #666;color:#fff;cursor:pointer}
+#first-stage .mg-body{padding:12px 14px}
+#first-stage .mg-body h3{font:22px/1.2 MakoraSteps,Manrope,sans-serif;letter-spacing:0;margin:10px 0}
+#first-stage .mg-body p{font:12px/1.6 Manrope,sans-serif;margin:8px 0;overflow-wrap:anywhere}
+#first-stage .mg-body .mg-status{font-size:11px;font-weight:700;border-left:3px solid #ddd;padding-left:8px}
+#first-stage .mg-body .mg-note,#first-stage .mg-body .mg-clock{font-size:10px;color:#aaa}
+#first-stage .mg-controls button{width:100%;padding:10px;background:#eee;color:#111;border:1px solid #fff;box-shadow:3px 3px 0 #555;font:700 11px/1.5 Manrope,sans-serif;cursor:pointer;margin:10px 0}
+#first-stage .mg-collapsed .mg-body{display:none}
+#first-stage .mg-highlight{outline:3px solid #fff!important;outline-offset:4px!important;box-shadow:0 0 0 8px #555!important;scroll-margin-block:18px}
+#first-stage .mg-motion{display:flex;gap:5px;margin-top:12px}
+#first-stage .mg-motion i{height:7px;width:7px;background:#eee;animation:mg-wait 1.2s steps(2) infinite}
+#first-stage .mg-motion i:nth-child(2){animation-delay:.2s}#first-stage .mg-motion i:nth-child(3){animation-delay:.4s}#first-stage .mg-motion i:nth-child(4){animation-delay:.6s}
+@keyframes mg-wait{50%{opacity:.2}}
+#first-stage .mg-working .mg-status:before{content:'◷ ';font-size:14px}
+#first-stage .makora-guide button:focus-visible{outline:2px dashed white;outline-offset:4px}
+@media(max-width:899px){#first-stage .makora-guide{left:12px;bottom:12px;width:min(300px,calc(100vw - 24px));max-height:40dvh}#first-stage .mg-body{padding:8px 12px}}
+@media(prefers-reduced-motion:reduce){#first-stage .mg-motion i{animation:none}}
+#first-stage .makora-guide{max-height:min(280px,calc(100dvh - 110px))}
+@media(max-width:899px){#first-stage .makora-guide:not(:hover):not(:focus-within) .mg-body{max-height:180px;overflow:auto}}
+#first-stage .mg-head{position:sticky;top:0;background:#111;z-index:1}
+#first-stage .mg-body h3{font-size:20px;margin:8px 0}
+#first-stage .mg-explain summary{font-size:10px;color:#aaa;cursor:pointer}
+#first-stage .mg-clock:empty{display:none}

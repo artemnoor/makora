@@ -16,6 +16,9 @@
     return authToken;
   }
   async function api(path, options={}) {
+    const mutation=options.method&&options.method!=='GET';
+    if(mutation)window.dispatchEvent(new CustomEvent('makora:activity',{detail:{active:true,text:'Контроллер выполняет действие…'}}));
+    try{
     const headers = new Headers(options.headers || {});
     if (options.method && options.method !== 'GET') headers.set('X-Makora-Token', await token());
     if (options.body) headers.set('Content-Type', 'application/json');
@@ -23,6 +26,7 @@
     const body = await response.json();
     if (!response.ok || body.ok === false) { const error=new Error(body.error?.message || body.error || `HTTP ${response.status}`);error.code=body.error?.code;error.details=body.error?.details;throw error; }
     return body.result ?? body;
+    }finally{if(mutation)window.dispatchEvent(new CustomEvent('makora:activity',{detail:{active:false}}))}
   }
   const taskStateLabel = status => ({integrated:'готово · интегрировано',pending:'в очереди',ready:'готова к запуску',implementing:'Builder выполняет',review_pending:'требует независимых тестов',reviewing:'Reviewer проверяет',review_completed:'ревью завершено',changes_requested:'нужны исправления',mahoraga_required:'передать Махораге',blocked_for_human:'ожидает решения человека',tests_failed:'независимые тесты не прошли',tests_passed:'независимые тесты пройдены',rebase_conflict:'нужно разрешить Git-конфликт',failed:'ошибка'})[status] || status || 'не запущена';
   const sessionStateLabel = status => ({accepted:'запрос принят',delivered:'сообщение доставлено',running:'выполняется',completed:'ответ завершён',failed:'ошибка',unconfirmed:'результат не подтверждён'})[status] || status;
@@ -40,6 +44,7 @@
   function preparationLayout(ctx,run,state){
     if(!ctx.project)return;
     const host=ctx.content,view=host.querySelector('.real-agent-view');if(!view)return;
+    view.dataset.activeAgents=String(state.sessions.filter(s=>(!run||s.runId===run.id)&&['accepted','delivered','running'].includes(s.status)).length);
     view.classList.add('rp-runtime');
     const completed=(run?.tasks||[]).filter(t=>t.status==='integrated').length,total=run?.tasks?.length||0,index=total&&completed===total?2:run?1:0;
     const header=document.createElement('header');header.className='rp-summary';header.innerHTML=`<div class="rp-eyebrow"><span>ШАГ ${String(ctx.preparationStage).padStart(2,'0')} / 06</span><span>${run?`${completed} из ${total} задач готово`:'Сначала согласуем план'}</span></div><p>${ctx.preparationStage===5?'Соберём рабочую версию на ваших мок-данных. Вы проверяете план и принимаете результат.':'Продолжим разработку утверждённого прототипа. Изменения проходят тесты и независимую проверку.'}</p><ol class="rp-lifecycle">${['Согласовать план','Работа агентов','Принять результат'].map((text,i)=>`<li class="${i===index?'is-current':i<index?'is-done':''}"><b>${i<index?'✓':i+1}</b><span>${text}</span></li>`).join('')}</ol>`;view.prepend(header);
