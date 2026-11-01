@@ -23,6 +23,60 @@ class PreparationTests(unittest.TestCase):
                                        _save=lambda: None, refresh_session=lambda _: {'status': 'completed'})
         self.pipeline = Preparation(Path(self.tmp.name), self.runtime)
 
+    def test_chat_is_readonly_deduplicated_and_uses_exact_turn(self):
+        folder=self.select_folder()
+        self.pipeline.state['brief']='Project notes and search'
+        self.pipeline.state['stages']={'1':{'status':'approved','files':{'01_case_analysis.md':'# Notes requirements'}}}
+        result=self.pipeline.send_chat({'message':'Что нужно сделать?','requestId':'chat-1'})
+        self.assertEqual('running',result['status'])
+        self.assertEqual('readOnly',self.calls[-1]['sandbox'])
+        self.assertIn('Notes requirements',self.calls[-1]['prompt'])
+        self.pipeline.send_chat({'message':'Что нужно сделать?','requestId':'chat-1'})
+        self.assertEqual(1,len(self.calls))
+        with self.assertRaises(AgentRuntimeError):self.pipeline.send_chat({'message':'Второй вопрос','requestId':'chat-2'})
+        self.runtime.refresh_session=lambda _: {'status':'completed','turnId':'turn-exact','result':{'turns':[
+            {'id':'older-turn','items':[{'type':'agentMessage','text':'Old answer'}]},
+            {'id':'turn-exact','items':[{'type':'agentMessage','text':'Создать API заметок.'}]}]}}
+        result=self.pipeline.chat_snapshot()
+        self.assertEqual('idle',result['status'])
+        self.assertEqual('Создать API заметок.',result['messages'][-1]['text'])
+        self.assertEqual(2,len(self.pipeline.chat_snapshot()['messages']))
+        self.assertEqual('approved',self.pipeline.state['stages']['1']['status'])
+        self.assertIn('Создать API заметок.',(folder/'reports/chat.md').read_text('utf-8'))
+
+    def test_chat_followup_reuses_session_and_unconfirmed_delivery_does_not_repeat(self):
+        self.pipeline.send_chat({'message':'Первый вопрос','requestId':'chat-1'})
+        chat=self.pipeline.state['chat'];chat['status']='idle'
+        sent=[]
+        def send(agent_id,text):
+            sent.append((agent_id,text))
+            return {'id':agent_id,'threadId':'thread-exact','turnId':'second-turn'}
+        self.runtime.send_message=send
+        self.pipeline.send_chat({'message':'А какие ограничения?','requestId':'chat-2'})
+        self.assertEqual(1,len(self.calls))
+        self.assertEqual(1,len(sent))
+        self.assertEqual('second-turn',self.pipeline.state['chat']['turnId'])
+        self.runtime.refresh_session=lambda _: {'status':'completed','turnId':'turn-exact','result':{'turns':[{'id':'turn-exact','items':[{'type':'agentMessage','text':'Old answer'}]}]}}
+        self.assertEqual('unconfirmed',self.pipeline.chat_snapshot()['status'])
+        self.assertEqual(2,len(self.pipeline.state['chat']['messages']))
+        restored=Preparation(Path(self.tmp.name),self.runtime)
+        self.assertEqual('unconfirmed',restored.state['chat']['status'])
+        restored.send_chat({'message':'А какие ограничения?','requestId':'chat-2'})
+        self.assertEqual(1,len(sent))
+
+    def test_chat_unknown_delivery_is_persisted_and_never_resent(self):
+        attempts=[]
+        def fail(**kwargs):
+            attempts.append(kwargs)
+            raise AgentRuntimeError('DELIVERY_UNKNOWN','Connection lost after dispatch',502)
+        self.runtime.provider.create_thread=fail
+        with self.assertRaises(AgentRuntimeError):self.pipeline.send_chat({'message':'Вопрос','requestId':'uncertain'})
+        restored=Preparation(Path(self.tmp.name),self.runtime)
+        result=restored.send_chat({'message':'Вопрос','requestId':'uncertain'})
+        self.assertEqual('unconfirmed',result['status'])
+        self.assertEqual(1,len(attempts))
+        self.assertEqual(1,len(result['messages']))
+
     def select_folder(self):
         folder=Path(self.tmp.name)/'chosen-project'
         folder.mkdir()

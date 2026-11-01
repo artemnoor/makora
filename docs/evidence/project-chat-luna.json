@@ -1,0 +1,21 @@
+{
+  "status": "PASS",
+  "folder": "C:\\m\\makora-chat-smoke-6b5f00f7",
+  "model": "gpt-6-luna",
+  "messages": [
+    {
+      "threadId": "01a19745-a161-7aa3-af93-5161e7ef06e0",
+      "turnId": "01a19745-b8ae-70f2-bc89-299f7aaa938c",
+      "status": "idle",
+      "answer": "Запомнил: проект называется «Орбита». Две основные функции: **создавать заметки** и **искать по их тексту**.",
+      "error": null
+    },
+    {
+      "threadId": "01a19745-a161-7aa3-af93-5161e7ef06e0",
+      "turnId": "01a19745-d1b1-7ed0-9650-daec45c4b402",
+      "status": "idle",
+      "answer": "Орбита",
+      "error": null
+    }
+  ]
+}

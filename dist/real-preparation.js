@@ -54,7 +54,7 @@
     const step=stage,paths=Object.keys(files),main=paths.find(p=>/\.md$/.test(p))||paths[0];
     const expected=['01_case_analysis.md','02_solution_concept.md','03_architecture.md','04_validation_report.md'][step-1];
     const ready=['review','approved'].includes(status)&&paths.length>0;
-    const motionKey=step+':'+(record?.turnId||record?.threadId||'waiting');
+    const motionKey=step;
     if(working&&analysisMotion.key!==motionKey)analysisMotion={key:motionKey,started:performance.now()};
     if(!working)analysisMotion.key=null;
     const wheelDelay=working?-((performance.now()-analysisMotion.started)/1000):0;
@@ -78,7 +78,7 @@
     content.querySelector('[data-real-file]')?.addEventListener('click',()=>{show(main);if(!board.classList.contains('expanded'))board.querySelector('.board-expand').click()});
     if(file&&files[file])show(file);
     content.querySelector('[data-analysis-edit]')?.addEventListener('click',()=>{
-      const regenerate=feedback=>action(async()=>{state=await api(`/api/preparation/${step}/start`,{feedback});file=null;root()?.querySelector('.analysis-chat')?.remove();paint()});
+      const regenerate=feedback=>action(async()=>{artifactView(scene,board,content,record,{},'launching',true,projectKey);try{state=await api(`/api/preparation/${step}/start`,{feedback});file=null;root()?.querySelector('.analysis-chat')?.remove();paint()}catch(e){try{state=await api('/api/preparation')}catch{}paint();throw e}});
       if(!record){regenerate(feedbacks[step]||'');return}
       openRefinementChat({key:projectKey,step,title:'Какие правки внесём?',description:`Расскажи, что поправить: ${names[step-1].toLowerCase()}. Я обновлю материалы этапа.`,submit:'Пересоздать материалы →',onSubmit:regenerate});
     });
@@ -88,6 +88,7 @@
     approvals(content);schedule();
   }
   function openRefinementChat({key=feedbackProject,step,title,description,submit,onSubmit}){
+    window.makoraChat?.close();
     const scene=root();if(!scene)return;
     if(scene.querySelector('.analysis-chat')){scene.querySelector('.analysis-chat textarea').focus();return}
     const chat=document.createElement('form');chat.className='analysis-chat';chat.setAttribute('aria-label','Уточнения Макоре');
@@ -118,7 +119,7 @@
     content.innerHTML='<div class="board-document"><p>Подготавливаем отдельный Git-проект по утверждённым файлам…</p></div>';
     try{const project=await api('/api/preparation/development',{stage});if(ticket!==generation||stage<5)return;
       if(stage===6&&state.prototype?.status!=='approved'){throw Error('Сначала утверди работающий прототип на этапе 5.')}
-      if(!window.makoraRealAgents){await new Promise((resolve,reject)=>{const script=document.createElement('script');script.src='agent-runtime-ui.js?v=compact-10';script.onload=resolve;script.onerror=reject;document.head.append(script)})}
+      if(!window.makoraRealAgents){await new Promise((resolve,reject)=>{const script=document.createElement('script');script.src='agent-runtime-ui.js?v=chat-13';script.onload=resolve;script.onerror=reject;document.head.append(script)})}
       if(stage===6&&localStorage.getItem('makora.real-stage6-base')!==state.prototype.commit){window.makoraRealAgents.selectRun?.('__new__');localStorage.setItem('makora.real-stage6-base',state.prototype.commit)}
       const previousDigest=localStorage.getItem('makora.real-development-digest');if(previousDigest!==project.digest){window.makoraRealAgents.selectRun?.('__new__');localStorage.setItem('makora.real-development-digest',project.digest)}
       project.brief+=stage===5?'\nСоздай работающий прототип на исходных mocks/fixtures/. Сохрани mocks/, изменения предлагай в new_mocks/.':'\nПродолжи разработку текущего проекта по утверждённым требованиям.';

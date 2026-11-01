@@ -127,6 +127,8 @@ class MakoraHandler(SimpleHTTPRequestHandler):
                 self._json({'token':self.server.agent_token});return
             if path == '/api/agents/status':
                 self._agent_json(self.server.agent_runtime.status);return
+            if path == '/api/preparation/chat':
+                self._agent_json(self.server.preparation.chat_snapshot);return
             if path == '/api/preparation':
                 self._agent_json(self.server.preparation.poll);return
             if path == '/api/preparation/archive':
@@ -198,6 +200,9 @@ class MakoraHandler(SimpleHTTPRequestHandler):
         try:
             if path.startswith(('/api/agents/', '/api/preparation')) and not self._agent_auth():
                 self._error(AgentRuntimeError('AUTH_REQUIRED','Нужен действующий токен этой страницы Макоры.',401),401);return
+            if path == '/api/preparation/chat':
+                value=self._read_json()
+                self._agent_json(lambda:self.server.preparation.send_chat(value));return
             if path == '/api/preparation/folder/select':
                 self._agent_json(self.server.preparation.choose_directory);return
             if path == '/api/preparation/folder/open':
