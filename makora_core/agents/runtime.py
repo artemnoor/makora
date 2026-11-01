@@ -254,6 +254,12 @@ class CodexLocalApi:
             for sibling in run_folder.iterdir():
                 if sibling.resolve() != cwd.resolve():
                     filesystem[str(sibling.resolve())] = "deny"
+        if cwd.parent.parent.name == 'worktrees':
+            for sibling_run in cwd.parent.parent.iterdir():
+                if sibling_run.is_dir():
+                    for sibling in sibling_run.iterdir():
+                        if sibling.resolve() != cwd.resolve():
+                            filesystem[str(sibling.resolve())] = "deny"
         filesystem.update({str(Path(p).resolve()): "deny" for p in (denied_paths or [])})
         filesystem[root] = "read" if sandbox == "readOnly" else "write"
         if sandbox == "readOnly":
@@ -354,6 +360,7 @@ class AgentRuntime:
                 for attempt in range(8):
                     try:
                         os.replace(temp, self.state_path)
+                        self._save_project_reports()
                         return
                     except PermissionError:
                         if attempt == 7:
@@ -364,6 +371,36 @@ class AgentRuntime:
                     temp.unlink(missing_ok=True)
                 except OSError:
                     pass
+
+    def register_project_storage(self, project: Path, folder: Path) -> None:
+        project, folder = project.resolve(), folder.resolve()
+        if not project.is_relative_to(folder) or project == folder or not folder.is_dir():
+            raise AgentRuntimeError('INVALID_PROJECT_STORAGE', 'Папка приложения должна находиться внутри выбранной папки проекта.')
+        with self._lock:
+            self.state.setdefault('projectStorage', {})[str(project)] = str(folder)
+            self._save()
+
+    def _worktrees_for(self, project: Path) -> Path:
+        folder = self.state.get('projectStorage', {}).get(str(project.resolve()))
+        return Path(folder) / '.makora' / 'agents' / 'worktrees' if folder else self.worktrees_dir
+
+    def _save_project_reports(self) -> None:
+        for project, folder in self.state.get('projectStorage', {}).items():
+            root = Path(folder).resolve()
+            runs = {k:v for k,v in self.state['runs'].items() if v.get('projectRoot') == project}
+            sessions = {k:v for k,v in self.state['sessions'].items() if v.get('runId') in runs or (v.get('cwd') and Path(v['cwd']).resolve().is_relative_to(root))}
+            report = {'version':1, 'projectRoot':project, 'runs':runs, 'sessions':sessions,
+                      'events':[e for e in self.state['events'] if e.get('runId') in runs]}
+            target = root / 'reports' / 'agents.json'
+            if not target.resolve().is_relative_to(root) or any(p.is_symlink() for p in (root / 'reports', target)):
+                raise AgentRuntimeError('UNSAFE_STORAGE_PATH', 'Журнал проекта пересекает символическую ссылку.', 409)
+            target.parent.mkdir(parents=True, exist_ok=True)
+            temporary = target.with_name('agents.' + uuid.uuid4().hex + '.tmp')
+            try:
+                temporary.write_text(json.dumps(report, ensure_ascii=False, indent=2), 'utf-8')
+                os.replace(temporary, target)
+            finally:
+                temporary.unlink(missing_ok=True)
 
     def _event(self, kind: str, detail: str, run_id: str | None = None, task_id: str | None = None) -> None:
         self.state["events"].append({"id": str(uuid.uuid4()), "type": kind, "detail": detail,
@@ -565,7 +602,7 @@ class AgentRuntime:
             blob.decode('utf-8')  # Reject binary/non-UTF8 attachments; preserve original bytes.
             artifacts[name] = blob
         plan_id = 'plan-' + uuid.uuid4().hex[:12]
-        folder = (self.worktrees_dir.parent / 'plans' / plan_id).resolve()
+        folder = (self._worktrees_for(root).parent / 'plans' / plan_id).resolve()
         folder.mkdir(parents=True, exist_ok=False)
         (folder / 'BRIEF.md').write_text(brief.strip() + '\n', encoding='utf-8')
         (folder / 'PROJECT_CONTEXT.md').write_text(context.strip() + '\n', encoding='utf-8')
@@ -714,7 +751,7 @@ class AgentRuntime:
                            and s.get('status') in ('accepted', 'delivered', 'running', 'unconfirmed')), None)
             if active:
                 raise AgentRuntimeError('ORCHESTRATOR_BUSY', 'Махорага уже анализирует очередь этого запуска.', 409)
-            folder = (self.worktrees_dir.parent / 'orchestrator' / run_id / uuid.uuid4().hex[:8]).resolve()
+            folder = (self._worktrees_for(Path(run['projectRoot'])).parent / 'orchestrator' / run_id / uuid.uuid4().hex[:8]).resolve()
             folder.mkdir(parents=True, exist_ok=False)
             task_view = []
             for task in run['tasks']:
@@ -1402,7 +1439,7 @@ class AgentRuntime:
                 raise AgentRuntimeError("TASK_BLOCKED", "Ожидает интеграции зависимостей: " + ", ".join(waiting), 409)
             root = Path(run["projectRoot"])
             branch = f"makora/{run_id}/{task_id}".lower()
-            folder = self.worktrees_dir / run_id / task_id
+            folder = self._worktrees_for(root) / run_id / task_id
             folder.parent.mkdir(parents=True, exist_ok=True)
             if folder.exists():
                 raise AgentRuntimeError("WORKTREE_EXISTS", "Рабочая директория уже существует; сначала проверь и восстанови её состояние.", 409)
@@ -1462,7 +1499,7 @@ class AgentRuntime:
                     raise AgentRuntimeError("TEST_DESIGN_NOT_READY", "Независимый Test Designer должен запускаться до Builder.", 409)
                 attempt = task.get('testDesignerAttempts', 0) + 1
                 suffix = '' if attempt == 1 else f'-attempt-{attempt}'
-                spec_dir = self.worktrees_dir / run_id / f"{task_id}-test-spec{suffix}"
+                spec_dir = self._worktrees_for(Path(run["projectRoot"])) / run_id / f"{task_id}-test-spec{suffix}"
                 spec_dir.mkdir(parents=True, exist_ok=False)
                 task['testDesignDir'] = str(spec_dir)
                 for file_name, content in (("TASK.md", self._task_spec(task)), ("CONTRACTS.md", "\n".join(task["contracts"])), ("ACCEPTANCE.md", task["acceptance"])):
@@ -2068,8 +2105,8 @@ class AgentRuntime:
             old_base = task.get('worktreeBase', run['baseCommit'])
             root = Path(run['projectRoot'])
             suffix = uuid.uuid4().hex[:8]
-            scratch = self.worktrees_dir / run_id / f"{task_id}-snapshot-{suffix}"
-            folder = self.worktrees_dir / run_id / f"{task_id}-base-{run['baseCommit'][:8]}-{suffix}"
+            scratch = self._worktrees_for(Path(run["projectRoot"])) / run_id / f"{task_id}-snapshot-{suffix}"
+            folder = self._worktrees_for(Path(run["projectRoot"])) / run_id / f"{task_id}-base-{run['baseCommit'][:8]}-{suffix}"
             branch = f"makora/{run_id}/{task_id}-base-{run['baseCommit'][:8]}-{suffix}".lower()
             allowed_args = sorted(changed)
             try:

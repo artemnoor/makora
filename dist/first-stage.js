@@ -5,7 +5,7 @@
   root.innerHTML = `<div class="first-top"><a class="first-logo" href="/">✳ <span>макора</span></a><span>РАБОЧЕЕ ПРОСТРАНСТВО / 01</span><span>ЭТАП 01 / 06</span></div>
   <div class="first-intro"><div class="mascot-area" tabindex="0" role="img" aria-label="Макора. Перетащите мышью или перемещайте стрелками." title="Перетащить Макору"><iframe class="mascot-frame" src="mascot.html" title="Персонаж Макоры" tabindex="-1"></iframe></div>
   <form class="first-form"><div class="speech-label">ПЕРВЫЙ ШАГ <span>01 / 06</span></div><h1>Привет!<br>Разберём задание?</h1><p>Пришли условие хакатона — соберём всё важное в одном месте.</p>
-  <label class="pixel-drop"><input type="file" accept=".pdf,.docx,.txt,.md" class="sr-only"><span class="pixel-plus" aria-hidden="true"><svg viewBox="0 0 24 24" width="28" height="28" shape-rendering="crispEdges"><path fill="currentColor" d="M2 5h8v2h12v14H2zm2 4v10h16V9z"/><path fill="currentColor" d="M11 11h2v2h2v2h-2v2h-2v-2H9v-2h2z"/></svg></span><strong class="file-label">Выбрать файл</strong><small>или перетащить сюда<br>PDF, DOCX, TXT, MD · до 20 МБ</small></label><div class="or-line"><span>ИЛИ ВСТАВЬ ТЕКСТ</span></div><label class="sr-only" for="first-text">Текст задания</label><textarea id="first-text" placeholder="Вставь условие задания сюда…"></textarea><p class="first-error" role="alert" hidden></p><button class="pixel-start" type="submit" disabled>Начать анализ <span aria-hidden="true">▶</span></button><p class="first-disclaimer">Анализ выполняет Codex GPT-6 Luna. Результаты сохраняются локально и требуют утверждения.</p></form></div>
+  <label class="pixel-drop"><input type="file" accept=".pdf,.docx,.txt,.md" class="sr-only"><span class="pixel-plus" aria-hidden="true"><svg viewBox="0 0 24 24" width="28" height="28" shape-rendering="crispEdges"><path fill="currentColor" d="M2 5h8v2h12v14H2zm2 4v10h16V9z"/><path fill="currentColor" d="M11 11h2v2h2v2h-2v2h-2v-2H9v-2h2z"/></svg></span><strong class="file-label">Выбрать файл</strong><small>или перетащить сюда<br>PDF, DOCX, TXT, MD · до 20 МБ</small></label><div class="or-line"><span>ИЛИ ВСТАВЬ ТЕКСТ</span></div><label class="sr-only" for="first-text">Текст задания</label><textarea id="first-text" placeholder="Вставь условие задания сюда…"></textarea><div class="first-project-folder"><button type="button" data-choose-project-folder>▱ Выбрать папку проекта</button><small data-project-folder-label>Здесь будут условие, документы и код</small></div><p class="first-error" role="alert" hidden></p><button class="pixel-start" type="submit" disabled>Начать анализ <span aria-hidden="true">▶</span></button><p class="first-disclaimer">Анализ выполняет Codex GPT-6 Luna. Результаты сохраняются локально и требуют утверждения.</p></form></div>
   <div class="board-scene" hidden><div class="board-heading"><span>01 / АНАЛИЗ ЗАДАНИЯ</span><span>01_CASE_ANALYSIS.MD</span></div><div class="board-stage"><div class="board-mascot" aria-hidden="true"></div><div class="board" aria-label="Доска рабочего пространства"><nav class="board-stages" aria-label="Этапы проекта"><button type="button" data-board-stage="1">01 <span>Анализ</span></button><button type="button" data-board-stage="2">02 <span>Идея</span></button><button type="button" data-board-stage="3">03 <span>План</span></button><button type="button" data-board-stage="4">04 <span>Мок-данные</span></button></nav><div class="board-stage-message" role="status" hidden></div><div class="board-sprite"><img class="board-shadow-art" src="analysis-board.png" alt="" draggable="false"><img class="board-art" src="analysis-board.png" alt="" draggable="false"></div><div class="board-inner"><div class="board-bar"><div><span class="board-kicker">ДЕМО-КЕЙС / ТИХИЙ КАМПУС</span><h2>Анализ задания<span>.</span></h2></div><button type="button" class="board-expand" aria-label="Развернуть доску" title="Развернуть доску">⛶</button></div><div class="board-content"></div><div class="board-footer"><span>ТЯНИ ЗА РАМКУ · ДВОЙНОЙ КЛИК — НА ВЕСЬ ЭКРАН</span><span>01 / 06</span></div></div></div></div><div class="scene-bottom"><p>Демо-анализ: показан пример, файл не анализируется.</p><button type="button" class="board-next">Далее <span>→</span></button></div></div>`;
   document.body.append(root);
   const newTask = new URLSearchParams(location.search).has('new');
@@ -17,8 +17,17 @@
   underneath.forEach(el => el.inert = true);
   const form = root.querySelector('form'), input = root.querySelector('input[type=file]'), textarea = root.querySelector('textarea');
   const drop = root.querySelector('.pixel-drop'), error = root.querySelector('.first-error'), start = root.querySelector('.pixel-start');
-  let selectedFile = null;
-  function update() { start.disabled = !selectedFile && !textarea.value.trim(); }
+  let selectedFile = null, selectedFolder = '';
+  const chooseFolder=root.querySelector('[data-choose-project-folder]'),folderLabel=root.querySelector('[data-project-folder-label]');
+  const folderOpen=document.createElement('button');folderOpen.className='first-open-folder';folderOpen.type='button';folderOpen.disabled=true;folderOpen.title='Сначала выберите папку проекта';folderOpen.setAttribute('aria-label','Открыть папку проекта в Проводнике');folderOpen.innerHTML='<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" aria-hidden="true"><path d="M3 7V4h6l3 3h9v13H3z"/><path d="M3 9h18"/></svg>';
+  root.querySelector('.first-top').append(folderOpen);
+  function applyFolder(path,forNew=true){if(!path)return;folderOpen.disabled=false;folderOpen.title='Открыть папку проекта: '+path;if(forNew){error.hidden=true;selectedFolder=path;chooseFolder.dataset.folderSelected='true';chooseFolder.textContent='▱ Изменить папку проекта';folderLabel.textContent=path;folderLabel.title=path;update()}}
+  window.addEventListener('makora:project-folder',e=>applyFolder(e.detail.path));
+  chooseFolder.onclick=async()=>{chooseFolder.disabled=true;chooseFolder.textContent='Выберите папку в открывшемся окне…';try{const result=await window.makoraPreparation.chooseFolder();if(result.cancelled)chooseFolder.textContent=selectedFolder?'▱ Изменить папку проекта':'▱ Выбрать папку проекта'}catch(e){error.textContent=e.message;error.hidden=false;chooseFolder.textContent='▱ Выбрать папку проекта'}finally{chooseFolder.disabled=false}};
+  folderOpen.onclick=async()=>{try{await window.makoraPreparation.openFolder()}catch(e){folderOpen.title=e.message;error.textContent=e.message;error.hidden=false}};
+  fetch('/api/preparation').then(r=>r.json()).then(data=>applyFolder(data.result?.storageRoot,!newTask)).catch(()=>{});
+  function update() { start.disabled = (!selectedFile && !textarea.value.trim()) || (!!window.makoraPreparation&&!selectedFolder); }
+
   function setFile(file) {
     if (!file) return;
     if (file.size > 20 * 1024 * 1024) { error.textContent = 'Файл больше 20 МБ. Выбери другой файл.'; error.hidden = false; selectedFile = null; input.value = ''; update(); return; }
@@ -544,7 +553,7 @@
       if(!sourceText&&selectedFile){start.disabled=true;start.textContent='Читаем файл…';window.dispatchEvent(new CustomEvent('makora:activity',{detail:{active:true,text:'Извлекаем текст из файла…'}}));try{sourceText=await window.makoraPreparation.extract(selectedFile)}catch(e){error.textContent=e.message;error.hidden=false;start.disabled=false;start.textContent='Начать анализ';return}finally{window.dispatchEvent(new CustomEvent('makora:activity',{detail:{active:false}}))}}
       if(!sourceText){error.textContent='Вставь текст задания или загрузи TXT/MD: извлечение этого формата ещё не подключено.';error.hidden=false;return}
       start.disabled=true;start.textContent='Создаём сессию Codex…';
-      try{await window.makoraPreparation.start(sourceText);localStorage.setItem('makora.real-project','1')}catch(e){error.textContent=e.message;error.hidden=false;start.disabled=false;start.textContent='Начать анализ';return}
+      try{await window.makoraPreparation.start(sourceText,selectedFile);localStorage.setItem('makora.real-project','1')}catch(e){error.textContent=e.message;error.hidden=false;start.disabled=false;start.textContent='Начать анализ';return}
     }
     if(!window.makoraProject.setSource({name:textarea.value.trim()?'Вставленный текст':selectedFile?.name||'Условие',text:sourceText})){error.textContent='Не удалось сохранить условие на устройстве. Попробуй более короткий текст.';error.hidden=false;return;}
     revealWorkspace(root.querySelector('.mascot-area').getBoundingClientRect());
@@ -559,7 +568,7 @@
   if(previousSource){
     textarea.value=previousSource.text||previousSource.name||'';
     update();
-    if(!start.disabled){
+    if(previousSource.text||previousSource.name){
       revealWorkspace(root.querySelector('.mascot-area').getBoundingClientRect(),{restore:true});
     }
     let resumeStage=Math.max(1,Math.min(4,Number(savedWorkspaceView.stage)||1));

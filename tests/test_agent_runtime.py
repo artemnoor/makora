@@ -86,6 +86,18 @@ class AgentRuntimeTests(unittest.TestCase):
     def tearDown(self):
         self.temp.cleanup()
 
+    def test_project_storage_keeps_worktrees_and_reports_with_project(self):
+        self.runtime.register_project_storage(self.project,self.base)
+        run=self.create_run()
+        worktree=self.runtime.create_task_worktree(run['id'],'T01')
+        self.assertTrue(Path(worktree['worktree']).is_relative_to(self.base.resolve()/'.makora/agents/worktrees'))
+        report=json.loads((self.base/'reports/agents.json').read_text('utf-8'))
+        self.assertIn(run['id'],report['runs'])
+        self.assertEqual(report['runs'][run['id']]['tasks'][0]['status'],'ready')
+        restored=AgentRuntime(self.workspace,self.integration,[self.project],self.provider)
+        self.assertEqual(restored._worktrees_for(self.project),self.base.resolve()/'.makora/agents/worktrees')
+        self.assertTrue(any(e['type']=='worktree_created' for e in report['events']))
+
     def test_concurrent_codex_api_startup_starts_only_one_bridge(self):
         integration = self.base / 'integration-startup'
         workspace = self.base / 'workspace-startup'

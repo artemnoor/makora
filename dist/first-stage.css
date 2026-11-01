@@ -219,3 +219,12 @@
 #first-stage.restoring .board-inner{opacity:1!important;animation:none!important}
 /* Use a plain, familiar font for the first-step greeting. */
 .first-intro .first-form h1{font-family:Arial,sans-serif;font-weight:600;letter-spacing:normal;text-shadow:none}
+
+.first-project-folder{margin-top:12px;display:grid;gap:5px;min-width:0}
+#first-stage .first-project-folder button{width:100%;text-align:left;border:1px solid #555;background:#191919;color:#eee;padding:9px 12px;font:600 12px/1.4 Manrope,Arial,sans-serif;cursor:pointer}
+#first-stage .first-project-folder button:hover{border-color:#ddd}
+#first-stage .first-project-folder button:disabled{color:#aaa;cursor:wait}
+#first-stage .first-project-folder small{display:block;font:10px/1.4 Manrope,Arial,sans-serif;color:#999;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+#first-stage .first-open-folder{width:38px;height:36px;flex:none;display:flex;align-items:center;justify-content:center;color:#ddd;background:#141414;border:1px solid #555;cursor:pointer}
+#first-stage .first-open-folder:hover{border-color:white;color:white}
+#first-stage .first-open-folder:disabled{opacity:.35;cursor:default}

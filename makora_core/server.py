@@ -198,6 +198,13 @@ class MakoraHandler(SimpleHTTPRequestHandler):
         try:
             if path.startswith(('/api/agents/', '/api/preparation')) and not self._agent_auth():
                 self._error(AgentRuntimeError('AUTH_REQUIRED','Нужен действующий токен этой страницы Макоры.',401),401);return
+            if path == '/api/preparation/folder/select':
+                self._agent_json(self.server.preparation.choose_directory);return
+            if path == '/api/preparation/folder/open':
+                self._agent_json(self.server.preparation.open_directory);return
+            if path in ('/api/preparation/source', '/api/preparation/attachment'):
+                name=parse_qs(urlparse(self.path).query).get('name',['brief.txt'])[0]
+                self._agent_json(lambda:self.server.preparation.store_source(name,self._body(20*1024*1024),attachment=path.endswith('/attachment')));return
             if path == '/api/preparation/development':
                 value=self._read_json()
                 self._agent_json(lambda:self.server.preparation.development(int(value.get('stage',5))));return

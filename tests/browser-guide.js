@@ -2,6 +2,7 @@ async page=>{
  const assert=(v,m)=>{if(!v)throw Error(m)};let refreshes=0;let resolveStart,current={brief:"",stages:{}};
  await page.route('**/api/preparation**',async route=>{
   const path=new URL(route.request().url()).pathname;
+  if(path.endsWith('/folder/select'))return route.fulfill({json:{ok:true,result:{path:'C:/test-project',cancelled:false}}});
   if(path.endsWith('/start')){await new Promise(r=>{resolveStart=r});current={projectId:'guide-test',brief:'Кейс',stages:{1:{status:'running',threadId:'guide-thread',files:{}}}};return route.fulfill({json:{ok:true,result:current}})}
   if(path.endsWith('/refresh')&&++refreshes===1)return route.fulfill({json:{ok:true,result:current}});
   if(path.endsWith('/refresh'))return route.fulfill({json:{ok:true,result:{projectId:'guide-test',brief:'Кейс',stages:{1:{status:'review',files:{'01_case_analysis.md':'# Проверенный результат\nREQ-1'},checks:[]}}}}});
@@ -10,7 +11,7 @@ async page=>{
  await page.goto(new URL('/?new=1',page.url()).href);
  await page.locator('.mg-body h3').filter({hasText:'Пришлите'}).waitFor();
  await page.locator('[data-guide-show]').click();assert(await page.locator('.pixel-drop').evaluate(e=>e.classList.contains('mg-highlight')),'Нет подсветки загрузки');
- await page.locator('#first-text').fill('Приложение с поиском задач');await page.locator('.pixel-start').click();
+ await page.locator('#first-text').fill('Приложение с поиском задач');await page.locator('[data-choose-project-folder]').click();await page.locator('.pixel-start').click();
  await page.locator('.mg-status').filter({hasText:'Отправляем'}).waitFor();assert(await page.locator('.makora-guide').evaluate(e=>e.classList.contains('mg-working')),'Нет ожидания запроса');
  for(let i=0;i<50&&!resolveStart;i++)await page.waitForTimeout(100);assert(resolveStart,"Запрос не дошёл до API");resolveStart();await page.locator('.analysis-thinking').waitFor();await page.locator('.mg-status').filter({hasText:'Макора работает'}).waitFor();await page.waitForFunction(()=>document.querySelector('.mascot-frame')?.contentDocument?.querySelector('[data-action=wheel]')?.classList.contains('active'));
  await page.waitForTimeout(4400);

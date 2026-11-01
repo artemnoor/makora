@@ -8,7 +8,7 @@
   const fileTitle=path=>fileNames[path]||(/openapi/i.test(path)?'Контракты API':path.split('/').pop());
   const esc=s=>String(s??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
   async function api(path,body){
-    const foreground=body!==undefined&&!path.endsWith('/refresh');
+    const foreground=body!==undefined&&!path.endsWith('/refresh')&&!path.includes('/folder/');
     if(foreground)window.dispatchEvent(new CustomEvent('makora:activity',{detail:{active:true,text:path.endsWith('/approve')?'Сохраняем утверждение…':path.endsWith('/development')?'Подготавливаем рабочий проект…':'Отправляем задание Макоре…'}}));
     try{
     const options={credentials:'same-origin',cache:'no-store'};
@@ -18,10 +18,13 @@
   }
   function markdown(text){let html='',end=0;for(const match of text.matchAll(/```([^\n]*)\n([\s\S]*?)```/g)){html+=render(text.slice(end,match.index));html+=match[1].trim()==='mermaid'?'<pre data-real-mermaid>'+esc(match[2])+'</pre>':'<pre class="case-source"><code>'+esc(match[2])+'</code></pre>';end=match.index+match[0].length}return html+render(text.slice(end))}
   async function diagrams(host){const elements=[...host.querySelectorAll('[data-real-mermaid]')];if(!elements.length)return;try{const mermaid=(await import('https://cdn.jsdelivr.net/npm/mermaid@11/dist/mermaid.esm.min.mjs')).default;mermaid.initialize({startOnLoad:false,theme:'dark',securityLevel:'strict',flowchart:{htmlLabels:false}});for(const el of elements){const svg=await mermaid.render('real-'+crypto.randomUUID(),el.textContent);if(el.isConnected)el.innerHTML=svg.svg}}catch{}}
-  async function extract(file){const token=await(await fetch('/api/agents/token',{headers:{'X-Makora-Request':'token'}})).json();const response=await fetch('/api/preparation/extract?name='+encodeURIComponent(file.name),{method:'POST',headers:{'X-Makora-Token':token.result.token},body:file});const result=await response.json();if(!response.ok)throw Error(result.error?.message||'Не удалось прочитать файл');return result.result.text}
+  async function extract(file,attachment=false){const token=await(await fetch('/api/agents/token',{headers:{'X-Makora-Request':'token'}})).json();const response=await fetch('/api/preparation/'+(attachment&&state.storageRoot?'attachment':'extract')+'?name='+encodeURIComponent(file.name),{method:'POST',headers:{'X-Makora-Token':token.result.token},body:file});const result=await response.json();if(!response.ok)throw Error(result.error?.message||'Не удалось прочитать файл');return result.result.text}
   const root=()=>document.querySelector('#first-stage');
   function error(message){const host=root()?.querySelector('.board-content');if(host){let el=host.querySelector('[data-real-error]');if(!el){el=document.createElement('p');el.dataset.realError='';el.setAttribute('role','alert');host.prepend(el)}el.textContent=message;el.hidden=false}}
-  async function start(brief){state=await api('/api/preparation/1/start',{brief});stage=1;file=null;localStorage.setItem('makora.real-stage','1');history.replaceState(null,'',location.pathname)}
+  async function chooseFolder(){const result=await api('/api/preparation/folder/select',{});if(!result.cancelled)window.dispatchEvent(new CustomEvent('makora:project-folder',{detail:result}));return result}
+  async function openFolder(){return api('/api/preparation/folder/open',{})}
+  async function uploadSource(file){const auth=await(await fetch('/api/agents/token',{headers:{'X-Makora-Request':'token'}})).json();const response=await fetch('/api/preparation/source?name='+encodeURIComponent(file.name),{method:'POST',headers:{'X-Makora-Token':auth.result.token},body:file});const data=await response.json();if(!response.ok)throw Error(data.error?.message||'Не удалось сохранить исходный файл');return data.result}
+  async function start(brief,sourceFile){if(sourceFile)await uploadSource(sourceFile);state=await api('/api/preparation/1/start',{brief});stage=1;file=null;localStorage.setItem('makora.real-stage','1');history.replaceState(null,'',location.pathname)}
   function schedule(){clearTimeout(timer);if(stage<=4&&['running','unconfirmed'].includes(state.stages[stage]?.status)){timer=setTimeout(async()=>{try{state=await api(`/api/preparation/${stage}/refresh`,{});paint()}catch(e){error(e.message);schedule()}},4000)}}
   function paint(){
     const scene=root();if(!scene||!state.brief)return;
@@ -92,7 +95,7 @@
     scene.append(chat);positionAnalysisChat();chat.querySelector('[data-chat-close]').onclick=()=>chat.remove();
     const input=chat.querySelector('textarea'),button=chat.querySelector('[type=submit]');input.focus();input.oninput=()=>{feedbacks[step]=input.value;localStorage.setItem(key,JSON.stringify(feedbacks))};
     let attached='',reading=false;
-    async function attach(f){if(!f)return;reading=true;button.disabled=true;const label=chat.querySelector('.analysis-attachment-name');label.textContent='Читаем файл…';try{attached=await extract(f);label.textContent=f.name}catch(e){label.textContent=e.message}finally{reading=false;button.disabled=false}}
+    async function attach(f){if(!f)return;reading=true;button.disabled=true;const label=chat.querySelector('.analysis-attachment-name');label.textContent='Читаем файл…';try{attached=await extract(f,true);label.textContent=f.name}catch(e){label.textContent=e.message}finally{reading=false;button.disabled=false}}
     chat.querySelector('input').onchange=e=>attach(e.target.files[0]);chat.ondragover=e=>e.preventDefault();chat.ondrop=e=>{e.preventDefault();attach(e.dataTransfer.files[0])};
     chat.onsubmit=async e=>{e.preventDefault();if(reading||button.disabled)return;const feedback=[input.value,attached].filter(Boolean).join('\n\n');if(!feedback.trim()){input.focus();return}feedbacks[step]=feedback;localStorage.setItem(key,JSON.stringify(feedbacks));button.disabled=true;button.textContent='Отправляем…';try{await onSubmit(feedback)}catch(e){chat.querySelector('.analysis-chat-error').textContent=e.message}finally{if(chat.isConnected){button.disabled=false;button.textContent=submit}}};
   }
@@ -127,5 +130,5 @@
   }
   async function open(number){root()?.querySelector('.analysis-chat')?.remove();generation++;clearTimeout(timer);root()?.querySelectorAll('.board-content button,.board-content textarea,.board-content input').forEach(el=>el.disabled=true);stage=Math.max(1,Math.min(6,number));file=null;localStorage.setItem('makora.real-stage',String(stage));state=await api('/api/preparation');paint()}
   async function mount(){state=await api('/api/preparation');if(!state.brief)return;stage=Number(localStorage.getItem('makora.real-stage'))||1;paint()}
-  window.makoraPreparation={start,mount,open,extract,openRefinementChat};
+  window.makoraPreparation={start,mount,open,extract,openRefinementChat,chooseFolder,openFolder};
 })();

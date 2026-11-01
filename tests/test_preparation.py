@@ -2,6 +2,7 @@ import json
 import tempfile
 import threading
 import unittest
+from unittest.mock import patch
 from pathlib import Path
 from types import SimpleNamespace
 
@@ -21,6 +22,61 @@ class PreparationTests(unittest.TestCase):
                                        state={'sessions': {}, 'runs': {}}, allowed_roots=[], _run_git=AgentRuntime._run_git,
                                        _save=lambda: None, refresh_session=lambda _: {'status': 'completed'})
         self.pipeline = Preparation(Path(self.tmp.name), self.runtime)
+
+    def select_folder(self):
+        folder=Path(self.tmp.name)/'chosen-project'
+        folder.mkdir()
+        with patch.object(Preparation, '_pick_directory', return_value=str(folder)):
+            result=self.pipeline.choose_directory()
+        self.assertEqual(result['path'],str(folder.resolve()))
+        return folder.resolve()
+
+    def test_selected_storage_preserves_original_artifacts_reports_and_restart(self):
+        folder=self.select_folder()
+        original=b'\xef\xbb\xbfOriginal brief with enough detail.'
+        self.pipeline.store_source('brief.txt',original)
+        self.pipeline.store_source('notes.md',b'# Extra requirements',attachment=True)
+        self.assertEqual(self.pipeline.state['sourceFile'],'input/original/brief.txt')
+        self.assertEqual((folder/self.pipeline.state['attachments'][0]).read_bytes(),b'# Extra requirements')
+        self.generate_analysis()
+        self.assertEqual((folder/'input/original/brief.txt').read_bytes(),original)
+        self.assertNotEqual((folder/'input/brief.txt').read_bytes(),original)
+        self.assertTrue((folder/'artifacts/01_case_analysis.md').is_file())
+        self.assertEqual(json.loads((folder/'reports/stage-1-checks.json').read_text('utf-8'))['status'],'review')
+        self.assertTrue(Path(self.pipeline.state['stages']['1']['folder']).is_relative_to(folder))
+        restored=Preparation(Path(self.tmp.name),self.runtime)
+        self.assertEqual(restored.state['storageRoot'],str(folder.resolve()))
+        self.assertEqual(restored.root,folder/'.makora/preparation')
+        self.assertEqual(restored.project_directory(),folder/'app')
+        self.assertEqual(restored.state['stages']['1']['status'],'review')
+
+    def test_folder_cancel_and_nonempty_selection_preserve_current_project(self):
+        previous=self.pipeline.snapshot()
+        with patch.object(Preparation,'_pick_directory',return_value=''):
+            self.assertTrue(self.pipeline.choose_directory()['cancelled'])
+        folder=Path(self.tmp.name)/'existing';folder.mkdir();(folder/'keep.txt').write_text('keep')
+        with patch.object(Preparation,'_pick_directory',return_value=str(folder)):
+            with self.assertRaises(AgentRuntimeError):self.pipeline.choose_directory()
+        self.assertEqual(previous,self.pipeline.snapshot())
+        self.assertEqual((folder/'keep.txt').read_text(),'keep')
+
+    def test_source_requires_folder_and_cannot_escape_it(self):
+        with self.assertRaises(AgentRuntimeError):self.pipeline.store_source('case.txt',b'original')
+        folder=self.select_folder()
+        for name in ('../case.txt','C:\\case.txt','x/y.md'):
+            with self.assertRaises(AgentRuntimeError):self.pipeline.store_source(name,b'original')
+        self.assertFalse((folder/'case.txt').exists())
+
+    def test_development_and_archive_live_in_selected_folder(self):
+        folder=self.select_folder()
+        self.pipeline.state['brief']='Local catalog project'
+        self.pipeline.state['stages']={'1':{'status':'approved','files':{'01_case_analysis.md':'# Requirements'}},'4':{'status':'approved','files':{'mocks/fixtures/data.json':'[]'}}}
+        result=self.pipeline.development()
+        self.assertEqual(Path(result['projectRoot']),folder/'app')
+        self.assertTrue((folder/'exports/project-context.zip').is_file())
+        self.assertTrue((folder/'artifacts/PROMPT.md').is_file())
+        self.assertEqual((folder/'app/mocks/fixtures/data.json').read_text(),'[]')
+        self.assertEqual(AgentRuntime._run_git(folder/'app','status','--porcelain').strip(),'')
 
     def generate_analysis(self):
         self.pipeline.start(1, {'brief': 'Реальный проект заметок: API, поиск, локальные данные.'})

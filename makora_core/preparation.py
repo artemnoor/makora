@@ -4,6 +4,9 @@ from __future__ import annotations
 import hashlib
 import io
 import json
+import os
+import subprocess
+import sys
 import threading
 import uuid
 import zipfile
@@ -55,10 +58,19 @@ class Preparation:
     def __init__(self, workspace, runtime):
         self.root = Path(workspace) / 'preparation'
         self.root.mkdir(parents=True, exist_ok=True)
+        self.home = self.root
         self.runtime = runtime
         self.lock = threading.RLock()
         self.index = self.root / 'state.json'
         self.state = json.loads(self.index.read_text('utf-8')) if self.index.exists() else {'brief': '', 'stages': {}}
+        if self.state.get('storageRoot'):
+            self.root = Path(self.state['storageRoot']) / '.makora' / 'preparation'
+            self.root.mkdir(parents=True, exist_ok=True)
+            project = Path(self.state['storageRoot']) / 'app'
+            if project.exists() and project.resolve() not in runtime.allowed_roots:
+                runtime.allowed_roots.append(project.resolve())
+            if hasattr(runtime, 'register_project_storage'):
+                runtime.register_project_storage(project, Path(self.state['storageRoot']))
         if 'projectId' not in self.state:
             self.state['projectId'] = uuid.uuid4().hex
             self.save()
@@ -71,6 +83,86 @@ class Preparation:
         temporary = self.index.with_suffix('.tmp')
         temporary.write_text(json.dumps(self.state, ensure_ascii=False, indent=2), 'utf-8')
         temporary.replace(self.index)
+        if self.state.get('storageRoot'):
+            self._storage_write('.makora/preparation/state.json', self.index.read_bytes())
+
+    def _storage_write(self, name, data):
+        root = Path(self.state['storageRoot']).resolve()
+        target = root.joinpath(*PurePosixPath(name).parts)
+        if not target.resolve().is_relative_to(root) or any(p.is_symlink() for p in [target, *target.parents] if p.is_relative_to(root)):
+            raise AgentRuntimeError('UNSAFE_STORAGE_PATH', 'Путь хранения пересекает символическую ссылку.', 409)
+        target.parent.mkdir(parents=True, exist_ok=True)
+        target.write_bytes(data)
+        return target
+
+    @staticmethod
+    def _pick_directory():
+        script = ('import tkinter as tk; from tkinter import filedialog; '
+                  'r=tk.Tk(); r.withdraw(); r.attributes("-topmost", True); '
+                  'print(filedialog.askdirectory(title="Папка проекта Макоры — выберите пустую папку", mustexist=True)); r.destroy()')
+        result = subprocess.run([sys.executable, '-c', script], capture_output=True, text=True,
+                                encoding='utf-8', env={**os.environ, 'PYTHONIOENCODING':'utf-8'},
+                                creationflags=subprocess.CREATE_NO_WINDOW if os.name == 'nt' else 0, timeout=300)
+        if result.returncode:
+            raise AgentRuntimeError('FOLDER_PICKER_UNAVAILABLE', 'Не удалось открыть выбор папки. Проверьте доступность рабочего стола и Tkinter.', 503)
+        return result.stdout.strip()
+
+    def choose_directory(self):
+        # Only a local authenticated user can initiate the native picker. No path from a webpage is trusted.
+        selected = self._pick_directory()
+        if not selected:
+            return {'cancelled': True}
+        with self.lock:
+            if any(v.get('status') in ('launching', 'running', 'unconfirmed') for v in self.state['stages'].values()):
+                raise AgentRuntimeError('PROJECT_BUSY', 'Дождитесь завершения текущего анализа перед созданием нового проекта.', 409)
+            folder = Path(selected)
+            if folder.is_symlink() or not folder.is_dir() or any(folder.iterdir()):
+                raise AgentRuntimeError('PROJECT_FOLDER_NOT_EMPTY', 'Выберите или создайте пустую папку для нового проекта. Существующие файлы не изменены.', 409)
+            folder = folder.resolve()
+            # Keep previous project metadata before changing the current-project pointer.
+            history = self.home / 'history'
+            history.mkdir(exist_ok=True)
+            (history / (uuid.uuid4().hex + '.json')).write_text(json.dumps(self.state, ensure_ascii=False), 'utf-8')
+            self.state = {'brief':'', 'stages':{}, 'projectId':uuid.uuid4().hex, 'storageRoot':str(folder)}
+            self.root = folder / '.makora' / 'preparation'
+            self.root.mkdir(parents=True)
+            for name in ('input', 'artifacts', 'reports'):
+                (folder / name).mkdir()
+            self._storage_write('PROJECT.md', ('# Проект Макоры\n\ninput/ — исходное условие и вложения.\nartifacts/ — документы, схемы и моки этапов.\napp/ — код и Git-история приложения.\nreports/ — проверки и журнал агентов.\n.makora/ — состояние, версии документов и рабочие ветки агентов.\n').encode('utf-8'))
+            self.save()
+            if hasattr(self.runtime, 'register_project_storage'):
+                self.runtime.register_project_storage(folder / 'app', folder)
+            return {'cancelled':False, 'path':str(folder), 'projectId':self.state['projectId']}
+
+    def store_source(self, name, data, attachment=False):
+        with self.lock:
+            if not self.state.get('storageRoot'):
+                raise AgentRuntimeError('PROJECT_FOLDER_REQUIRED', 'Сначала выберите папку проекта.', 409)
+            if not name or name != Path(name).name or any(c in name for c in '/\\:') or name.startswith('.'):
+                raise AgentRuntimeError('INVALID_SOURCE_NAME', 'Недопустимое имя исходного файла.')
+            result = self.extract(name, data)
+            relative = 'input/attachments/' + uuid.uuid4().hex[:8] + '-' + name if attachment else 'input/original/' + name
+            self._storage_write(relative, data)
+            if attachment:
+                self.state.setdefault('attachments', []).append(relative)
+            else:
+                self.state['sourceFile'] = relative
+            self.save()
+            return result
+
+    def open_directory(self):
+        with self.lock:
+            folder = self.state.get('storageRoot')
+            if not folder or not Path(folder).is_dir():
+                raise AgentRuntimeError('PROJECT_FOLDER_REQUIRED', 'Сначала выберите папку проекта.', 409)
+            if os.name == 'nt':
+                os.startfile(folder)
+            else:
+                subprocess.Popen(['open' if sys.platform == 'darwin' else 'xdg-open', folder], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+            return {'opened':True, 'path':folder}
+
+    def project_directory(self):
+        return Path(self.state['storageRoot']) / 'app' if self.state.get('storageRoot') else self.root / 'projects' / self.state['projectId']
 
     def snapshot(self):
         with self.lock:
@@ -108,6 +200,8 @@ class Preparation:
                     (history / (uuid.uuid4().hex + '.json')).write_text(json.dumps(self.state, ensure_ascii=False), 'utf-8')
                     self.state['projectId'] = uuid.uuid4().hex
                 self.state['brief'] = brief
+            if self.state.get('storageRoot'):
+                self._storage_write('input/brief.txt', self.state['brief'].encode('utf-8'))
             folder = self.root / uuid.uuid4().hex
             folder.mkdir()
             context = self.context(stage)
@@ -305,6 +399,10 @@ class Preparation:
                             raise ValueError(f'{key} должен быть списком строк')
                     record.update(files=files, checks=checks, questions=result.get('questions', []), limitations=result.get('limitations', []),
                                   status='review' if all(c['status'] == 'passed' for c in checks) else 'failed')
+                    if self.state.get('storageRoot'):
+                        for name, text in files.items():
+                            self._storage_write('artifacts/' + name, text.encode('utf-8'))
+                        self._storage_write(f'reports/stage-{stage}-checks.json', json.dumps({'status':record['status'], 'checks':checks, 'questions':record.get('questions', []), 'limitations':record.get('limitations', [])}, ensure_ascii=False, indent=2).encode('utf-8'))
                     if record['status']=='review':record.pop('error', None)
                     else:record['error']='Не пройдены проверки: '+ '; '.join(c['name'] for c in checks if c['status']=='failed')
                 except Exception as exc:
@@ -344,7 +442,11 @@ class Preparation:
             with zipfile.ZipFile(output, 'w', zipfile.ZIP_DEFLATED) as archive:
                 for name, text in files.items():
                     archive.writestr(name, text)
-            return output.getvalue()
+            blob = output.getvalue()
+            if self.state.get('storageRoot'):
+                self._storage_write('exports/project-context.zip', blob)
+                self._storage_write('artifacts/PROMPT.md', files['PROMPT.md'].encode('utf-8'))
+            return blob
 
     def development(self, stage=5):
         """Seed a dedicated project with approved artifacts; coding uses the existing runtime."""
@@ -354,7 +456,7 @@ class Preparation:
             self.archive()  # Enforce stage 4 approval.
             if stage == 6 and self.state.get('prototype', {}).get('status') != 'approved':
                 raise AgentRuntimeError('PROTOTYPE_REQUIRED', 'Сначала заверши и утверди работающий прототип.', 409)
-            project = self.root / 'projects' / self.state['projectId']
+            project = self.project_directory()
             if stage == 6 and (not project.exists() or self.runtime._run_git(project, 'rev-parse', 'HEAD').strip() != self.state['prototype'].get('commit')):
                 raise AgentRuntimeError('PROJECT_CHANGED', 'Git-проект изменился после утверждения прототипа. Повтори проверку.', 409)
             files = self.context(5)
@@ -389,6 +491,8 @@ class Preparation:
                 self.save()
             if project.resolve() not in self.runtime.allowed_roots:
                 self.runtime.allowed_roots.append(project.resolve())
+            if self.state.get('storageRoot') and hasattr(self.runtime, 'register_project_storage'):
+                self.runtime.register_project_storage(project, Path(self.state['storageRoot']))
             context = json.dumps(files, ensure_ascii=False)
             if len(context) > 59000:
                 context = 'Полные утверждённые документы приложены в папке context/ изолированного планировщика. Прочитай: ' + ', '.join(files)
@@ -396,7 +500,7 @@ class Preparation:
 
     def approve_prototype(self):
         with self.lock:
-            project = self.root / 'projects' / self.state['projectId']
+            project = self.project_directory()
             candidates = [r for r in self.runtime.state['runs'].values() if r.get('projectRoot') == str(project)]
             run = candidates[-1] if candidates else None
             if not run or not run.get('tasks') or any(t.get('status') != 'integrated' for t in run['tasks']):

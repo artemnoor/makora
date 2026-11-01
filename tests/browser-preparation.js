@@ -4,6 +4,7 @@ async page => {
   const errors=[];page.on('pageerror',e=>errors.push(e.message));
   let state={brief:'',stages:{}},submitted='',lastFeedback='';
   await page.route('**/api/preparation**',async route=>{
+    if(new URL(route.request().url()).pathname.endsWith('/folder/select')){state.storageRoot='C:/test-project';return route.fulfill({json:{ok:true,result:{path:'C:/test-project',cancelled:false}}})}
     const request=route.request();if(request.method()==='GET')await new Promise(resolve=>setTimeout(resolve,100));const url=new URL(request.url()),match=url.pathname.match(/\/([1-4])\/(start|refresh|approve)$/);
     if(match){const stage=Number(match[1]),action=match[2],body=request.postDataJSON();
       if(action==='start'){lastFeedback=body.feedback||'';
@@ -19,6 +20,7 @@ async page => {
   await page.route('**/api/agents/approvals',route=>route.fulfill({json:{ok:true,result:[]}}));
   await page.evaluate(()=>{localStorage.clear();sessionStorage.clear()});await page.reload();
   await page.locator('#first-text').fill('Создать систему тикетов с поиском по статусу и обработкой неверного запроса.');
+  await page.locator('[data-choose-project-folder]').click();
   await page.locator('.pixel-start').click();await page.locator('[data-real-stage]').first().waitFor();
   assert(submitted.includes('систему тикетов'),'Исходный текст не отправлен API');
   assert(await page.locator('.analysis-thinking').count()===1,'Нет ожидания документа');

@@ -80,13 +80,13 @@
 [data-real-mermaid] svg{width:100%;height:auto}
 .board-content .real-agent-view{padding:12px;color:#fff}
 #first-stage .first-form{border:2px solid #aaa;box-shadow:5px 0 #303030,0 5px #303030,5px 5px #303030}
-#first-stage .first-form h1{font:normal 44px/1.05 MakoraSteps,Manrope,sans-serif;letter-spacing:0;margin:22px 0 14px}
+#first-stage .first-form h1{font:600 26px/1.25 Arial,sans-serif;letter-spacing:0;margin:14px 0 10px}
 #first-stage .first-form .speech-label{border-bottom:1px solid #383838;padding-bottom:12px}
 #first-stage .pixel-start{border:2px solid #ddd;box-shadow:4px 4px 0 #505050;min-height:47px;margin-bottom:5px}
 #first-stage .first-form textarea{font-size:13px;line-height:1.6}
 #first-stage .pixel-drop{border:1px dashed #777;background:#151515}
 @media(max-width:800px){#first-stage .board-stages [data-real-stage]{flex-direction:column;gap:4px;min-height:59px;text-align:center}#first-stage .board-stages [data-real-stage] small{display:none}.rp-file-grid{grid-template-columns:1fr}.rp-lifecycle li{flex-direction:column;align-items:start;gap:7px;font-size:10px}.rp-eyebrow{align-items:start}.rp-status{max-width:60%}}
-@media(max-width:480px){#first-stage .board-stages [data-real-stage]>span{font-size:9px}.rp-eyebrow{font-size:9px}.rp-actions>div{align-items:stretch}.rp-actions .rp-primary{width:100%}.rp-wait{gap:12px;padding:14px 10px}#first-stage .first-form h1{font-size:38px}}
+@media(max-width:480px){#first-stage .board-stages [data-real-stage]>span{font-size:9px}.rp-eyebrow{font-size:9px}.rp-actions>div{align-items:stretch}.rp-actions .rp-primary{width:100%}.rp-wait{gap:12px;padding:14px 10px}#first-stage .first-form h1{font-size:26px}}
 @media(prefers-reduced-motion:reduce){.rp-pixels i{animation:none}.rp-file:hover{transform:none!important}}
 
 #first-stage .board.rp-board:not(.expanded){height:min(650px,calc(100dvh - 112px))!important;aspect-ratio:auto!important}
