@@ -30,6 +30,8 @@
     if(!board.querySelector('.board-size')){const size=document.createElement('button');size.type='button';size.className='board-size';size.textContent='＋';size.setAttribute('aria-label','Увеличить доску');size.onclick=()=>{const large=board.classList.toggle('rp-large');size.textContent=large?'−':'＋';size.setAttribute('aria-label',large?'Уменьшить доску':'Увеличить доску');window.dispatchEvent(new Event('resize'))};board.querySelector('.board-expand').before(size)}
     board.classList.remove('idea-board','plan-index-board','revision-view');board.classList.add('workspace-board');
     board.classList.toggle('agent-real-mode',stage>=5);
+    board.classList.toggle('rp-analysis',stage===1);
+    if(stage!==1)scene.querySelector('.analysis-chat')?.remove();
     scene.querySelector('.board-kicker').textContent='ПРОЕКТ · GPT-6 LUNA';
     scene.querySelector('.board-bar h2').textContent=names[stage-1];scene.querySelector('.board-heading span:first-child').textContent=String(stage).padStart(2,'0')+' / '+names[stage-1];scene.querySelector('.board-footer span:last-child').textContent=String(stage).padStart(2,'0')+' / 06';
     scene.querySelector('.scene-bottom p').textContent='Реальные артефакты проекта · результаты требуют вашего утверждения';
@@ -43,6 +45,7 @@
     const record=state.stages[stage],files=record?.files||{},status=record?.status||'not_started';
     const labels={running:'Макора готовит результат',launching:'Запрос отправляется',unconfirmed:'Доставка или завершение не подтверждены',review:'Проверьте результат',approved:'Результат утверждён',failed:'Нужны исправления',stale:'Требует обновления',not_started:'Можно начинать'};
     const working=['running','launching','unconfirmed'].includes(status),review=['review','approved'].includes(status),checks=record?.checks||[],passed=checks.filter(c=>c.status==='passed').length;
+    if(stage===1){analysisView(scene,board,content,record,files,status,working,projectKey);return}
     const flowIndex=status==='approved'?2:status==='review'?1:0;
     const help=status==='review'?'Откройте документы. Всё подходит — утвердите результат.':status==='approved'?'Результат сохранён. Можно двигаться дальше.':working?'Дождитесь ответа. Можно открыть другой доступный этап.':status==='failed'?'Посмотрите ошибки и отправьте уточнения Макоре.':'Нажмите «Начать этап» — Макора подготовит результат.';
     content.innerHTML=`<div class="board-document rp-workspace" data-phase="${esc(status)}">
@@ -72,6 +75,33 @@
     content.querySelector('[data-real-refresh]')?.addEventListener('click',()=>action(async()=>{state=await api(`/api/preparation/${stage}/refresh`,{});paint()}));
     approvals(content);schedule();
   }
+  function analysisView(scene,board,content,record,files,status,working,projectKey){
+    const paths=Object.keys(files),path=paths.find(p=>/01_case_analysis\.md$/.test(p))||paths.find(p=>/\.md$/.test(p));
+    const ready=['review','approved'].includes(status)&&!!path;
+    content.innerHTML=`<div class="board-document rp-workspace analysis-summary" data-phase="${esc(status)}">
+      ${working?`<div class="analysis-thinking" role="status"><img src="analysis-wheel.png" alt="" class="analysis-wheel"><p>${status==='unconfirmed'?'Проверяем состояние документа…':'Составляется документ'}</p><small>01_case_analysis.md</small></div>`:`<p class="analysis-purpose">${ready?'Документ подготовлен. Собрали требования, ограничения и критерии оценки вашего задания.':'Разберём требования, ограничения и критерии оценки задания.'}</p>
+      ${path?`<button class="analysis-file" data-real-file="${esc(path)}"><span class="analysis-file-mark">MD</span><span><strong>Анализ задания</strong><small>${esc(path)}</small></span><span aria-hidden="true">↗</span></button>`:''}
+      ${record?.error?`<p data-real-error role="alert">${esc(typeof record.error==='string'?record.error:JSON.stringify(record.error))}</p>`:''}
+      <div class="analysis-actions"><button class="rp-secondary" data-analysis-edit>${record?'Пересоздать с уточнениями':'Начать анализ'}</button>${ready?`<button class="rp-primary" ${status==='approved'?'data-real-next':'data-real-approve'}>Продолжить →</button>`:''}${['failed','unconfirmed'].includes(status)?'<button class="rp-text-button" data-real-refresh>Проверить состояние ↻</button>':''}</div>`}
+      <div data-real-approvals></div></div><article class="analysis-reader" data-real-document data-phase="${esc(status)}" hidden></article>`;
+    const show=()=>{if(!path)return;file=path;content.querySelector('.analysis-summary').hidden=true;const doc=content.querySelector('[data-real-document]');doc.hidden=false;doc.innerHTML=`<header class="analysis-reader-header"><button class="rp-text-button" data-analysis-close data-rp-back>← К результату</button><span>01 / АНАЛИЗ ЗАДАНИЯ</span><a download="${esc(path.split('/').pop())}" href="${URL.createObjectURL(new Blob([files[path]],{type:'text/markdown;charset=utf-8'}))}">Скачать .md ↓</a></header><div class="analysis-paper"><p class="analysis-filename">${esc(path)}</p>${markdown(files[path])}</div>`;diagrams(doc);doc.querySelector('[data-analysis-close]').onclick=()=>{if(board.classList.contains('expanded'))board.querySelector('.board-expand').click();else{file=null;analysisView(scene,board,content,record,files,status,working,projectKey)}};content.scrollTop=0;};
+    content.querySelector('[data-real-file]')?.addEventListener('click',()=>{show();if(!board.classList.contains('expanded'))board.querySelector('.board-expand').click()});
+    if(file&&path)show();
+    content.querySelector('[data-analysis-edit]')?.addEventListener('click',()=>{
+      if(scene.querySelector('.analysis-chat')){scene.querySelector('.analysis-chat textarea').focus();return}
+      const chat=document.createElement('form');chat.className='analysis-chat';chat.innerHTML=`<div class="speech-label">МАКОРА · УТОЧНЕНИЯ<button type="button" aria-label="Закрыть уточнения" data-chat-close>×</button></div><h3>Какие правки внесём?</h3><p>Напиши, что изменить, или приложи файл с уточнениями.</p><textarea aria-label="Уточнения к анализу" placeholder="Что добавить или исправить?">${esc(feedbacks[1]||'')}</textarea><label class="analysis-attachment">＋ Прикрепить файл<input type="file" accept=".pdf,.docx,.txt,.md" hidden></label><small class="analysis-attachment-name" role="status"></small><p class="analysis-chat-error" role="alert"></p><button class="rp-primary" type="submit">Пересоздать документ →</button>`;
+      const mascot=scene.querySelector('.mascot-area');const rect=mascot.getBoundingClientRect();chat.style.left=Math.max(12,Math.min(innerWidth-344,rect.left+rect.width/2-166))+'px';const chatTop=Math.max(90,Math.min(innerHeight-180,rect.bottom+12));chat.style.top=chatTop+'px';chat.style.maxHeight=(innerHeight-chatTop-16)+'px';scene.append(chat);
+      chat.querySelector('[data-chat-close]').onclick=()=>chat.remove();const input=chat.querySelector('textarea');input.focus();input.oninput=()=>{feedbacks[1]=input.value;localStorage.setItem(projectKey,JSON.stringify(feedbacks))};
+      let attached='';async function attach(f){if(!f)return;const label=chat.querySelector('.analysis-attachment-name');label.textContent='Читаем файл…';try{attached=await extract(f);label.textContent=f.name}catch(e){label.textContent=e.message}}
+      chat.querySelector('input').onchange=e=>attach(e.target.files[0]);chat.ondragover=e=>e.preventDefault();chat.ondrop=e=>{e.preventDefault();attach(e.dataTransfer.files[0])};
+      chat.onsubmit=e=>{e.preventDefault();action(async()=>{const feedback=[input.value,attached].filter(Boolean).join('\n\n');if(!feedback.trim()){input.focus();return}feedbacks[1]=feedback;localStorage.setItem(projectKey,JSON.stringify(feedbacks));const submit=chat.querySelector('[type=submit]');submit.disabled=true;submit.textContent='Отправляем…';try{state=await api('/api/preparation/1/start',{feedback});file=null;chat.remove();paint()}catch(e){chat.querySelector('.analysis-chat-error').textContent=e.message;submit.disabled=false;submit.textContent='Пересоздать документ →'}})};
+    });
+    content.querySelector('[data-real-approve]')?.addEventListener('click',()=>action(async()=>{state=await api('/api/preparation/1/approve',{note:feedbacks[1]||''});await open(2)}));
+    content.querySelector('[data-real-next]')?.addEventListener('click',()=>open(2).catch(e=>error(e.message)));
+    content.querySelector('[data-real-refresh]')?.addEventListener('click',()=>action(async()=>{state=await api('/api/preparation/1/refresh',{});paint()}));
+    approvals(content);schedule();
+  }
+  window.addEventListener('makora:board-fullscreen',e=>{if(!e.detail.expanded&&stage===1&&file){file=null;paint()}});
   async function action(fn){if(busy)return;busy=true;root()?.querySelector('.board-content')?.setAttribute('aria-busy','true');try{await fn()}catch(e){error(e.message)}finally{busy=false;root()?.querySelector('.board-content')?.setAttribute('aria-busy','false')}}
   async function approvals(content){try{const list=await api('/api/agents/approvals');if(!content.isConnected)return;const host=content.querySelector('[data-real-approvals]');if(!host)return;host.innerHTML=list.map(item=>`<details><summary>Codex запрашивает разрешение</summary><pre>${esc(JSON.stringify(item.params,null,2))}</pre><button data-prep-approval="${esc(item.requestId)}" data-choice="accept">Разрешить</button><button data-prep-approval="${esc(item.requestId)}" data-choice="decline">Отклонить</button></details>`).join('');host.querySelectorAll('[data-prep-approval]').forEach(b=>b.onclick=()=>action(async()=>{await api(`/api/agents/approvals/${b.dataset.prepApproval}`,{decision:b.dataset.choice});paint()}))}catch(e){error(e.message)}}
   async function development(content,board){

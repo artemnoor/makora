@@ -393,7 +393,9 @@
   },true);
   function updateFullscreen(expanded) {
     if (expanded) settleBoard();
+    board.classList.add('board-settled');
     board.classList.toggle('expanded', expanded);
+    window.dispatchEvent(new CustomEvent('makora:board-fullscreen',{detail:{expanded}}));
     const button = root.querySelector('.board-expand');
     button.textContent = expanded ? '×' : '⛶';
     button.setAttribute('aria-label', expanded ? 'Свернуть доску' : 'Развернуть доску');

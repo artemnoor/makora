@@ -15,22 +15,22 @@
  document.addEventListener('input',()=>setTimeout(update,0));document.addEventListener('change',()=>setTimeout(update,0));
  function update(){
   const root=document.querySelector('#first-stage');if(!root)return;if(!host.isConnected)root.append(host);
-  const phase=find('.rp-workspace')?.dataset.phase||'',current=find('[data-real-stage].active')?.dataset.realStage||'input',key=current+':'+phase;
+  const phase=find('.rp-workspace,[data-real-document][data-phase]')?.dataset.phase||'',current=find('[data-real-stage].active')?.dataset.realStage||'input',key=current+':'+phase;
   if(key!==phaseKey){phaseKey=key;phaseAt=Date.now();seen.clear()}
   let status='Ваш ход',title='',comment='',note='',selector='',working=false;
   const error=find('[data-real-error],.first-error');
-  if(activity){working=true;status=activity;title='Запрос выполняется';comment='Дождитесь ответа сервера. Повторно нажимать кнопку не нужно.'}
+  if(find('.analysis-chat')){status='Уточнения к заданию';title='Что нужно изменить?';comment='Напишите правки или прикрепите файл. Затем нажмите «Пересоздать документ».';selector='.analysis-chat textarea'}else if(activity){working=true;status=activity;title='Запрос выполняется';comment='Дождитесь ответа сервера. Повторно нажимать кнопку не нужно.'}
   else if(error?.textContent.trim()){status='Нужна проверка';title='Возникла ошибка';comment=error.textContent;selector=find('[data-real-refresh]')?'[data-real-refresh]':'.pixel-start';note='Проверьте сообщение. Не отправляйте то же задание повторно, если доставка не подтверждена.'}
   else if(find('[data-prep-approval]')){status='Ожидается разрешение';title='Проверьте запрос Codex';comment='Макора ждёт решения по конкретному действию. Прочитайте параметры запроса перед разрешением.';selector='[data-prep-approval]'} else if(!root.classList.contains('departing')){
    const ready=!root.querySelector('.pixel-start').disabled;
    title=ready?'02 · Начните анализ':'01 · Пришлите условие';comment=ready?'Проверьте имя выбранного файла или вставленный текст. Затем нажмите «Начать анализ».':'Нажмите «Выбрать файл» или вставьте текст задания в поле ниже.';selector=ready?'.pixel-start':'.pixel-drop';note='PDF, DOCX, TXT или MD. После загрузки анализ запускается отдельной кнопкой.';
-  }else if(['running','launching'].includes(phase)){working=true;status='Макора работает';title='Готовим результат этапа';comment='Сессия запущена. Макора пишет документы, затем система проверит файлы. Состояние обновляется автоматически.';selector='[data-real-refresh]';note='Индикатор показывает ожидание ответа, а не процент готовности.'}
+  }else if(['running','launching'].includes(phase)){working=true;status='Макора работает';title='Готовим результат этапа';comment='Сессия запущена. Макора пишет документы, затем система проверит файлы. Состояние обновляется автоматически.';selector=find('[data-real-refresh]')?'[data-real-refresh]':'.analysis-thinking';note='Индикатор показывает ожидание ответа, а не процент готовности.'}
   else if(phase==='unconfirmed'){status='Результат не подтверждён';title='Проверьте текущую сессию';comment='Нет подтверждения доставки или завершения. Новый запрос автоматически не отправляется.';selector='[data-real-refresh]';note='Нажмите «Проверить состояние». Не запускайте ещё один анализ.'}
   else if(phase==='review'){
    const files=[...root.querySelectorAll('[data-real-file]')],unread=files.find(e=>!seen.has(e.dataset.realFile));
-   if(find('[data-real-document]')){title='03 · Прочитайте результат';comment='Сверьте документ с вашим заданием. Для остальных файлов нажмите «Все результаты этапа».';selector='[data-rp-back]'}
+   if(find('[data-real-document]')){title='03 · Прочитайте результат';comment='Сверьте документ с заданием. Кнопка «К результату» вернёт компактную доску.';selector='[data-rp-back]'}
    else if(unread){title='03 · Откройте результат';comment='Макора закончила. Нажмите карточку документа, прочитайте его и проверьте требования.';selector='[data-real-file="'+CSS.escape(unread.dataset.realFile)+'"]'}
-   else{title='04 · Утвердите или уточните';comment='Всё подходит — нажмите «Утвердить и продолжить». Если нужны правки, раскройте «Уточнения и изменения» и пересоздайте результат.';selector='[data-real-approve]'}
+   else{title='04 · Утвердите или уточните';comment='Всё подходит — продолжите маршрут. Для правок нажмите «Пересоздать с уточнениями» и напишите Макоре.';selector='[data-real-approve]'}
    status='Готово · ожидает вашего решения';note='Утверждение открывает следующий этап. Просмотр документа ничего не утверждает.';
   }else if(phase==='approved'){status='Этап утверждён';title='Продолжите маршрут';comment='Результат сохранён и будет использован следующим этапом.';selector='[data-real-next]'}
   else if(phase==='failed'||phase==='stale'){status=phase==='failed'?'Этап завершился с ошибкой':'Материалы устарели';title='Уточните и повторите этап';comment='Раскройте замечания и уточнения. После исправления запустите этап снова.';selector='.rp-feedback summary'}

@@ -192,3 +192,55 @@
 #first-stage .mascot-area{touch-action:none;cursor:grab}
 #first-stage .mascot-area.carried{cursor:grabbing}
 @media(max-width:899px){#first-stage .board.rp-board:not(.expanded){height:calc(100dvh - 255px)!important}#first-stage .board.rp-board .board-inner{inset:18% 10% 23%!important}#first-stage .first-top>span{display:none}}
+
+/* Analysis: one deliverable on the board, a reading surface when expanded. */
+#first-stage .board-settled :is(.board-art,.board-shadow-art,.board-inner){animation:none!important}
+#first-stage .board-settled .board-shadow-art{display:none!important}
+#first-stage .board-settled .board-inner{opacity:1!important}
+#first-stage .rp-analysis .board-content{display:flex;flex-direction:column;min-height:0}
+#first-stage .analysis-summary{padding:0!important;display:flex;flex-direction:column;gap:12px;min-height:0}
+#first-stage .analysis-purpose{font:12px/1.55 Manrope,Arial,sans-serif;margin:0;color:#bbb}
+#first-stage .analysis-file{display:flex;align-items:center;gap:12px;width:100%;padding:12px;border:1px solid #555;background:#181818;color:#eee;text-align:left;cursor:pointer}
+#first-stage .analysis-file:hover{border-color:#eee;background:#242424}
+#first-stage .analysis-file>span:nth-child(2){flex:1;min-width:0;display:grid;gap:4px}
+#first-stage .analysis-file strong{font:600 14px Manrope,Arial,sans-serif}
+#first-stage .analysis-file small{font:10px monospace;color:#aaa;overflow-wrap:anywhere}
+#first-stage .analysis-file-mark{font:12px monospace;border:1px solid #777;padding:10px 5px}
+#first-stage .analysis-actions{display:flex;flex-wrap:wrap;gap:8px}
+#first-stage .analysis-actions button{font-size:11px;min-height:36px;padding:7px 10px}
+#first-stage .analysis-thinking{text-align:center;display:grid;justify-items:center;gap:6px}
+#first-stage .analysis-thinking p{font:13px Manrope,Arial,sans-serif;margin:4px 0 0}
+#first-stage .analysis-thinking small{font:10px monospace;color:#aaa}
+#first-stage .analysis-wheel{width:90px;height:90px;object-fit:contain;image-rendering:pixelated;animation:analysis-resistance 12s linear infinite}
+#first-stage .board.rp-analysis.expanded{background:#0d0d0d!important}
+#first-stage .board.rp-analysis.expanded :is(.board-art,.board-shadow-art){display:none!important}
+#first-stage .board.rp-analysis.expanded .board-inner{inset:88px 0 0!important;padding:0 5%;overflow:hidden}
+#first-stage .board.rp-analysis.expanded .board-bar{padding:12px 0 18px;border-bottom:1px solid #303030}
+#first-stage .board.rp-analysis.expanded .board-bar h2{font:600 24px Manrope,Arial,sans-serif}
+#first-stage .board.rp-analysis.expanded .board-content{padding:0;overflow:auto;scrollbar-gutter:stable}
+#first-stage .board.rp-analysis.expanded .board-footer{display:none}
+#first-stage .analysis-reader{width:100%;color:#e8e8e8}
+#first-stage .analysis-reader[hidden],#first-stage .analysis-summary[hidden]{display:none}
+#first-stage .analysis-reader-header{display:flex;align-items:center;justify-content:space-between;gap:16px;padding:18px 0;border-bottom:1px solid #292929;font:10px monospace;color:#999}
+#first-stage .analysis-reader-header a{color:#ddd;font:12px Manrope,Arial,sans-serif;text-decoration:none}
+#first-stage .analysis-paper{max-width:860px;margin:0 auto;padding:48px 24px 100px;font:15px/1.85 Manrope,Arial,sans-serif;overflow-wrap:anywhere}
+#first-stage .analysis-paper h1{font-size:32px;line-height:1.25;margin:16px 0 32px;letter-spacing:-.03em}
+#first-stage .analysis-paper h2{font-size:23px;line-height:1.4;margin:42px 0 18px;border-bottom:1px solid #333;padding-bottom:12px}
+#first-stage .analysis-paper h3{font-size:18px;margin:28px 0 12px}
+#first-stage .analysis-paper p,#first-stage .analysis-paper li{font-size:15px;line-height:1.85;color:#d2d2d2}
+#first-stage .analysis-paper table{display:block;overflow:auto;border-collapse:collapse;font-size:13px}
+#first-stage .analysis-paper th,#first-stage .analysis-paper td{border:1px solid #333;padding:12px 16px;min-width:110px}
+#first-stage .analysis-paper blockquote{margin:24px 0;padding:12px 20px;border-left:3px solid #bbb;background:#181818}
+#first-stage .analysis-filename{font:11px monospace!important;color:#888!important}
+#first-stage .analysis-chat{position:fixed;z-index:100;width:min(332px,calc(100vw - 24px));max-height:calc(100dvh - 110px);overflow:auto;background:#131313;border:2px solid #aaa;box-shadow:5px 5px 0 #444;padding:20px;color:#eee;font:13px/1.5 Manrope,Arial,sans-serif;clip-path:polygon(0 8px,8px 8px,8px 0,calc(100% - 8px) 0,calc(100% - 8px) 8px,100% 8px,100% 100%,0 100%)}
+#first-stage .analysis-chat h3{font:600 21px/1.3 Manrope,Arial,sans-serif;margin:18px 0 8px}
+#first-stage .analysis-chat p{color:#bbb;font-size:12px}
+#first-stage .analysis-chat textarea{box-sizing:border-box;width:100%;min-height:95px;background:#080808;border:1px solid #555;color:white;padding:12px;font:13px/1.5 Manrope,Arial,sans-serif;resize:vertical}
+#first-stage .analysis-chat .speech-label{align-items:center;font:10px monospace}
+#first-stage .analysis-chat .speech-label button{background:none;border:0;color:#aaa;font-size:21px;cursor:pointer}
+#first-stage .analysis-attachment{display:block;padding:10px 0;cursor:pointer;font-size:12px}
+#first-stage .analysis-attachment-name{display:block;color:#aaa;overflow-wrap:anywhere}
+#first-stage .analysis-chat .rp-primary{width:100%;margin-top:12px;min-height:42px}
+@media(max-width:650px){#first-stage .analysis-reader-header>span{display:none}#first-stage .analysis-paper{padding:24px 4px 60px}#first-stage .analysis-paper h1{font-size:26px}#first-stage .analysis-chat{left:12px!important;top:auto!important;bottom:16px}}
+@media(prefers-reduced-motion:reduce){#first-stage .analysis-wheel{animation:none}}
+@keyframes analysis-resistance{0%{transform:rotate(0deg)}7.0%{transform:rotate(4deg)}9.0%{transform:rotate(-3deg)}11.5%{transform:rotate(47deg)}12.5%{transform:rotate(45deg)}19.5%{transform:rotate(49deg)}21.5%{transform:rotate(42deg)}24.0%{transform:rotate(92deg)}25.0%{transform:rotate(90deg)}32.0%{transform:rotate(94deg)}34.0%{transform:rotate(87deg)}36.5%{transform:rotate(137deg)}37.5%{transform:rotate(135deg)}44.5%{transform:rotate(139deg)}46.5%{transform:rotate(132deg)}49.0%{transform:rotate(182deg)}50.0%{transform:rotate(180deg)}57.0%{transform:rotate(184deg)}59.0%{transform:rotate(177deg)}61.5%{transform:rotate(227deg)}62.5%{transform:rotate(225deg)}69.5%{transform:rotate(229deg)}71.5%{transform:rotate(222deg)}74.0%{transform:rotate(272deg)}75.0%{transform:rotate(270deg)}82.0%{transform:rotate(274deg)}84.0%{transform:rotate(267deg)}86.5%{transform:rotate(317deg)}87.5%{transform:rotate(315deg)}94.5%{transform:rotate(319deg)}96.5%{transform:rotate(312deg)}99.0%{transform:rotate(362deg)}100.0%{transform:rotate(360deg)}}
