@@ -62,6 +62,7 @@
     mascotArea.style.left = Math.max(0, Math.min(left, window.innerWidth - mascotArea.offsetWidth)) + 'px';
     mascotArea.style.top = Math.max(0, Math.min(top, window.innerHeight - mascotArea.offsetHeight)) + 'px';
     prototypeHandoff.updatePosition();
+    window.dispatchEvent(new Event('makora:mascot-move'));
   }
   mascotArea.addEventListener('pointerdown', e => {
     if (e.button !== 0) return;

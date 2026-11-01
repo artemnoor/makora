@@ -1,8 +1,9 @@
 async page=>{
- const assert=(v,m)=>{if(!v)throw Error(m)};let resolveStart,current={brief:"",stages:{}};
+ const assert=(v,m)=>{if(!v)throw Error(m)};let refreshes=0;let resolveStart,current={brief:"",stages:{}};
  await page.route('**/api/preparation**',async route=>{
   const path=new URL(route.request().url()).pathname;
   if(path.endsWith('/start')){await new Promise(r=>{resolveStart=r});current={projectId:'guide-test',brief:'Кейс',stages:{1:{status:'running',threadId:'guide-thread',files:{}}}};return route.fulfill({json:{ok:true,result:current}})}
+  if(path.endsWith('/refresh')&&++refreshes===1)return route.fulfill({json:{ok:true,result:current}});
   if(path.endsWith('/refresh'))return route.fulfill({json:{ok:true,result:{projectId:'guide-test',brief:'Кейс',stages:{1:{status:'review',files:{'01_case_analysis.md':'# Проверенный результат\nREQ-1'},checks:[]}}}}});
   return route.fulfill({json:{ok:true,result:current}});
  });
@@ -12,7 +13,9 @@ async page=>{
  await page.locator('#first-text').fill('Приложение с поиском задач');await page.locator('.pixel-start').click();
  await page.locator('.mg-status').filter({hasText:'Отправляем'}).waitFor();assert(await page.locator('.makora-guide').evaluate(e=>e.classList.contains('mg-working')),'Нет ожидания запроса');
  for(let i=0;i<50&&!resolveStart;i++)await page.waitForTimeout(100);assert(resolveStart,"Запрос не дошёл до API");resolveStart();await page.locator('.analysis-thinking').waitFor();await page.locator('.mg-status').filter({hasText:'Макора работает'}).waitFor();await page.waitForFunction(()=>document.querySelector('.mascot-frame')?.contentDocument?.querySelector('[data-action=wheel]')?.classList.contains('active'));
- await page.locator('[data-guide-show]').click();assert(await page.locator('.analysis-thinking').evaluate(e=>e.classList.contains('mg-highlight')),'Нет подсветки проверки');
+ await page.waitForTimeout(4400);
+ assert(await page.locator('.analysis-wheel').evaluate(el=>el.getAnimations()[0].currentTime-parseFloat(getComputedStyle(el).animationDelay)*1000>4000),'Колесо сбрасывается после обновления');
+ assert(!await page.locator('.analysis-thinking').evaluate(e=>e.classList.contains('mg-highlight')),'Ожидание обведено путеводителем');
  await page.locator('[data-real-file]').waitFor();await page.locator('.mg-body h3').filter({hasText:'Откройте результат'}).waitFor();await page.waitForFunction(()=>!document.querySelector('.mascot-frame')?.contentDocument?.querySelector('[data-action=wheel]')?.classList.contains('active'));
  await page.locator('[data-guide-show]').click();await page.locator('[data-real-file]').click();await page.locator('.mg-body h3').filter({hasText:'Прочитайте'}).waitFor();
  await page.locator('[data-rp-back]').click();await page.locator('.mg-body h3').filter({hasText:'Утвердите'}).waitFor();

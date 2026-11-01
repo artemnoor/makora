@@ -36,7 +36,11 @@ async page => {
   assert(state.stages[1].status==='approved','Нет явного утверждения');
   await page.locator('[data-real-run]').click();await page.locator('[data-real-refresh]').waitFor();await page.locator('[data-real-refresh]').click();
   await page.locator('[data-real-approve]').waitFor();
-  await page.locator('[data-real-stage="1"]').click();await page.locator('[data-analysis-edit]').click();await page.locator('.analysis-chat textarea').fill('Сохранить уточнение пользователя');await page.locator('.analysis-chat [type=submit]').click();await page.locator('.analysis-thinking').waitFor();
+  await page.locator('[data-real-stage="1"]').click();await page.locator('[data-analysis-edit]').click();
+  const chatBefore=await page.locator('.analysis-chat').boundingBox(),speaker=await page.locator('.mascot-area').boundingBox();
+  await page.mouse.move(speaker.x+speaker.width/2,speaker.y+speaker.height/2);await page.mouse.down();await page.mouse.move(speaker.x+speaker.width/2+40,speaker.y+speaker.height/2,{steps:5});await page.mouse.up();
+  assert(Math.abs((await page.locator('.analysis-chat').boundingBox()).x-chatBefore.x-40)<3,'Чат не следует за Макорой');
+  await page.locator('.analysis-chat textarea').fill('Сохранить уточнение пользователя');await page.locator('.analysis-chat [type=submit]').click();await page.locator('.analysis-thinking').waitFor();
   assert(lastFeedback.includes('Сохранить уточнение'),'Уточнение не передано повторной генерации');
   assert(state.stages[2].status==='stale','Повторный анализ не инвалидирует последующие этапы');
   await page.setViewportSize({width:390,height:844});
