@@ -263,3 +263,41 @@
 #first-stage .analysis-chat .rp-primary:disabled{opacity:.5;cursor:wait}
 #first-stage .analysis-chat{overflow:visible}
 #first-stage .analysis-chat-body{overflow:auto;max-height:calc(var(--chat-available,400px) - 124px);padding:0 3px 3px;scrollbar-width:thin;scrollbar-color:#555 #141416}
+
+/* Every stage uses the same compact summary and a spacious expanded workspace. */
+#first-stage .artifact-reader-layout{display:grid;grid-template-columns:240px minmax(0,1fr);gap:32px;align-items:start}
+#first-stage .artifact-files{padding:28px 0 60px;display:grid;gap:5px;min-width:0}
+#first-stage .artifact-files>button{padding:12px;text-align:left;background:none;color:#aaa;border:1px solid transparent;cursor:pointer;display:grid;gap:5px;min-width:0}
+#first-stage .artifact-files>button:hover{border-color:#555;color:#fff}
+#first-stage .artifact-files>button.active{background:#1c1c1e;border-color:#555;color:#fff}
+#first-stage .artifact-files strong{font:600 12px/1.5 Manrope,Arial,sans-serif}
+#first-stage .artifact-files small{font:10px/1.5 monospace;overflow-wrap:anywhere;color:#999}
+#first-stage .artifact-files details{padding:14px 10px;border-top:1px solid #333;font:12px/1.7 Manrope,Arial,sans-serif;color:#bbb}
+#first-stage .artifact-files summary{cursor:pointer;color:#eee}
+#first-stage .artifact-files li{font:12px/1.7 Manrope,Arial,sans-serif}
+#first-stage .artifact-reader-layout .analysis-paper{margin:0;width:100%;min-width:0;max-width:940px;box-sizing:border-box}
+#first-stage .analysis-paper pre{overflow:auto;font:12px/1.8 monospace;padding:20px;background:#141416;border:1px solid #333;white-space:pre}
+#first-stage .analysis-paper svg{max-width:100%;height:auto}
+#first-stage .runtime-summary{display:grid;gap:12px}
+#first-stage .runtime-active{display:flex;flex-wrap:wrap;gap:6px}
+#first-stage .runtime-active span{font:10px/1.3 Manrope,Arial,sans-serif;padding:5px 10px;border:1px solid #666;border-radius:30px;color:#ddd}
+#first-stage .runtime-attention{font:11px/1.6 Manrope,Arial,sans-serif;color:#ddd;margin:0}
+#first-stage .board:not(.expanded) .runtime-detail{display:none}
+#first-stage .board.expanded .runtime-summary{display:none}
+#first-stage .board.expanded .runtime-detail{display:block;max-width:1100px;margin:auto;padding:24px 0 80px}
+#first-stage .runtime-back{margin-bottom:24px}
+#first-stage .board.rp-analysis:not(.expanded) .rp-runtime{padding:0!important;border:0;background:none}
+#first-stage .board.rp-analysis:not(.expanded) .real-agent-view{min-width:0}
+#first-stage .board.rp-analysis.expanded .rp-runtime{padding:0;border:0}
+#first-stage .board.rp-analysis.expanded .real-task-list{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:16px}
+#first-stage .board.rp-analysis.expanded :is(.real-task,.real-run-header){min-width:0;overflow-wrap:anywhere}
+#first-stage .board.rp-analysis.expanded pre{max-width:100%;overflow:auto}
+@media(max-width:800px){#first-stage .artifact-reader-layout{grid-template-columns:minmax(0,1fr);gap:0}#first-stage .artifact-files{padding:12px 0;display:flex;flex-wrap:wrap;gap:5px}#first-stage .artifact-files>button{max-width:100%;flex:1 1 140px}#first-stage .artifact-files details{width:100%}#first-stage .artifact-reader-layout .analysis-paper{padding-top:20px}#first-stage .board.rp-analysis.expanded .real-task-list{grid-template-columns:1fr}}
+
+#first-stage .board:not(.expanded) .runtime-active{display:none}
+
+#first-stage .rp-runtime .analysis-actions button.rp-primary{margin:0;box-shadow:none;padding:7px 10px;font-size:11px}
+
+#first-stage .runtime-detail .real-run-header small{display:block;max-width:85ch;font:11px/1.7 Manrope,Arial,sans-serif;margin:10px 0;color:#aaa}
+#first-stage .runtime-detail .real-run-header h3{font:600 14px/1.6 Manrope,Arial,sans-serif;overflow-wrap:anywhere;margin:10px 0 16px}
+#first-stage .runtime-detail .real-run-header button{margin:0 8px 8px 0}

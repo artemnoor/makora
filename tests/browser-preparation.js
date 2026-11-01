@@ -34,7 +34,7 @@ async page => {
   await page.reload();await page.locator('[data-real-file]').first().waitFor();
   await page.locator('[data-real-approve]').click();await page.waitForFunction(()=>document.querySelector('.board-bar h2')?.textContent==='Разработка идеи');await page.locator('[data-real-run]').waitFor();
   assert(state.stages[1].status==='approved','Нет явного утверждения');
-  await page.locator('[data-real-run]').click();await page.locator('[data-real-refresh]').waitFor();await page.locator('[data-real-refresh]').click();
+  await page.locator('[data-real-run]').click();await page.locator('.analysis-thinking').waitFor();
   await page.locator('[data-real-approve]').waitFor();
   await page.locator('[data-real-stage="1"]').click();await page.locator('[data-analysis-edit]').click();
   const chatBefore=await page.locator('.analysis-chat').boundingBox(),speaker=await page.locator('.mascot-area').boundingBox();

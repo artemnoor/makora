@@ -65,11 +65,34 @@
     fold([view.querySelector('.real-agent-list')],'Все агенты и сведения о сессиях');
     const tools=host.querySelector('[data-preparation-tools]');if(tools){const approve=tools.querySelector('button');if(approve){approve.hidden=!(total&&completed===total);if(!approve.hidden){approve.classList.add('rp-primary');view.querySelector('.real-task-list')?.after(approve)}}const exported=fold([tools],'Экспорт для внешнего ИИ');if(exported)view.append(exported)}
   }
+  function compactRuntime(ctx,run,state,approvals){
+    if(!ctx.project)return;const view=ctx.content.querySelector('.real-agent-view');if(!view)return;
+    const detail=document.createElement('div');detail.className='runtime-detail';while(view.firstChild)detail.append(view.firstChild);view.append(detail);
+    const sessions=state.sessions.filter(s=>!run||s.runId===run.id),active=sessions.filter(s=>['accepted','delivered','running'].includes(s.status));
+    const completed=(run?.tasks||[]).filter(t=>t.status==='integrated').length,total=run?.tasks?.length||0;
+    const summary=document.createElement('section');summary.className='runtime-summary';
+    summary.innerHTML=`<p class="analysis-purpose">${ctx.preparationStage===5?'Соберём рабочий прототип на ваших мок-данных.':'Развиваем прототип: агенты выполняют задачи, тестируют и проверяют изменения.'}</p><button class="analysis-file" data-runtime-open><span class="analysis-file-mark">${ctx.preparationStage===5?'05':'06'}</span><span><strong>${run?'Задачи и результаты':'План разработки'}</strong><small>${run?`${completed} / ${total} задач · ${active.length} агентов работают`:active.length?'Махорага составляет план…':'Документы и моки уже переданы'}</small></span><span>↗</span></button>${active.length?`<div class="runtime-active" role="status">${active.slice(0,3).map(s=>`<span>${escapeHtml(s.role)} · ${escapeHtml(s.taskId||'план')}</span>`).join('')}${active.length>3?`<small>ещё ${active.length-3}</small>`:''}</div>`:''}${approvals.length?'<p class="runtime-attention">Ожидается разрешение действия Codex. Откройте управление и проверьте запрос.</p>':''}<div class="analysis-actions" data-runtime-controls></div>`;
+    view.prepend(summary);const expand=()=>{if(!ctx.board.classList.contains('expanded'))ctx.board.querySelector('.board-expand').click()};summary.querySelector('[data-runtime-open]').onclick=expand;
+    const controls=summary.querySelector('[data-runtime-controls]');
+    const button=(label,primary,callback)=>{const el=document.createElement('button');el.type='button';el.className=primary?'rp-primary':'rp-secondary';el.textContent=label;el.onclick=callback;controls.append(el)};
+    const plan=detail.querySelector('[data-mahoraga-plan]'),approval=detail.querySelector('[data-mahoraga-approve]:not(:disabled)'),autopilot=detail.querySelector('[data-agent-autopilot]');
+    const accept=[...detail.querySelectorAll('button')].find(b=>b.textContent.includes('Утвердить работающий прототип')&&!b.hidden);
+    if(approvals.length)button('Проверить запрос →',true,expand);
+    else if(accept)button('Принять прототип →',true,()=>{expand();accept.scrollIntoView({block:'center'})});
+    else if(approval)button('Проверить план →',true,()=>{expand();approval.scrollIntoView({block:'center'})});
+    else if(!run&&plan&&!plan.disabled&&!active.length)button('Составить план →',true,()=>plan.click());
+    else if(total&&completed===total)button('Открыть результат →',true,expand);
+    else if(run&&autopilot)button(autopilot.textContent,true,()=>autopilot.click());
+    if(!run&&!active.length&&plan&&!plan.disabled)button('Уточнить задание',false,()=>window.makoraPreparation.openRefinementChat({step:ctx.preparationStage,title:'Что учтём в плане?',description:'Допиши пожелания к реализации. Я передам их Махораге вместе с материалами проекта.',submit:'Составить план с уточнениями →',onSubmit:async feedback=>{const brief=detail.querySelector('[data-mahoraga-brief]');if(brief)brief.value+='\n\nУточнения пользователя:\n'+feedback;ctx.board.closest('#first-stage')?.querySelector('.analysis-chat')?.remove();plan.click()}}));
+    if(!controls.children.length)button('Открыть управление →',false,expand);
+    const back=document.createElement('button');back.className='rp-text-button runtime-back';back.textContent='← К краткому результату';back.onclick=()=>{if(ctx.board.classList.contains('expanded'))ctx.board.querySelector('.board-expand').click()};detail.prepend(back);
+  }
   async function render(ctx) {
     const generation=++renderGeneration;
     const isCurrent=()=>generation===renderGeneration&&ctx.board?.classList.contains('agent-real-mode');
     lastContext = ctx;
     const {content,status,primary,workflow,announce}=ctx;
+    const savedScroll=content.scrollTop;
     if (primary) primary.hidden = true;
     clearTimeout(refreshTimer);
     let connection;
@@ -147,6 +170,8 @@
     content.querySelectorAll('[data-agent-resolve-conflicts]').forEach(button=>button.addEventListener('click',async()=>{button.disabled=true;try{const result=await api(`/api/agents/runs/${run.id}/tasks/${button.dataset.agentResolveConflicts}/resolve-conflicts`,{method:'POST',body:'{}'});announce(`Конфликт разрешён. Повторно запусти независимые тесты${result.requiresReview?' и Reviewer':''}.`);await render(ctx)}catch(error){announce(error.message);button.disabled=false}}));
     content.querySelectorAll('[data-agent-diff]').forEach(button=>button.addEventListener('click',async()=>{button.disabled=true;try{const diff=await api(`/api/agents/runs/${run.id}/tasks/${button.dataset.agentDiff}/diff`);const pre=content.querySelector(`[data-diff="${button.dataset.agentDiff}"]`);pre.textContent=`${diff.status||'(чисто)'}\n\n${diff.diff||'(diff пока пуст)'}\n\nФайлы: ${(diff.changedFiles||[]).join(', ')||'нет'}`}catch(error){announce(error.message)}finally{button.disabled=false}}));
     preparationLayout(ctx,run,state);
+    compactRuntime(ctx,run,state,approvals);
+    content.scrollTop=savedScroll;
     if(connection.warming||state.sessions.some(s=>(run?s.runId===run.id:s.role==='mahoraga_planner')&&['accepted','delivered','running'].includes(s.status))) refreshTimer=setTimeout(()=>{if(isCurrent())render(ctx)},3000);
   }
   function cancel(){renderGeneration++;clearTimeout(refreshTimer);refreshTimer=0}

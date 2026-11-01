@@ -59,3 +59,6 @@ jobs:
           npx --yes --package @playwright/cli@0.1.22 playwright-cli -s=makora-ci close
           npx --yes --package @playwright/cli@0.1.22 playwright-cli -s=makora-ci open http://127.0.0.1:8000/?new=1
           npx --yes --package @playwright/cli@0.1.22 playwright-cli -s=makora-ci run-code --filename tests/browser-guide.js
+          npx --yes --package @playwright/cli@0.1.22 playwright-cli -s=makora-ci close
+          npx --yes --package @playwright/cli@0.1.22 playwright-cli -s=makora-ci open http://127.0.0.1:8000/
+          npx --yes --package @playwright/cli@0.1.22 playwright-cli -s=makora-ci run-code --filename tests/browser-stage-layout.js

@@ -22,7 +22,9 @@ async page => {
     state=await get();
     if(state.stages[stage].status!=='review'&&state.stages[stage].status!=='approved')throw Error(JSON.stringify(state.stages[stage]));
     if(stage<4&&state.stages[stage].status==='review'){
-      await page.locator('[data-real-feedback]').fill('Для этого временного E2E принимаем предложенные рабочие допущения. Только локальный HTTP API и JSON-хранилище; поиск регистронезависимый. Остальные неизвестные не считать требованиями организатора.');
+      await page.locator('[data-analysis-edit]').click();
+      await page.locator('.analysis-chat textarea').fill('Для этого временного E2E принимаем предложенные рабочие допущения. Только локальный HTTP API и JSON-хранилище; поиск регистронезависимый. Остальные неизвестные не считать требованиями организатора.');
+      await page.locator('[data-chat-close]').click();
       await page.locator('[data-real-approve]').click();
       await wait(s=>s.stages[stage]?.status==='approved',30000);
     }
