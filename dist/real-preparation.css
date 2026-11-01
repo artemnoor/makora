@@ -321,3 +321,16 @@
 #first-stage .runtime-summary [hidden]{display:none!important}
 
 #first-stage.project-chat-open:not(.departing) .first-form{visibility:hidden}
+
+/* A single, aligned action row on compact boards. */
+#first-stage .board .analysis-actions{display:grid;grid-template-columns:minmax(0,1fr) auto;align-items:stretch;gap:10px;width:100%;margin-top:2px}
+#first-stage .board .analysis-actions button:is(.rp-primary,.rp-secondary){box-sizing:border-box;display:flex;align-items:center;justify-content:center;gap:8px;min-width:0;min-height:40px;height:100%;padding:9px 14px;margin:0;border:1px solid #555;border-radius:0;box-shadow:none;font:500 12px/1.4 Manrope,Arial,sans-serif;text-align:center;letter-spacing:0;cursor:pointer;transition:background-color .15s,border-color .15s,color .15s}
+#first-stage .board .analysis-actions button.rp-secondary{background:#161616;color:#ccc;border-color:#4b4b4b}
+#first-stage .board .analysis-actions button.rp-secondary:hover{background:#242424;color:#fff;border-color:#888}
+#first-stage .board .analysis-actions button.rp-primary{min-width:128px;background:#e5e5e5;color:#151515;border-color:#e5e5e5;font-weight:600}
+#first-stage .board .analysis-actions button.rp-primary:hover{background:#fff;border-color:#fff}
+#first-stage .board .analysis-actions>button:only-child{grid-column:1/-1}
+#first-stage .board .analysis-actions>.rp-text-button{grid-column:1/-1;justify-self:start}
+#first-stage .board .analysis-actions button:disabled{opacity:.4;cursor:default}
+@media(max-width:480px){#first-stage .board .analysis-actions{gap:8px}#first-stage .board .analysis-actions button:is(.rp-primary,.rp-secondary){min-height:42px;padding:8px 9px;font-size:11px}#first-stage .board .analysis-actions button.rp-primary{min-width:102px}}
+@media(prefers-reduced-motion:reduce){#first-stage .board .analysis-actions button{transition:none}}
