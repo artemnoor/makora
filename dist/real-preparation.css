@@ -334,3 +334,38 @@
 #first-stage .board .analysis-actions button:disabled{opacity:.4;cursor:default}
 @media(max-width:480px){#first-stage .board .analysis-actions{gap:8px}#first-stage .board .analysis-actions button:is(.rp-primary,.rp-secondary){min-height:42px;padding:8px 9px;font-size:11px}#first-stage .board .analysis-actions button.rp-primary{min-width:102px}}
 @media(prefers-reduced-motion:reduce){#first-stage .board .analysis-actions button{transition:none}}
+
+/* Pet controls appear on hover, while the conversation stays open after a click. */
+#first-stage .makora-chat-toggle{min-width:52px;width:52px;height:40px;padding:0;display:flex;align-items:center;justify-content:center;border-radius:24px;background:#202022;border:1px solid #303033;color:#b9b9bc;box-shadow:0 5px 18px #0004;opacity:0;pointer-events:none;transform:translateY(-4px);transition:opacity 160ms,transform 160ms,background-color 160ms}
+#first-stage .makora-chat-toggle.pet-controls-visible,#first-stage .makora-chat-toggle:focus-visible{opacity:1;pointer-events:auto;transform:translateY(0)}
+#first-stage .makora-chat-toggle:hover{background:#2b2b2e;color:white;border-color:#444}
+#first-stage .analysis-chat.project-chat{width:min(380px,calc(100vw - 24px));height:auto;min-height:0;border-radius:28px;padding:14px;background:#1c1c1f;border:1px solid #3b3b40;box-shadow:0 12px 38px #0005;gap:10px;overflow:hidden;transform-origin:50% 0;animation:pet-chat-open 240ms cubic-bezier(.2,.8,.2,1) both}
+#first-stage .project-chat:before{display:none}
+#first-stage .project-chat .speech-label{font:10px Manrope,Arial,sans-serif;letter-spacing:.03em;border:0;padding:0 4px;color:#aaa}
+#first-stage .project-chat .analysis-chat-speaker i{display:none}
+#first-stage .project-chat[data-empty=true] .speech-label,#first-stage .project-chat[data-empty=true] .project-chat-log{display:none}
+#first-stage .project-chat-log{max-height:210px;flex:1 1 auto;min-height:0}
+#first-stage .project-chat-composer{border-radius:25px;background:#252528;padding:5px 6px 5px 14px;align-items:center;order:2}
+#first-stage .project-chat-composer textarea{background:transparent;border:0;box-shadow:none;resize:none;outline:none;min-height:40px;height:40px;max-height:90px;padding:10px 0;font:13px/1.5 Manrope,Arial,sans-serif}
+#first-stage .project-chat-composer textarea:focus{outline:none}
+#first-stage .project-chat-composer .rp-primary{border-radius:50%;width:32px;min-width:32px;height:32px;min-height:32px;border:0;background:#e4e4e7;box-shadow:none;font-size:19px}
+#first-stage .project-chat-status{order:3;padding:0 10px;color:#929298;font-size:10px}
+#first-stage .chat-message{border-radius:16px;border:0;background:#252528;padding:12px}
+#first-stage .chat-message.chat-user{background:#343438}
+#first-stage .artifact-approval{position:sticky;bottom:0;display:flex;align-items:center;justify-content:space-between;gap:18px;padding:16px 20px;background:#18181b;border-top:1px solid #444;box-shadow:0 -8px 24px #0003;z-index:3;font:12px/1.6 Manrope,Arial,sans-serif}
+#first-stage .artifact-approval strong{font-size:13px;color:#eee}
+#first-stage .artifact-approval p{margin:4px 0 0;color:#aaa;font-size:11px}
+#first-stage .artifact-approval>div:last-child{display:flex;gap:10px;flex-shrink:0}
+#first-stage .artifact-approval button{min-height:40px;padding:10px 14px;border:1px solid #555;background:#222;color:#ddd;font:600 12px Manrope,Arial,sans-serif;cursor:pointer}
+#first-stage .artifact-approval .rp-primary{background:#eee;color:#151515;border-color:#eee}
+#first-stage .artifact-reader-layout .analysis-paper{padding-bottom:40px}
+@keyframes pet-chat-open{from{opacity:0;transform:translateY(-6px) scale(.96)}to{opacity:1;transform:translateY(0) scale(1)}}
+@media(hover:none){#first-stage .makora-chat-toggle{opacity:1;pointer-events:auto;transform:none}}
+@media(max-width:700px){#first-stage .artifact-approval{flex-direction:column;align-items:stretch;gap:10px;padding:12px}#first-stage .artifact-approval>div:last-child{display:grid;grid-template-columns:1fr 1fr}}
+@media(prefers-reduced-motion:reduce){#first-stage .makora-chat-toggle{transition:none}#first-stage .analysis-chat.project-chat{animation:none}}
+
+#first-stage .board.expanded .artifact-approval{position:fixed;left:5%;right:5%;bottom:0}
+#first-stage .analysis-reader{padding-bottom:110px}
+
+#first-stage .analysis-reader-header .rp-text-button{background:none;border:0;padding:8px 0;color:#bbb;font:12px Manrope,Arial,sans-serif;cursor:pointer}
+#first-stage .project-chat[data-empty=true]{border-radius:40px}
