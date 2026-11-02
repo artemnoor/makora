@@ -228,3 +228,7 @@
 #first-stage .first-open-folder{width:38px;height:36px;flex:none;display:flex;align-items:center;justify-content:center;color:#ddd;background:#141414;border:1px solid #555;cursor:pointer}
 #first-stage .first-open-folder:hover{border-color:white;color:white}
 #first-stage .first-open-folder:disabled{opacity:.35;cursor:default}
+
+/* The transparent iframe needs headroom beyond the drag target for the halo's jump. */
+#first-stage .mascot-area{overflow:visible}
+#first-stage .mascot-frame{position:absolute;left:0;top:-72px;width:100%;height:calc(100% + 144px);max-height:none;overflow:visible}
