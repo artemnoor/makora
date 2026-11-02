@@ -12,12 +12,13 @@ async page=>{
  });
  await page.route('**/api/agents/approvals',r=>r.fulfill({json:{ok:true,result:[]}}));
  await page.evaluate(()=>localStorage.clear());await page.goto(new URL('/',page.url()).href);
+ const jump=page.frameLocator('.mascot-frame').locator('[data-action="jump"]');await jump.waitFor({state:'attached'});await page.locator('.mascot-area').click();assert(await jump.evaluate(e=>e.classList.contains('pulse')),'Клик не запускает прыжок');
  await page.mouse.move(10,100);await page.waitForTimeout(400);assert(await page.locator('.makora-chat-toggle').evaluate(e=>getComputedStyle(e).opacity==='0'),'Панель не скрывается без наведения');
  await page.locator('.mascot-area').hover();await page.locator('.makora-chat-toggle').click();await page.locator('.project-chat textarea').fill('Какие функции нужны?');await page.locator('.project-chat textarea').press('Enter');
- await page.locator('.chat-user').waitFor();assert(await page.locator('.project-chat [type=submit]').isDisabled(),'Отправка не заблокирована во время ответа');
- await page.locator('.chat-assistant').waitFor();await page.locator('.project-chat textarea').fill('А какие ограничения?');await page.locator('.project-chat [type=submit]').click();await page.locator('.chat-assistant').nth(1).waitFor();
+ await page.locator('.chat-user').waitFor();assert(await page.locator('.project-chat [type=submit]').isDisabled(),'Отправка не заблокирована во время ответа');assert(await page.locator('.chat-thinking-square').isVisible(),'Нет квадрата во время ожидания');
+ await page.locator('.chat-assistant').waitFor();assert(await page.locator('.project-chat [type=submit] svg').isVisible(),'Стрелка не вернулась после ответа');await page.locator('.project-chat textarea').fill('А какие ограничения?');await page.locator('.project-chat [type=submit]').click();await page.locator('.chat-assistant').nth(1).waitFor();
  assert(posts===2&&workflowPosts===0,'Чат изменил этап или повторил сообщение');
  await page.reload();await page.locator('.mascot-area').hover();await page.locator('.makora-chat-toggle').click();await page.locator('.chat-assistant').nth(1).waitFor();assert(await page.locator('.chat-user').count()===2,'История не восстановилась');
- await page.waitForTimeout(280);const before=await page.locator('.project-chat').boundingBox(),mascot=await page.locator('.mascot-area').boundingBox();await page.mouse.move(mascot.x+mascot.width/2,mascot.y+mascot.height/2);await page.mouse.down();await page.mouse.move(mascot.x+mascot.width/2+40,mascot.y+mascot.height/2,{steps:5});await page.mouse.up();assert(Math.abs((await page.locator('.project-chat').boundingBox()).x-before.x-40)<3,'Чат не следует за Макорой');
+ await page.waitForTimeout(280);const before=await page.locator('.project-chat').boundingBox(),mascot=await page.locator('.mascot-area').boundingBox();await page.mouse.move(mascot.x+mascot.width/2,mascot.y+mascot.height/2);await page.mouse.down();await page.mouse.move(mascot.x+mascot.width/2+40,mascot.y+mascot.height/2,{steps:5});await page.mouse.up();assert(Math.abs((await page.locator('.project-chat').boundingBox()).x-before.x-40)<3,'Чат не следует за Макорой');assert(!await jump.evaluate(e=>e.classList.contains('pulse')),'Перетаскивание ошибочно запускает прыжок');
  return {provider:'fake-http',conversation:true,history:true,anchoring:true,noWorkflowMutations:true};
 }

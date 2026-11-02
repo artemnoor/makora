@@ -3,7 +3,7 @@
   root.id = 'first-stage';
   root.setAttribute('aria-label', 'Анализ задания');
   root.innerHTML = `<div class="first-top"><a class="first-logo" href="/">✳ <span>макора</span></a><span>РАБОЧЕЕ ПРОСТРАНСТВО / 01</span><span>ЭТАП 01 / 06</span></div>
-  <div class="first-intro"><div class="mascot-area" tabindex="0" role="img" aria-label="Макора. Перетащите мышью или перемещайте стрелками." title="Перетащить Макору"><iframe class="mascot-frame" src="mascot.html" title="Персонаж Макоры" tabindex="-1"></iframe></div>
+  <div class="first-intro"><div class="mascot-area" tabindex="0" role="button" aria-label="Макора. Нажмите, чтобы подпрыгнуть; перетащите мышью или перемещайте стрелками." title="Нажмите для прыжка или перетащите Макору"><iframe class="mascot-frame" src="mascot.html" title="Персонаж Макоры" tabindex="-1"></iframe></div>
   <form class="first-form"><div class="speech-label">ПЕРВЫЙ ШАГ <span>01 / 06</span></div><h1>Привет!<br>Разберём задание?</h1><p>Пришли условие хакатона — соберём всё важное в одном месте.</p>
   <label class="pixel-drop"><input type="file" accept=".pdf,.docx,.txt,.md" class="sr-only"><span class="pixel-plus" aria-hidden="true"><svg viewBox="0 0 24 24" width="28" height="28" shape-rendering="crispEdges"><path fill="currentColor" d="M2 5h8v2h12v14H2zm2 4v10h16V9z"/><path fill="currentColor" d="M11 11h2v2h2v2h-2v2h-2v-2H9v-2h2z"/></svg></span><strong class="file-label">Выбрать файл</strong><small>или перетащить сюда<br>PDF, DOCX, TXT, MD · до 20 МБ</small></label><div class="or-line"><span>ИЛИ ВСТАВЬ ТЕКСТ</span></div><label class="sr-only" for="first-text">Текст задания</label><textarea id="first-text" placeholder="Вставь условие задания сюда…"></textarea><div class="first-project-folder"><button type="button" data-choose-project-folder>▱ Выбрать папку проекта</button><small data-project-folder-label>Здесь будут условие, документы и код</small></div><p class="first-error" role="alert" hidden></p><button class="pixel-start" type="submit" disabled>Начать анализ <span aria-hidden="true">▶</span></button><p class="first-disclaimer">Анализ выполняет Codex GPT-6 Luna. Результаты сохраняются локально и требуют утверждения.</p></form></div>
   <div class="board-scene" hidden><div class="board-heading"><span>01 / АНАЛИЗ ЗАДАНИЯ</span><span>01_CASE_ANALYSIS.MD</span></div><div class="board-stage"><div class="board-mascot" aria-hidden="true"></div><div class="board" aria-label="Доска рабочего пространства"><nav class="board-stages" aria-label="Этапы проекта"><button type="button" data-board-stage="1">01 <span>Анализ</span></button><button type="button" data-board-stage="2">02 <span>Идея</span></button><button type="button" data-board-stage="3">03 <span>План</span></button><button type="button" data-board-stage="4">04 <span>Мок-данные</span></button></nav><div class="board-stage-message" role="status" hidden></div><div class="board-sprite"><img class="board-shadow-art" src="analysis-board.png" alt="" draggable="false"><img class="board-art" src="analysis-board.png" alt="" draggable="false"></div><div class="board-inner"><div class="board-bar"><div><span class="board-kicker">ДЕМО-КЕЙС / ТИХИЙ КАМПУС</span><h2>Анализ задания<span>.</span></h2></div><button type="button" class="board-expand" aria-label="Развернуть доску" title="Развернуть доску">⛶</button></div><div class="board-content"></div><div class="board-footer"><span>ТЯНИ ЗА РАМКУ · ДВОЙНОЙ КЛИК — НА ВЕСЬ ЭКРАН</span><span>01 / 06</span></div></div></div></div><div class="scene-bottom"><p>Демо-анализ: показан пример, файл не анализируется.</p><button type="button" class="board-next">Далее <span>→</span></button></div></div>`;
@@ -52,6 +52,7 @@
   const mascotArea = root.querySelector('.mascot-area');
   const prototypeHandoff = window.createPrototypeHandoff(root, mascotArea, () => textarea.value.trim() ? null : selectedFile);
   let mascotDrag = null;
+  function jumpMascot(){try{frame.contentDocument.querySelector('[data-action="jump"]')?.click()}catch{}}
   function notifyMascot(phase, x, y) {
     try { frame.contentWindow.dispatchEvent(new frame.contentWindow.CustomEvent('makora-drag', {detail:{phase, x, y}})); } catch (_) {}
   }
@@ -76,7 +77,7 @@
   mascotArea.addEventListener('pointerdown', e => {
     if (e.button !== 0) return;
     const rect = fixMascot();
-    mascotDrag = {id:e.pointerId, x:e.clientX, y:e.clientY, left:rect.left, top:rect.top};
+    mascotDrag = {id:e.pointerId, x:e.clientX, y:e.clientY, left:rect.left, top:rect.top,moved:false};
     mascotArea.classList.add('carried');
     mascotArea.setPointerCapture(e.pointerId);
     notifyMascot('start', e.clientX, e.clientY);
@@ -84,18 +85,22 @@
   });
   mascotArea.addEventListener('pointermove', e => {
     if (!mascotDrag || mascotDrag.id !== e.pointerId) return;
+    if(Math.hypot(e.clientX-mascotDrag.x,e.clientY-mascotDrag.y)>6)mascotDrag.moved=true;
     moveMascot(mascotDrag.left + e.clientX - mascotDrag.x, mascotDrag.top + e.clientY - mascotDrag.y);
     notifyMascot('move', e.clientX, e.clientY);
   });
   function releaseMascot(e) {
     if (!mascotDrag || mascotDrag.id !== e.pointerId) return;
+    const clicked=e.type==='pointerup'&&!mascotDrag.moved;
     mascotDrag = null;
     mascotArea.classList.remove('carried');
     notifyMascot('end', e.clientX, e.clientY);
+    if(clicked)jumpMascot();
     if (mascotArea.hasPointerCapture(e.pointerId)) mascotArea.releasePointerCapture(e.pointerId);
   }
   ['pointerup','pointercancel','lostpointercapture'].forEach(type => mascotArea.addEventListener(type, releaseMascot));
   mascotArea.addEventListener('keydown', e => {
+    if(e.key==='Enter'||e.key===' '){e.preventDefault();if(!e.repeat)jumpMascot();return}
     const delta = {ArrowLeft:[-1,0], ArrowRight:[1,0], ArrowUp:[0,-1], ArrowDown:[0,1]}[e.key];
     if (!delta) return;
     e.preventDefault();
