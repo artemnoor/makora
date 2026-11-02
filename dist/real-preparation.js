@@ -2,7 +2,7 @@
 (() => {
   let state={brief:'',stages:{}}, stage=1, file=null, timer=0, busy=false, generation=0, feedbacks={}, feedbackProject=null;
   let analysisMotion={key:null,started:0};
-  const names=['Анализ задания','Разработка идеи','Планирование','Мок-данные','Рабочий прототип','Разработка агентами'];
+  const names=['Анализ задания','Разработка идеи','Планирование','Мок-данные','Пакет для агента','Разработка агентами'];
   const purposes=['Разберём условие: что сделать, какие есть ограничения и как будут оценивать.','Исследуем проблему и выберем идею, которая отвечает требованиям задания.','Определим устройство продукта, контракты, проверки и задачи для разработки.','Подготовим данные для разработки и проверим их по схемам и сценариям.','Соберём работающий прототип из согласованных материалов и моков.','Разовьём утверждённый прототип с помощью агентов и проверяемых задач.'];
   const fileNames={'01_case_analysis.md':'Разбор задания','02_research.md':'Исследование проблемы','02_solution_concept.md':'Концепция решения','02_user_flow.mmd':'Путь пользователя','02_task_flow.mmd':'Сценарий действий','03_architecture.md':'Архитектура продукта','03_test_plan.md':'План тестирования','03_tasks.json':'Задачи для агентов','04_validation_report.md':'Отчёт о готовности данных'};
   const fileTitle=path=>fileNames[path]||(/openapi/i.test(path)?'Контракты API':path.split('/').pop());
@@ -45,7 +45,8 @@
     scene.querySelectorAll('[data-real-stage]').forEach(b=>b.onclick=()=>open(Number(b.dataset.realStage)).catch(e=>error(e.message)));
     scene.querySelectorAll('.capabilities-toggle,.capabilities-menu').forEach(el=>el.hidden=true);
     const projectKey='makora.real-feedbacks.'+(state.projectId||'current');if(feedbackProject!==projectKey){feedbackProject=projectKey;try{feedbacks=JSON.parse(localStorage.getItem(projectKey))||{}}catch{feedbacks={}}}
-    if(stage>=5){development(content,board);return}
+    if(stage===5){handoffView(content,board);return}
+    if(stage===6){development(content,board);return}
     const record=state.stages[stage],files=record?.files||{},status=record?.status||'not_started';
     const working=['running','launching','unconfirmed'].includes(status);
     artifactView(scene,board,content,record,files,status,working,projectKey);
@@ -112,9 +113,28 @@
   }
   window.addEventListener('makora:mascot-move',positionAnalysisChat);
   window.addEventListener('resize',positionAnalysisChat);
-  window.addEventListener('makora:board-fullscreen',e=>{if(!e.detail.expanded&&stage<=4&&file){file=null;paint()}});
+  window.addEventListener('makora:board-fullscreen',e=>{if(!e.detail.expanded&&stage===5){const content=root()?.querySelector('.board-content');const reader=content?.querySelector('[data-handoff-reader]');if(reader){reader.hidden=true;content.querySelector('.analysis-summary').hidden=false}}if(!e.detail.expanded&&stage<=4&&file){file=null;paint()}});
   async function action(fn){if(busy)return;busy=true;root()?.querySelector('.board-content')?.setAttribute('aria-busy','true');try{await fn()}catch(e){error(e.message)}finally{busy=false;root()?.querySelector('.board-content')?.setAttribute('aria-busy','false')}}
   async function approvals(content){try{const list=await api('/api/agents/approvals');if(!content.isConnected)return;const host=content.querySelector('[data-real-approvals]');if(!host)return;host.innerHTML=list.map(item=>`<details><summary>Codex запрашивает разрешение</summary><pre>${esc(JSON.stringify(item.params,null,2))}</pre><button data-prep-approval="${esc(item.requestId)}" data-choice="accept">Разрешить</button><button data-prep-approval="${esc(item.requestId)}" data-choice="decline">Отклонить</button></details>`).join('');host.querySelectorAll('[data-prep-approval]').forEach(b=>b.onclick=()=>action(async()=>{await api(`/api/agents/approvals/${b.dataset.prepApproval}`,{decision:b.dataset.choice});paint()}))}catch(e){error(e.message)}}
+  async function handoffView(content,board){
+    const ticket=++generation;
+    if(state.stages['4']?.status!=='approved'){content.innerHTML='<p>Сначала утвердите мок-данные.</p>';return}
+    content.innerHTML='<div class="analysis-thinking"><img class="analysis-wheel" src="analysis-wheel.png" alt=""><p>Собираем промпт и файлы…</p></div>';
+    try{
+      const pack=await api('/api/preparation/package');if(ticket!==generation||stage!==5)return;
+      content.innerHTML=`<section class="analysis-summary"><p class="analysis-purpose">Передайте промпт и ZIP своему ИИ-агенту для создания прототипа.</p><button class="analysis-file" data-handoff-open><span class="analysis-file-mark">ZIP</span><span><strong>Промпт и контекст проекта</strong><small>PROMPT.md · ${pack.files.length} файлов</small></span><span>↗</span></button><div class="analysis-actions"><button class="rp-secondary" data-handoff-copy>Скопировать промпт</button><a class="rp-primary handoff-download" href="/api/preparation/archive" download="makora-agent-package.zip">Скачать пакет ↓</a></div><small class="handoff-state" role="status">После передачи пакета ожидаем результат внешнего агента.</small></section><article class="analysis-reader" data-handoff-reader hidden></article>`;
+      const copy=async button=>{try{await navigator.clipboard.writeText(pack.prompt);button.textContent='Промпт скопирован ✓'}catch{button.textContent='Откройте PROMPT.md и скопируйте текст'}};
+      content.querySelector('[data-handoff-copy]').onclick=e=>copy(e.currentTarget);
+      const show=(path='PROMPT.md')=>{
+        const doc=content.querySelector('[data-handoff-reader]');content.querySelector('.analysis-summary').hidden=true;doc.hidden=false;
+        doc.innerHTML=`<header class="analysis-reader-header"><button class="rp-text-button" data-handoff-back>← К пакету</button><span>05 / ПЕРЕДАЧА ВНЕШНЕМУ АГЕНТУ</span><a href="/api/preparation/archive" download="makora-agent-package.zip">Скачать ZIP ↓</a></header><div class="artifact-reader-layout"><aside class="artifact-files">${pack.files.map(f=>pack.documents[f.path]!==undefined?`<button data-package-file="${esc(f.path)}" class="${f.path===path?'active':''}"><strong>${esc(f.path.split('/').pop())}</strong><small>${esc(f.path)}</small></button>`:`<p>${esc(f.path)} · в архиве</p>`).join('')}</aside><div class="analysis-paper"><p class="analysis-filename">${esc(path)}</p>${/\.md$/.test(path)?markdown(pack.documents[path]):`<pre>${esc(pack.documents[path])}</pre>`}</div></div><footer class="artifact-approval"><div><strong>Готово для вашего ИИ-агента</strong><p>Прикрепите ZIP и отправьте PROMPT.md. Исходные mocks/ сохраняются, изменения — в new_mocks/.</p></div><div><button data-copy-full>Скопировать промпт</button><a class="handoff-download" href="/api/preparation/archive" download="makora-agent-package.zip">Скачать пакет ↓</a></div></footer>`;
+        doc.querySelectorAll('[data-package-file]').forEach(b=>b.onclick=()=>show(b.dataset.packageFile));doc.querySelector('[data-copy-full]').onclick=e=>copy(e.currentTarget);
+        doc.querySelector('[data-handoff-back]').onclick=()=>{doc.hidden=true;content.querySelector('.analysis-summary').hidden=false;if(board.classList.contains('expanded'))board.querySelector('.board-expand').click()};diagrams(doc);
+      };
+      content.querySelector('[data-handoff-open]').onclick=()=>{show();if(!board.classList.contains('expanded'))board.querySelector('.board-expand').click()};
+      content.querySelectorAll('.handoff-download').forEach(a=>a.addEventListener('click',()=>{content.querySelector('.handoff-state').textContent='Пакет передан на скачивание. Прикрепите его внешнему агенту и отправьте промпт.'}));
+    }catch(e){if(ticket===generation)error(e.message)}
+  }
   async function development(content,board){
     const ticket=++generation;
     if(state.stages['4']?.status!=='approved'){content.innerHTML='<div class="board-document"><p>Сначала выполни и утверди подготовку мок-данных.</p></div>';return}

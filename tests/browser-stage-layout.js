@@ -6,6 +6,7 @@ async page=>{
  let submitted,planningRequest,sessions=[],approvedStep=null;
  await page.route('**/api/preparation**',async route=>{
   const path=new URL(route.request().url()).pathname;
+  if(path.endsWith('/package'))return route.fulfill({json:{ok:true,result:{prompt:'Создай приложение на mocks/fixtures/',files:[{path:'PROMPT.md'},{path:'mocks/fixtures/spaces.json'}],documents:{'PROMPT.md':'Создай приложение на mocks/fixtures/','mocks/fixtures/spaces.json':'[]'}}}});
   if(path.endsWith('/development'))return route.fulfill({json:{ok:true,result:{projectRoot:'C:/temporary-layout-project',digest:'layout-test',brief:state.brief,context:'Документы проекта',artifactPaths:[]}}});
   if(path.endsWith('/3/approve')){state.stages[3].status='approved';approvedStep=3}
   if(path.endsWith('/start'))submitted={path,body:route.request().postDataJSON()};
@@ -26,7 +27,8 @@ async page=>{
  for(const step of [2,3,4]){
   state.stages[step].status='running';await page.locator(`[data-real-stage="${step}"]`).click();await page.locator('.analysis-wheel').waitFor();assert(await page.locator('.analysis-wheel').evaluate(e=>getComputedStyle(e).animationName==='analysis-resistance'),'Нет вращения на этапе '+step);state.stages[step].status='approved';await page.evaluate(n=>window.makoraPreparation.open(n),step);
  }
- for(const step of [5,6]){
+ await page.locator('[data-real-stage="5"]').click();await page.locator('[data-handoff-open]').waitFor();assert(await page.locator('[data-agent-autopilot]').count()===0,'Этап 5 запускает внутренних агентов');await page.locator('[data-handoff-open]').click();await page.locator('[data-handoff-reader] a[download]').first().waitFor();await page.locator('[data-handoff-back]').click();
+ for(const step of [6]){
   await page.locator(`[data-real-stage="${step}"]`).click();await page.locator('.runtime-summary').waitFor();
   assert(await page.locator('.board-content').evaluate(e=>e.scrollHeight<=e.clientHeight+1),'Компактная разработка прокручивается: '+step);
   assert(await page.locator('.runtime-detail').isHidden(),'Детали разработки не скрыты');
@@ -35,9 +37,9 @@ async page=>{
   if(step===6)await page.screenshot({path:'C:/m/all-stages-expanded-runtime.png'});
   await page.locator('.runtime-back').click();assert(await page.locator('.runtime-summary').isVisible(),'Не вернулись к краткому виду');
  }
- for(const step of [5,6]){sessions=[{id:'active-builder',runId:run.id,taskId:'T01',role:'builder',status:'running',threadId:'fake-thread'}];await page.locator(`[data-real-stage="${step}"]`).click();await page.locator('.runtime-summary .analysis-wheel').waitFor();assert(await page.locator('.board-content').evaluate(e=>e.scrollHeight<=e.clientHeight+1),'Ожидание не вмещается в доску');sessions=[];}
+ for(const step of [6]){sessions=[{id:'active-builder',runId:run.id,taskId:'T01',role:'builder',status:'running',threadId:'fake-thread'}];await page.locator(`[data-real-stage="${step}"]`).click();await page.locator('.runtime-summary .analysis-wheel').waitFor();assert(await page.locator('.board-content').evaluate(e=>e.scrollHeight<=e.clientHeight+1),'Ожидание не вмещается в доску');sessions=[];}
  await page.screenshot({path:'C:/m/all-stages-runtime.png'});
- await page.evaluate(()=>window.makoraRealAgents.selectRun('__new__'));await page.locator('[data-real-stage="5"]').click();await page.locator('.runtime-summary').waitFor();
+ await page.evaluate(()=>window.makoraRealAgents.selectRun('__new__'));await page.locator('[data-real-stage="6"]').click();await page.locator('.runtime-summary').waitFor();
  await page.locator('.runtime-summary button').filter({hasText:'Уточнить задание'}).click();await page.locator('.analysis-chat textarea').fill('Учесть офлайн режим');await page.locator('.analysis-chat [type=submit]').click();await page.waitForTimeout(200);assert(planningRequest?.brief?.includes('Учесть офлайн режим'),'Уточнение не передано планировщику');
  state.stages[3].status='review';await page.evaluate(()=>window.makoraPreparation.open(3));await page.locator('.analysis-file').click();await page.locator('[data-reader-approve]').waitFor();const approvalBounds=await page.locator('.artifact-approval').boundingBox();assert(approvalBounds.y>=0&&approvalBounds.y+approvalBounds.height<=page.viewportSize().height+1,'Подтверждение вне экрана');await page.screenshot({path:'C:/m/stage3-approve.png'});await page.locator('[data-reader-approve]').click();await page.locator('[data-real-stage="4"].active').waitFor();assert(approvedStep===3,'Не утверждён полный третий этап');
  assert(errors.length===0,errors.join('; '));return {provider:'fake-http',stages:[2,3,4,5,6],files:true,feedbackRouting:true,runtimeControls:true,noPageErrors:true};

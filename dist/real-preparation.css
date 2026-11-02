@@ -392,3 +392,9 @@
 #first-stage .project-chat-status{font:10px/1.5 Manrope,Arial,sans-serif;color:#a29aa9;padding:0 8px}
 
 #first-stage .makora-chat-toggle{z-index:100}
+
+#first-stage .chat-thinking-wheel{width:23px;height:23px;object-fit:contain;image-rendering:auto;animation:analysis-resistance 9.6s cubic-bezier(.65,-.035,.28,1.035) infinite}
+#first-stage .handoff-state{font:10px/1.5 Manrope,Arial,sans-serif;color:#aaa}
+#first-stage .handoff-download{display:flex;align-items:center;justify-content:center;min-height:40px;box-sizing:border-box;padding:9px 14px;background:#e5e5e5;color:#151515;border:1px solid #e5e5e5;font:600 12px Manrope,Arial,sans-serif;text-decoration:none;text-align:center}
+@media(prefers-reduced-motion:reduce){#first-stage .chat-thinking-wheel{animation:none}}
+#first-stage .runtime-summary{gap:8px}

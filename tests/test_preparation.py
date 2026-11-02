@@ -121,6 +121,20 @@ class PreparationTests(unittest.TestCase):
             with self.assertRaises(AgentRuntimeError):self.pipeline.store_source(name,b'original')
         self.assertFalse((folder/'case.txt').exists())
 
+    def test_handoff_contains_prompt_original_and_approved_files_without_running_agents(self):
+        folder=self.select_folder()
+        original=b'# Original case'
+        self.pipeline.store_source('case.md',original)
+        self.pipeline.state['brief']='Create local notes'
+        self.pipeline.state['stages']={'1':{'status':'approved','files':{'01_case_analysis.md':'# Analysis'}},'4':{'status':'approved','files':{'mocks/fixtures/data.json':'[]'}}}
+        result=self.pipeline.handoff_package()
+        self.assertIn('new_mocks/',result['prompt'])
+        self.assertIn('input/original/case.md',[f['path'] for f in result['files']])
+        self.assertIn('mocks/fixtures/data.json',result['documents'])
+        self.assertFalse((folder/'app').exists())
+        self.assertEqual([],self.calls)
+        self.assertTrue((folder/'exports/project-context.zip').exists())
+
     def test_development_and_archive_live_in_selected_folder(self):
         folder=self.select_folder()
         self.pipeline.state['brief']='Local catalog project'

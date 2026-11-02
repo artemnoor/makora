@@ -131,6 +131,8 @@ class MakoraHandler(SimpleHTTPRequestHandler):
                 self._agent_json(self.server.preparation.chat_snapshot);return
             if path == '/api/preparation':
                 self._agent_json(self.server.preparation.poll);return
+            if path == '/api/preparation/package':
+                self._agent_json(self.server.preparation.handoff_package);return
             if path == '/api/preparation/archive':
                 self._zip(self.server.preparation.archive(), 'makora-project-context.zip');return
             if path == '/api/agents/approvals':

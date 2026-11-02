@@ -519,11 +519,23 @@ class Preparation:
             with zipfile.ZipFile(output, 'w', zipfile.ZIP_DEFLATED) as archive:
                 for name, text in files.items():
                     archive.writestr(name, text)
+                original=self.state.get('sourceFile')
+                if original and self.state.get('storageRoot'):
+                    source=Path(self.state['storageRoot'])/original
+                    if source.is_file() and not source.is_symlink() and source.resolve().is_relative_to(Path(self.state['storageRoot']).resolve()):
+                        archive.writestr(original,source.read_bytes())
             blob = output.getvalue()
             if self.state.get('storageRoot'):
                 self._storage_write('exports/project-context.zip', blob)
                 self._storage_write('artifacts/PROMPT.md', files['PROMPT.md'].encode('utf-8'))
             return blob
+
+    def handoff_package(self):
+        blob=self.archive()
+        with zipfile.ZipFile(io.BytesIO(blob)) as archive:
+            files=[{'path':entry.filename,'bytes':entry.file_size} for entry in archive.infolist()]
+            documents={entry.filename:archive.read(entry).decode('utf-8') for entry in archive.infolist() if Path(entry.filename).suffix.lower() in ('.md','.txt','.mmd','.yaml','.yml','.json')}
+        return {'prompt':documents['PROMPT.md'],'files':files,'documents':documents,'digest':hashlib.sha256(blob).hexdigest()}
 
     def development(self, stage=5):
         """Seed a dedicated project with approved artifacts; coding uses the existing runtime."""
