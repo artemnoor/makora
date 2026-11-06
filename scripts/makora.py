@@ -94,7 +94,8 @@ def main():
         else:
             payload = json.loads(args.json.read_text('utf-8-sig')) if args.command == 'request' and args.json else None
             result = request(config, args.path if args.command == 'request' else '/api/preparation', payload)
-    print(json.dumps(result, ensure_ascii=False, indent=2))
+    # ASCII JSON also works in Windows shells whose pipe encoding is cp1251.
+    print(json.dumps(result, ensure_ascii=True, indent=2))
 
 
 if __name__ == '__main__':
