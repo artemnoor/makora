@@ -863,13 +863,13 @@ class Preparation:
             record = self.state['stages'].get(str(stage), {})
             if record.get('status') != 'review':
                 raise AgentRuntimeError('STAGE_NOT_READY', 'Этап ещё не прошёл проверки.', 409)
+            if any(self.state['stages'].get(str(previous), {}).get('status') != 'approved' for previous in range(1, stage)):
+                raise AgentRuntimeError('PREVIOUS_STAGE_REQUIRED', 'Сначала утвердите предыдущие этапы.', 409)
             if stage == 2:
                 note = str((payload or {}).get('note', '')).strip()
                 if not note:
                     raise AgentRuntimeError('COMPETITOR_DECISION_REQUIRED', 'Отметьте, что перенять у конкурентов или почему ничего не подходит.', 409)
                 self.state['competitorPreferences'] = note[:20000]
-            if any(self.state['stages'].get(str(previous), {}).get('status') != 'approved' for previous in range(1, stage)):
-                raise AgentRuntimeError('PREVIOUS_STAGE_REQUIRED', 'Сначала утвердите предыдущие этапы.', 409)
             record['status'] = 'approved'
             record['approvalNote'] = str((payload or {}).get('note', ''))[:20000]
             record['digest'] = hashlib.sha256(json.dumps(record['files'], sort_keys=True).encode()).hexdigest()
