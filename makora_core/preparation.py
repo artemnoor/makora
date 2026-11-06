@@ -15,6 +15,7 @@ import zipfile
 import xml.etree.ElementTree as ET
 from pathlib import Path, PurePosixPath
 
+from .agents.errors import agent_error_message
 from .agents.runtime import AgentRuntime, AgentRuntimeError, MODEL_ID
 
 
@@ -359,10 +360,12 @@ class Preparation:
                             chat.update(status='unconfirmed',error='Не удалось подтвердить доставку последнего сообщения. Нажмите «Проверить ответ» или «Снять ожидание», чтобы продолжить без повторной отправки.')
                 elif session['status'] == 'failed':
                     detail = session.get('error') or {}
-                    chat.update(status='failed',error=detail.get('message') or 'Codex завершил запрос с ошибкой. Можно снять ожидание и продолжить.' if isinstance(detail, dict) else str(detail))
+                    chat.update(status='failed',error=agent_error_message(detail))
                 elif session['status'] == 'unconfirmed':
                     chat.update(status='unconfirmed',error='Проверяем доставку сообщения. Повторная отправка не выполняется.')
                 self.save()
+            if chat.get('error'):
+                chat['error'] = agent_error_message(chat['error'])
             return json.loads(json.dumps(chat))
 
     def recover_chat(self):
@@ -458,7 +461,11 @@ class Preparation:
 
     def snapshot(self):
         with self.lock:
-            return json.loads(json.dumps(self.state))
+            snapshot = json.loads(json.dumps(self.state))
+            for record in list(snapshot.get('stages', {}).values()) + [snapshot.get('chat', {})]:
+                if record.get('error'):
+                    record['error'] = agent_error_message(record['error'])
+            return snapshot
 
     def poll(self):
         with self.lock:
@@ -753,7 +760,7 @@ class Preparation:
             elif session['status'] in ('failed', 'unconfirmed'):
                 record.update(status=session['status'])
                 record['sessionEvidence'] = session.get('lastRefreshEvidence')
-                record['error'] = (session.get('error') or 'Сессия завершилась с ошибкой.') if session['status']=='failed' else ''
+                record['error'] = agent_error_message(session.get('error')) if session['status']=='failed' else ''
                 record['statusMessage'] = ('Ответ Codex пока не подтверждён. Макора продолжает проверять текущую сессию; повторная отправка не требуется.' if session['status']=='unconfirmed' else '')
             self.save()
             return self.snapshot()

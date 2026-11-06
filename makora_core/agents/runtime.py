@@ -19,6 +19,8 @@ from datetime import datetime, timezone
 from pathlib import Path, PurePosixPath
 from typing import Any
 
+from .errors import public_agent_error
+
 
 _LOG = logging.getLogger(__name__)
 
@@ -2074,7 +2076,9 @@ class AgentRuntime:
                         session['planError'] = {'code':exc.code,'message':str(exc)}
                 self._event("agent_completed", f"{session['role']} thread {session['threadId']} завершил ответ", session.get("runId"), session.get("taskId"))
             elif state == "failed":
-                session["error"] = detail
+                session['errorDiagnostics'] = detail
+                session["error"] = public_agent_error(detail)
+                _LOG.warning('[FIX] Agent request failed: session=%s code=%s', agent_id, session['error']['code'])
                 task = self._task_for_session(session)
                 if task and session["role"] == "builder": task["status"] = "failed"
                 self._event("agent_failed", f"{session['role']} завершился ошибкой", session.get("runId"), session.get("taskId"))

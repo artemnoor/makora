@@ -375,6 +375,16 @@ class PreparationTests(unittest.TestCase):
         self.assertEqual('review', self.pipeline.refresh(1)['stages']['1']['status'])
         self.assertEqual('actual-turn', record['turnId'])
 
+    def test_all_stage_errors_are_readable_including_saved_legacy_errors(self):
+        for stage in range(1, 5):
+            self.pipeline.state['stages'][str(stage)] = {'status': 'failed', 'error': {
+                'turnStatus': 'interrupted', 'message': '', 'history': {'secret': 'RAW_HISTORY'}}}
+        snapshot = self.pipeline.snapshot()
+        for record in snapshot['stages'].values():
+            self.assertIsInstance(record['error'], str)
+            self.assertIn('прерван', record['error'])
+            self.assertNotIn('RAW_HISTORY', record['error'])
+
     def test_unconfirmed_is_waiting_not_raw_json_error(self):
         self.pipeline.start(1, {'brief':'Проект каталога'})
         self.runtime.refresh_session=lambda _: {'status':'unconfirmed','lastRefreshEvidence':{'turnStatus':'completed','decision':'unconfirmed'}}
