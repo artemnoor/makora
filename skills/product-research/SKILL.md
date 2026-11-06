@@ -1,6 +1,6 @@
 ---
 name: product-research
-description: Research hackathon user problems, existing alternatives and technical possibilities from approved requirements, preserving sources and uncertainty. Use for Makora stage 2 research before choosing a solution.
+description: Research hackathon user problems, existing alternatives and technical possibilities from approved requirements, preserving sources and uncertainty. Use for Makora stage 2 competitor analysis before choosing a solution.
 ---
 
 # Исследование продукта
@@ -28,3 +28,8 @@ description: Research hackathon user problems, existing alternatives and technic
 5. Синтезируй подтверждённые выводы, пробелы и возможности без подгонки под заранее выбранную идею. Создай пять файлов из шаблона и отметь отсутствующие источники. Недоступность сети или API не является подтверждением работоспособности.
 
 Готовность: выводы связаны с источниками, утверждённые требования учтены, неподтверждённые данные и неисследованные вопросы отмечены. Передай результаты как черновик; пользователь утверждает итог этапа отдельно.
+
+
+## Работа во втором этапе Макоры
+
+Имена файлов и формат TASK.json имеют приоритет над общими шаблонами: создай 02_competitors.md и 02_competitors.json по preparation-session/references/stages.md. Исследование конкурентов предшествует выбору концепции; после просмотра источников пользователь может уточнить поиск или попросить дополнительные альтернативы. Сохраняй проверенные результаты между итерациями и фиксируй изменения выборки. Решения пользователя о заимствованиях и отличиях передаются в следующий этап, где концепция и схемы составляются с учётом этих решений.

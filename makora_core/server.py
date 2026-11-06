@@ -237,7 +237,7 @@ class MakoraHandler(SimpleHTTPRequestHandler):
                 self._agent_json(lambda:self.server.preparation.store_source(name,self._body(20*1024*1024),attachment=path.endswith('/attachment')));return
             if path == '/api/preparation/development':
                 value=self._read_json()
-                self._agent_json(lambda:self.server.preparation.development(int(value.get('stage',5))));return
+                self._agent_json(lambda:self.server.preparation.development(int(value.get('stage',6))));return
             if path == '/api/preparation/prototype/approve':
                 self._agent_json(self.server.preparation.approve_prototype);return
             if path == '/api/preparation/result/continue':
@@ -248,7 +248,7 @@ class MakoraHandler(SimpleHTTPRequestHandler):
             if path == '/api/preparation/extract':
                 name=parse_qs(urlparse(self.path).query).get('name',['brief.txt'])[0]
                 self._agent_json(lambda:self.server.preparation.extract(name,self._body(20*1024*1024)));return
-            match=re.fullmatch(r'/api/preparation/([1-4])/(start|refresh|approve)',path)
+            match=re.fullmatch(r'/api/preparation/([1-5])/(start|refresh|approve)',path)
             if match:
                 stage, action = int(match.group(1)), match.group(2)
                 payload = self._read_json()

@@ -260,7 +260,7 @@ class CodexLocalApi:
         models = self._request('/api/models', timeout=15)
         return [item for item in models.get('data', []) if isinstance(item, dict)]
 
-    def create_thread(self, *, cwd: Path, name: str, prompt: str, sandbox: str = "workspaceWrite", denied_paths: list[str] | None = None, model: str = MODEL_ID, reasoning_effort: str | None = None, user_chat: bool = False, desktop: bool = False) -> dict:
+    def create_thread(self, *, cwd: Path, name: str, prompt: str, sandbox: str = "workspaceWrite", denied_paths: list[str] | None = None, model: str = MODEL_ID, reasoning_effort: str | None = None, user_chat: bool = False, desktop: bool = False, network_access: bool = False) -> dict:
         catalog = self.model_catalog()
         selected = next((item for item in catalog if model in (item.get('id'), item.get('model'))), None)
         if not selected:
@@ -289,14 +289,15 @@ class CodexLocalApi:
             sandbox_policy = {"type": "readOnly", "access": {
                 "type": "restricted", "includePlatformDefaults": True, "readableRoots": [root]}}
         else:
-            sandbox_policy = {"type": "workspaceWrite", "writableRoots": [root], "networkAccess": False,
+            sandbox_policy = {"type": "workspaceWrite", "writableRoots": [root], "networkAccess": network_access,
                               "readOnlyAccess": {"type": "restricted", "includePlatformDefaults": True,
                                                  "readableRoots": [root]}}
         return self._request("/api/threads", {
             "transport": "desktop" if desktop else "app-server", "cwd": str(cwd), "model": model, "reasoningEffort": reasoning_effort,
             "name": name[:100], "prompt": prompt, "sandbox": sandbox_mode,
             "approvalPolicy": "never", "permissions": "makora", "threadSource": "user" if user_chat else "appServer", "desktopVisible": True,
-            "config": {"permissions.makora": {"filesystem": filesystem, "network": {"enabled": False}},
+            "config": {"permissions.makora": {"filesystem": filesystem, "network": {"enabled": network_access}},
+                       **({"web_search": "live"} if network_access else {}),
                        **({"model_reasoning_effort": reasoning_effort} if reasoning_effort else {})},
         }, timeout=200)
 
@@ -449,7 +450,7 @@ class AgentRuntime:
         if role == 'project_chat':
             options['user_chat'] = True
         if role == 'preparation':
-            options['desktop'] = True
+            options['desktop'] = kwargs.pop('desktop', True)
         return {**self.provider.create_thread(**kwargs, **options), 'model': config['model'], 'reasoningEffort': config['reasoningEffort']}
 
     def _worktrees_for(self, project: Path) -> Path:

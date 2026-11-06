@@ -9,7 +9,7 @@ async page => {
     await page.locator('.pixel-start').click();
   }
   await page.locator('[data-real-stage]').first().waitFor({timeout:240000});
-  for(let stage=1;stage<=4;stage++){
+  for(let stage=1;stage<=5;stage++){
     await page.locator('[data-real-stage]').nth(stage-1).click();
     state=await get();
     if(state.stages[stage]?.status==='approved')continue;
@@ -21,7 +21,8 @@ async page => {
     await wait(s=>['review','approved','failed'].includes(s.stages[stage]?.status),600000);
     state=await get();
     if(state.stages[stage].status!=='review'&&state.stages[stage].status!=='approved')throw Error(JSON.stringify(state.stages[stage]));
-    if(stage<4&&state.stages[stage].status==='review'){
+    if(stage===2&&state.stages[stage].status==='review'){await page.locator('[data-competitor-decision]').fill('Для этого E2E использовать подходящие механики поиска; регистрация не нужна.');await page.locator('[data-real-approve]').click();await wait(s=>s.stages[stage]?.status==='approved',30000);continue}
+    if(stage<5&&state.stages[stage].status==='review'){
       await page.locator('[data-analysis-edit]').click();
       await page.locator('.analysis-chat textarea').fill('Для этого временного E2E принимаем предложенные рабочие допущения. Только локальный HTTP API и JSON-хранилище; поиск регистронезависимый. Остальные неизвестные не считать требованиями организатора.');
       await page.locator('[data-chat-close]').click();

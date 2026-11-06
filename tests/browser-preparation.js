@@ -5,7 +5,7 @@ async page => {
   let state={storageRoot:'C:/test-project',brief:'',stages:{}},submitted='',lastFeedback='';
   await page.route('**/api/preparation**',async route=>{
     if(new URL(route.request().url()).pathname.endsWith('/folder/select')){state.storageRoot='C:/test-project';return route.fulfill({json:{ok:true,result:{path:'C:/test-project',cancelled:false}}})}
-    const request=route.request();if(request.method()==='GET')await new Promise(resolve=>setTimeout(resolve,100));const url=new URL(request.url()),match=url.pathname.match(/\/([1-4])\/(start|refresh|approve)$/);
+    const request=route.request();if(request.method()==='GET')await new Promise(resolve=>setTimeout(resolve,100));const url=new URL(request.url()),match=url.pathname.match(/\/([1-5])\/(start|refresh|approve)$/);
     if(match){const stage=Number(match[1]),action=match[2],body=request.postDataJSON();
       if(action==='start'){lastFeedback=body.feedback||'';
         if(stage===1&&body.brief){state.brief=body.brief;submitted=body.brief}
@@ -13,7 +13,9 @@ async page => {
         for(const key of Object.keys(state.stages))if(Number(key)>stage)state.stages[key].status='stale';
       }
       if(action==='refresh')Object.assign(state.stages[stage],{status:'review',files:{[stage===1?'01_case_analysis.md':'02_solution_concept.md']:'# Тикеты\n\n## Обязательные требования\n\nREQ-1: поиск тикетов по статусу.\n\n## Открытые вопросы\n\nУточнить авторизацию.'},checks:[{name:'Документ',status:'passed'}]});
-      if(action==='approve')state.stages[stage].status='approved';
+      if(action==='refresh'&&stage===2)state.stages[stage].files={'02_competitors.md':'# Конкуренты','02_competitors.json':JSON.stringify({competitors:[{id:'one',name:'Example',url:'https://example.com',status:'verified',comparison:[{criterion:'Поиск',ours:'Требуется',theirs:'Фильтры'}],sources:[{url:'https://example.com/features',title:'Функции',checkedAt:'2026-11-06'}]}]})};
+      if(action==='approve'){state.stages[stage].status='approved';if(stage===2)state.competitorPreferences=body.note}
+
     }
     await route.fulfill({json:{ok:true,result:state}});
   });
@@ -23,7 +25,7 @@ async page => {
   await page.locator('.pixel-start').click();await page.locator('[data-real-stage]').first().waitFor();
   assert(submitted.includes('систему тикетов'),'Исходный текст не отправлен API');
   assert(await page.locator('.analysis-thinking').count()===1,'Нет ожидания документа');
-  assert(await page.locator('[data-real-stage]').count()===6,'Нет шести этапов');
+  assert(await page.locator('[data-real-stage]').count()===7,'Нет семи этапов');
   assert(await page.locator('.board-next').isHidden(),'Осталась учебная кнопка Далее');
   await page.locator('[data-real-file]').first().waitFor();
   await page.locator('[data-real-file]').first().click();
@@ -33,10 +35,26 @@ async page => {
   assert(await page.locator('.board').evaluate(e=>e.classList.contains('board-settled')&&!e.classList.contains('expanded')),'Доска не вернулась без анимации');
   assert(!(await page.locator('.board-content').innerText()).includes('Тихий кампус'),'Показан прежний учебный кейс');
   await page.reload();await page.locator('[data-real-file]').first().waitFor();
-  await page.locator('[data-real-approve]').click();await page.waitForFunction(()=>document.querySelector('.board-bar h2')?.textContent==='Разработка идеи');await page.locator('[data-real-run]').waitFor();
+  await page.locator('[data-real-approve]').click();await page.waitForFunction(()=>document.querySelector('.board-bar h2')?.textContent==='Анализ конкурентов');await page.locator('[data-real-run]').waitFor();
   assert(state.stages[1].status==='approved','Нет явного утверждения');
   await page.locator('[data-real-run]').click();await page.locator('.analysis-thinking').waitFor();
   await page.locator('[data-real-approve]').waitFor();
+  assert(await page.locator('[data-competitor-decision]').count()===1,'Нет решения по конкурентам');
+  assert(await page.locator('.competitor-sources a').getAttribute('href')==='https://example.com/features','Нет ссылки на источник');
+  await page.locator('[data-competitor-open]').click();
+  await page.screenshot({path:'output/browser/competitors-review.png'});
+  await page.locator('.board-expand').click();
+  await page.waitForFunction(()=>!document.fullscreenElement);
+  await page.setViewportSize({width:390,height:844});
+  await page.locator('[data-competitor-open]').click();
+  assert(await page.locator('.board-content').evaluate(e=>e.scrollWidth<=e.clientWidth+1),'Сравнение выходит за экран телефона');
+  await page.locator('.board-expand').click();
+  await page.waitForFunction(()=>!document.fullscreenElement);
+  await page.setViewportSize({width:1280,height:900});
+  await page.locator('[data-competitor-open]').click();
+  await page.locator('[data-competitor-decision]').fill('Перенять фильтры, упростить вход');
+  await page.locator('[data-real-approve]').click();await page.locator('[data-real-stage="3"].active').waitFor();
+  assert(state.competitorPreferences.includes('фильтры'),'Решение не передано при утверждении');
   await page.locator('[data-real-stage="1"]').click();await page.locator('[data-analysis-edit]').click();
   const chatBefore=await page.locator('.analysis-chat').boundingBox(),speaker=await page.locator('.mascot-area').boundingBox();
   await page.mouse.move(speaker.x+speaker.width/2,speaker.y+speaker.height/2);await page.mouse.down();await page.mouse.move(speaker.x+speaker.width/2+40,speaker.y+speaker.height/2,{steps:5});await page.mouse.up();
