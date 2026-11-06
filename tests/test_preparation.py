@@ -375,6 +375,13 @@ class PreparationTests(unittest.TestCase):
         self.assertEqual('review', self.pipeline.refresh(1)['stages']['1']['status'])
         self.assertEqual('actual-turn', record['turnId'])
 
+    def test_poll_recovers_late_completion_after_agent_failure(self):
+        self.generate_analysis()
+        record = self.pipeline.state['stages']['1']
+        record.update(status='failed', agentStatus='failed', error='Interrupted')
+        self.assertEqual('review', self.pipeline.poll()['stages']['1']['status'])
+        self.assertNotIn('error', record)
+
     def test_all_stage_errors_are_readable_including_saved_legacy_errors(self):
         for stage in range(1, 5):
             self.pipeline.state['stages'][str(stage)] = {'status': 'failed', 'error': {

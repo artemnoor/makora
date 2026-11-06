@@ -1888,7 +1888,7 @@ class AgentRuntime:
                         # Keep an accepted/delivered operation active until the
                         # bridge confirms final delivery. A terminal turn status
                         # is not permission to send another turn into this thread.
-                        if (state == 'unconfirmed' and operation.get('done', True)
+                        if (state in ('unconfirmed', 'failed') and operation.get('done', True)
                                 and has_final_answer(turn)):
                             # Older bridges stopped tracking after 180s. Recover only
                             # a terminal tracker and the exact saved turn's final reply.
@@ -1964,6 +1964,7 @@ class AgentRuntime:
                                  'executionObservedDurationMs': session.get('executionObservedDurationMs'),
                                  'providerTurnTiming': session.get('providerTurnTiming', {})})
             if state == "completed":
+                session["error"] = None
                 session["result"] = detail
                 current_response = detail
                 if isinstance(detail, dict) and isinstance(detail.get('turns'), list) and result.get('turnId'):

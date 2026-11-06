@@ -470,8 +470,10 @@ class Preparation:
     def poll(self):
         with self.lock:
             pending = next((int(k) for k, value in self.state['stages'].items()
-                            if value.get('status') in ('running', 'unconfirmed') and value.get('sessionId')), None)
-        return self.refresh(pending) if pending else self.snapshot()
+                            if (value.get('status') in ('running', 'unconfirmed') or
+                                (value.get('status') == 'failed' and value.get('agentStatus') == 'failed'))
+                            and value.get('sessionId')), None)
+        return self.refresh(pending, recheck=True) if pending else self.snapshot()
 
     def context(self, before):
         return {name: text for key, value in self.state['stages'].items()

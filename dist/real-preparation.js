@@ -35,7 +35,7 @@
   async function openFolder(){return api('/api/preparation/folder/open',{})}
   async function uploadSource(file){const auth=await(await fetch('/api/agents/token',{headers:{'X-Makora-Request':'token'}})).json();const response=await fetch('/api/preparation/source?name='+encodeURIComponent(file.name),{method:'POST',headers:{'X-Makora-Token':auth.result.token},body:file});const data=await response.json();if(!response.ok)throw Error(data.error?.message||'Не удалось сохранить исходный файл');return data.result}
   async function start(brief,sourceFile){if(sourceFile)await uploadSource(sourceFile);state=await api('/api/preparation/1/start',{brief});stage=1;file=null;localStorage.setItem('makora.real-stage','1');history.replaceState(null,'',location.pathname)}
-  function schedule(){clearTimeout(timer);if(stage<=4&&['running','unconfirmed'].includes(state.stages[stage]?.status)){timer=setTimeout(async()=>{try{state=await api(`/api/preparation/${stage}/refresh`,{});paint()}catch(e){error(e.message);schedule()}},4000)}}
+  function schedule(){clearTimeout(timer);if(stage<=4&&(['running','unconfirmed'].includes(state.stages[stage]?.status)||(state.stages[stage]?.status==='failed'&&state.stages[stage]?.agentStatus==='failed'))){timer=setTimeout(async()=>{try{state=await api(`/api/preparation/${stage}/refresh`,{});paint()}catch(e){error(e.message);schedule()}},4000)}}
   function paint(){
     if(stage!==6)window.makoraCodingAgents?.hide();
     const scene=root();if(!scene||!state.brief)return;
