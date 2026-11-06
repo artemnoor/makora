@@ -629,3 +629,13 @@
 #first-stage .real-diagram{max-width:100%;margin:20px 0;overflow:auto;padding:14px;background:#151515;border:1px solid #3a3a3a}#first-stage .real-diagram svg{display:block;max-width:none;margin:auto}#first-stage .real-diagram-error{padding:12px;border:1px solid #8d6c62;color:#eac7bb;font:12px/1.6 Manrope,Arial,sans-serif}
 
 #first-stage .stage-model{margin:8px 0 0;color:#aaa;font:10px/1.5 Manrope,Arial,sans-serif;letter-spacing:normal;max-width:75ch;overflow-wrap:anywhere}#first-stage .board:not(.expanded) .stage-model{font-size:9px;line-height:1.35}#first-stage .board-bar>div{min-width:0}
+
+/* Keep compact stage summaries and their actions inside the board. */
+#first-stage .rp-analysis:not(.expanded) .analysis-summary{gap:8px}
+#first-stage .rp-analysis:not(.expanded) .analysis-purpose{margin:0;font-size:12px;line-height:1.4;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden}
+#first-stage .rp-analysis:not(.expanded) .analysis-file{padding:8px;gap:8px}
+#first-stage .rp-analysis:not(.expanded) .analysis-file-mark{padding:6px 4px}
+#first-stage .rp-analysis:not(.expanded) .analysis-actions{margin-top:0}
+#first-stage .rp-analysis:not(.expanded) .analysis-actions button:is(.rp-primary,.rp-secondary){min-height:36px;padding:7px 10px;font-size:11px}
+
+#first-stage .rp-analysis:not(.expanded) .runtime-summary .analysis-thinking .analysis-wheel{width:80px;height:80px}

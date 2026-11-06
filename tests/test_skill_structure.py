@@ -6,6 +6,16 @@ from scripts.check_skills import check_skill
 
 
 class SkillStructureTests(unittest.TestCase):
+    def test_control_skill_does_not_require_document_templates(self):
+        with tempfile.TemporaryDirectory() as temp:
+            folder = Path(temp) / 'project-control'
+            folder.mkdir()
+            file = folder / 'SKILL.md'
+            file.write_text('---\nname: project-control\ndescription: >-\n  Project control: local commands.\n---\n# Commands\nUse the local controller.\n', encoding='utf-8')
+            self.assertEqual([], check_skill(folder))
+            file.write_text('---\nname: project-control\ndescription: Invalid: YAML\n---\n', encoding='utf-8')
+            self.assertTrue(any('YAML' in error for error in check_skill(folder)))
+
     def test_missing_inputs_outputs_and_readiness_are_rejected(self):
         with tempfile.TemporaryDirectory() as temp:
             folder = Path(temp) / 'development-planning'

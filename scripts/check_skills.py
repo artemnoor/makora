@@ -49,7 +49,7 @@ def check_skill(folder):
         path = (folder / target.split('#', 1)[0]).resolve()
         if not path.is_relative_to(folder.resolve()) or not path.is_file():
             errors.append(f'{folder.name}: ссылка на недоступный файл {target}')
-    for required in ('references', 'assets'):
+    for required in (('references', 'assets') if folder.name in CONTRACTS else ()):
         if not (folder / required).is_dir():
             errors.append(f'{folder.name}: нет каталога {required}')
     body = text[match.end():]
@@ -57,7 +57,7 @@ def check_skill(folder):
     outputs = section(body, 'Выходы')
     readiness = section(body, 'Критерии готовности')
     for title, value in (('Входы', inputs), ('Выходы', outputs), ('Критерии готовности', readiness)):
-        if len(value) < 20:
+        if folder.name in CONTRACTS and len(value) < 20:
             errors.append(f'{folder.name}: отсутствует или пуст раздел «{title}»')
     if folder.name in CONTRACTS:
         required_inputs, required_outputs = CONTRACTS[folder.name]
