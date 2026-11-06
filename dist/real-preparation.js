@@ -61,7 +61,7 @@
     if(stage===6){window.makoraModelStatus?.agents([]);development(content,board);return}
     const record=state.stages[stage],files=record?.files||{},status=record?.status||'not_started';
     window.makoraModelStatus?.preparation(record);
-    const working=['running','launching','unconfirmed'].includes(status);
+    const working=['running','launching'].includes(status);
     artifactView(scene,board,content,record,files,status,working,projectKey);
   }
   function artifactView(scene,board,content,record,files,status,working,projectKey){
@@ -76,8 +76,9 @@
     content.innerHTML=`<div class="board-document rp-workspace analysis-summary" data-phase="${esc(status)}">
       ${working?`<div class="analysis-thinking" role="status"><img src="analysis-wheel.png" alt="" class="analysis-wheel" style="animation-delay:${wheelDelay}s"><p>${status==='unconfirmed'?'Проверяем состояние документов…':'Составляются материалы этапа'}</p><small>${esc(expected)}</small></div>`:`<p class="analysis-purpose">${ready?'Материалы подготовлены. ':''}${esc(purposes[step-1])}</p>
       ${main?`<button class="analysis-file" data-real-file="${esc(main)}"><span class="analysis-file-mark">${paths.length===1?'MD':'▤'}</span><span><strong>${paths.length===1?esc(fileTitle(main)):'Материалы этапа'}</strong><small>${paths.length===1?esc(main):paths.length+' файлов · документы, схемы и данные'}</small></span><span aria-hidden="true">↗</span></button>`:''}
+      ${status==='unconfirmed'?`<p role="status">Ответ агента пока не подтверждён. Проверьте состояние; повторная отправка не выполняется.</p>`:''}
       ${record?.error?`<p data-real-error role="alert">${esc(typeof record.error==='string'?record.error:JSON.stringify(record.error))}</p>`:''}
-      <div class="analysis-actions"><button class="rp-secondary" data-analysis-edit ${!record?'data-real-run':''}>${record?'Пересоздать с уточнениями':'Начать этап →'}</button>${ready?`<button class="rp-primary" ${status==='approved'?'data-real-next':'data-real-approve'}>${step===3?(status==='approved'?'К мок-данным →':'Утвердить весь план →'):'Продолжить →'}</button>`:''}${['failed','unconfirmed'].includes(status)?'<button class="rp-text-button" data-real-refresh>Проверить состояние ↻</button>':''}</div>`}
+      <div class="analysis-actions"><button class="rp-secondary" data-analysis-edit ${status==='unconfirmed'?'disabled':''} ${!record?'data-real-run':''}>${record?'Пересоздать с уточнениями':'Начать этап →'}</button>${ready?`<button class="rp-primary" ${status==='approved'?'data-real-next':'data-real-approve'}>${step===3?(status==='approved'?'К мок-данным →':'Утвердить весь план →'):'Продолжить →'}</button>`:''}${['failed','unconfirmed'].includes(status)?'<button class="rp-text-button" data-real-refresh>Проверить состояние ↻</button>':''}</div>`}
       <div data-real-approvals></div></div><article class="analysis-reader" data-real-document data-phase="${esc(status)}" hidden></article>`;
     const show=path=>{
       if(!files[path])return;file=path;content.querySelector('.analysis-summary').hidden=true;
