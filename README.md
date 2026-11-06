@@ -10,7 +10,7 @@
 
 Создайте и откройте папку проекта в Codex Desktop, затем отправьте в чат эту инструкцию:
 
-> Склонируй [https://github.com/artemnoor/makora.git](https://github.com/artemnoor/makora.git) в подпапку makora. Прочитай AGENTS.md и установи Макору для текущей папки проекта через setup.ps1. Затем используй навык makora-control.
+> Склонируй [https://github.com/artemnoor/makora.git](https://github.com/artemnoor/makora.git) в подпапку makora. Прочитай AGENTS.md и установи Макору для текущей папки проекта через setup.ps1. После настройки запусти локальный сервер Макоры, проверь, что он работает, и дай ссылку на сайт. Затем используй навык makora-control.
 
 Создайте папку проекта в Codex Desktop и попросите клонировать https://github.com/artemnoor/makora.git в подпапку `makora`. Из корня репозитория запустите:
 
