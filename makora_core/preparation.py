@@ -145,7 +145,7 @@ class Preparation:
         for key, record in state['stages'].items():
             if int(key) > 2 and record.get('status') == 'approved':
                 record['status'] = 'stale'
-        state['lastStage'] = min(2, state.get('lastStage', 1))
+        state['lastStage'] = min(2, max(1, state.get('lastStage') or 1))
         state['workflowVersion'] = 2
         state['workflowNotice'] = 'Добавлен этап анализа конкурентов. Сохранённые документы перенесены; начните с нового этапа 2.'
         return True
@@ -870,6 +870,7 @@ class Preparation:
                 if not note:
                     raise AgentRuntimeError('COMPETITOR_DECISION_REQUIRED', 'Отметьте, что перенять у конкурентов или почему ничего не подходит.', 409)
                 self.state['competitorPreferences'] = note[:20000]
+                self.state.pop('workflowNotice', None)
             record['status'] = 'approved'
             record['approvalNote'] = str((payload or {}).get('note', ''))[:20000]
             record['digest'] = hashlib.sha256(json.dumps(record['files'], sort_keys=True).encode()).hexdigest()
