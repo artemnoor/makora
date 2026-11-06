@@ -642,9 +642,6 @@ class Preparation:
             checks.append({'name': 'DAG задач и структура OpenAPI 3', 'status': 'passed'})
         if stage == 4:
             from jsonschema import validators
-            schemas = {name: json.loads(text) for name, text in files.items() if name.endswith('.schema.json')}
-            if not schemas:
-                raise ValueError('Нет JSON Schema для проверки фикстур')
             scenario_path = 'mocks/scenarios.json'
             visited = set()
             while True:
@@ -668,7 +665,24 @@ class Preparation:
             from referencing.jsonschema import DRAFT202012
             from urllib.parse import unquote
             base = 'https://makora.invalid/'
-            registry = Registry().with_resources((base+name, Resource.from_contents(schema, default_specification=DRAFT202012)) for name, schema in schemas.items())
+            def load_schema(name):
+                if not name.startswith('mocks/') or name not in files:
+                    raise ValueError('Отсутствует локальная JSON Schema в пакете: ' + name)
+                schema = json.loads(files[name])
+                try:
+                    validators.validator_for(schema).check_schema(schema)
+                except Exception as exc:
+                    raise ValueError(f'Некорректная JSON Schema {name}: {getattr(exc, "message", str(exc))}') from exc
+                return schema
+
+            def retrieve_schema(uri):
+                # Resolve only supplied package resources; never fetch remote refs.
+                if not uri.startswith(base):
+                    raise ValueError('Внешняя ссылка JSON Schema недоступна: ' + uri)
+                name = unquote(uri[len(base):])
+                return Resource.from_contents(load_schema(name), default_specification=DRAFT202012)
+
+            registry = Registry(retrieve=retrieve_schema)
             for scenario in scenarios:
                 if not isinstance(scenario,dict):
                     raise ValueError('Сценарий должен быть объектом с fixture, schema и expectedValid')
@@ -676,9 +690,9 @@ class Preparation:
                 expected = scenario.get('expectedValid')
                 fixture_path, _, pointer = str(fixture).partition('#')
                 schema_path = str(schema_name).partition('#')[0]
-                if fixture_path not in files or schema_path not in schemas or not isinstance(expected, bool):
+                if fixture_path not in files or not isinstance(schema_name, str) or not isinstance(expected, bool):
                     raise ValueError('Каждый сценарий должен иметь fixture, schema и expectedValid')
-                schema = schemas[schema_path]
+                schema = load_schema(schema_path)
                 validator = validators.validator_for(schema)
                 validator.check_schema(schema)
                 data = json.loads(files[fixture_path])
@@ -689,7 +703,10 @@ class Preparation:
                     for token in pointer[1:].split('/'):
                         token = token.replace('~1', '/').replace('~0', '~')
                         data = data[int(token)] if isinstance(data, list) else data[token]
-                actual = validator({'$ref': base+schema_name}, registry=registry).is_valid(data)
+                try:
+                    actual = validator({'$ref': base+schema_name}, registry=registry).is_valid(data)
+                except Exception as exc:
+                    raise ValueError(f'Сценарий {scenario.get("id", fixture)}: не удалось применить схему {schema_name}: {exc}') from exc
                 checks.append({'name': f'Сценарий {scenario.get("id", fixture)}: {fixture}', 'status': 'passed' if actual == expected else 'failed',
                                'expectedValid': expected, 'actualValid': actual})
         checks.extend(Preparation.validate_diagrams(files))

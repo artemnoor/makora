@@ -479,6 +479,32 @@ class PreparationTests(unittest.TestCase):
         self.assertIn('Текст задания', Preparation.extract('brief.docx', data.getvalue())['text'])
         with self.assertRaises(ValueError): Preparation.extract('brief.txt', b'  ')
 
+    def test_schema_files_are_resolved_by_reference_not_filename(self):
+        files = {'mocks/fixtures/data.json': '[{"id":"ok"}]', '04_validation_report.md': '# Checks',
+                 'mocks/schemas/Item.json': '{"type":"object","required":["id"]}',
+                 'mocks/schemas/List.json': '{"type":"array","items":{"$ref":"Item.json"}}',
+                 'mocks/scenarios.json': json.dumps([{'fixture':'mocks/fixtures/data.json',
+                     'schema':'mocks/schemas/List.json','expectedValid':True}])}
+        self.assertTrue(all(c['status']=='passed' for c in Preparation.validate(files,4)))
+        files['mocks/fixtures/data.json'] = '[{}]'
+        self.assertTrue(any(c['status']=='failed' for c in Preparation.validate(files,4)))
+        del files['mocks/schemas/Item.json']
+        with self.assertRaisesRegex(ValueError, 'Item.json'):
+            Preparation.validate(files,4)
+        files['mocks/schemas/List.json'] = '{"type":"not-a-json-schema-type"}'
+        with self.assertRaisesRegex(ValueError, 'List.json'):
+            Preparation.validate(files,4)
+
+    def test_schema_reference_errors_identify_missing_or_external_resource(self):
+        files = {'mocks/fixtures/data.json':'{}','04_validation_report.md':'# Checks',
+                 'mocks/scenarios.json':json.dumps([{'fixture':'mocks/fixtures/data.json',
+                     'schema':'mocks/schemas/Absent.json','expectedValid':False}])}
+        with self.assertRaisesRegex(ValueError, 'Absent.json'):
+            Preparation.validate(files,4)
+        files['mocks/schemas/Absent.json']='{"$ref":"https://example.com/private.json"}'
+        with self.assertRaisesRegex(ValueError, 'private.json'):
+            Preparation.validate(files,4)
+
     def test_scenario_bundle_supports_json_pointer_and_local_schema_refs(self):
         files = {'mocks/fixtures/data.json': '{"fixtures":{"items":[{"id":"one"}],"invalid":[{}]}}',
                  '04_validation_report.md': '# Ещё не проверено',
