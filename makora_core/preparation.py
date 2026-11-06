@@ -23,9 +23,10 @@ logger = logging.getLogger(__name__)
 
 STAGES = {
     1: ('Анализ задания', ['requirements-analysis'], ['01_case_analysis.md']),
-    2: ('Разработка идеи', ['product-research', 'solution-design'], ['02_research.md', '02_solution_concept.md', '02_user_flow.mmd', '02_task_flow.mmd']),
-    3: ('Планирование', ['system-design', 'development-planning'], ['03_architecture.md', '03_contracts/openapi.yaml', '03_test_plan.md', '03_tasks.json']),
-    4: ('Подготовка мок-данных', ['mock-environment'], ['mocks/fixtures/data.json', 'mocks/scenarios.json', '04_validation_report.md']),
+    2: ('Анализ конкурентов', ['product-research'], ['02_competitors.md', '02_competitors.json']),
+    3: ('Разработка идеи', ['solution-design'], ['02_research.md', '02_solution_concept.md', '02_user_flow.mmd', '02_task_flow.mmd']),
+    4: ('Планирование', ['system-design', 'development-planning'], ['03_architecture.md', '03_contracts/openapi.yaml', '03_test_plan.md', '03_tasks.json']),
+    5: ('Подготовка мок-данных', ['mock-environment'], ['mocks/fixtures/data.json', 'mocks/scenarios.json', '04_validation_report.md']),
 }
 
 
@@ -67,7 +68,17 @@ class Preparation:
         self.runtime = runtime
         self.lock = threading.RLock()
         self.index = self.root / 'state.json'
-        self.state = json.loads(self.index.read_text('utf-8')) if self.index.exists() else {'brief': '', 'stages': {}}
+        self.state = json.loads(self.index.read_text('utf-8')) if self.index.exists() else {'brief': '', 'stages': {}, 'workflowVersion': 2}
+        if self.migrate_state(self.state):
+            backup = self.index.with_name('state-before-competitors.json')
+            if not backup.exists():
+                backup.write_bytes(self.index.read_bytes())
+            if self.state.get('storageRoot'):
+                project_index = Path(self.state['storageRoot']) / '.makora/preparation/state.json'
+                project_backup = project_index.with_name('state-before-competitors.json')
+                if project_index.exists() and not project_backup.exists():
+                    project_backup.write_bytes(project_index.read_bytes())
+            self.save()
         if self.state.get('storageRoot'):
             self.root = Path(self.state['storageRoot']) / '.makora' / 'preparation'
             self.root.mkdir(parents=True, exist_ok=True)
@@ -127,15 +138,32 @@ class Preparation:
         temporary.replace(path)
 
     @staticmethod
+    def migrate_state(state):
+        if state.get('workflowVersion', 1) >= 2:
+            return False
+        state['stages'] = {str(int(key) + (int(key) >= 2)): value for key, value in state.get('stages', {}).items()}
+        for key, record in state['stages'].items():
+            if int(key) > 2 and record.get('status') == 'approved':
+                record['status'] = 'stale'
+        state['lastStage'] = min(2, state.get('lastStage', 1))
+        state['workflowVersion'] = 2
+        state['workflowNotice'] = 'Добавлен этап анализа конкурентов. Сохранённые документы перенесены; начните с нового этапа 2.'
+        return True
+
+    @staticmethod
+    def stage_group(stage):
+        return ':competitors' if stage == 2 else ':planning' if stage <= 4 else ':mocks'
+
+    @staticmethod
     def available_stages(state):
         available = [1]
-        for stage in range(1, 5):
+        for stage in range(1, 6):
             if state.get('stages', {}).get(str(stage), {}).get('status') != 'approved':
                 break
             available.append(stage + 1)
-        if 5 in available and ((state.get('prototype') or {}).get('status') == 'approved' or
+        if 6 in available and ((state.get('prototype') or {}).get('status') == 'approved' or
                                (state.get('returnedProject') or {}).get('status') == 'prepared'):
-            available.append(6)
+            available.append(7)
         return available
 
     def list_projects(self):
@@ -153,6 +181,7 @@ class Preparation:
                     state = json.loads(metadata.read_text('utf-8'))
                 except (OSError, ValueError):
                     continue
+                self.migrate_state(state)
                 ident = state.get('projectId')
                 if not ident or ident in seen:
                     continue
@@ -194,7 +223,7 @@ class Preparation:
         history.mkdir(exist_ok=True)
         (history / (uuid.uuid4().hex + '.json')).write_text(json.dumps(self.state, ensure_ascii=False), 'utf-8')
         self._register_current_project()
-        self.state = {'brief': '', 'stages': {}, 'projectId': uuid.uuid4().hex, 'storageRoot': str(folder), 'name': name or folder.name, 'lastStage': 1}
+        self.state = {'brief': '', 'stages': {}, 'workflowVersion': 2, 'projectId': uuid.uuid4().hex, 'storageRoot': str(folder), 'name': name or folder.name, 'lastStage': 1}
         self.root = folder / '.makora' / 'preparation'
         self.root.mkdir(parents=True)
         for item in ('input', 'artifacts', 'reports'):
@@ -214,6 +243,10 @@ class Preparation:
                 raise AgentRuntimeError('PROJECT_NOT_FOUND', 'Проект не найден в библиотеке.', 404)
             folder = Path(item['path'])
             state = json.loads((folder / '.makora/preparation/state.json').read_text('utf-8'))
+            if self.migrate_state(state):
+                backup = folder / '.makora/preparation/state-before-competitors.json'
+                if not backup.exists():
+                    backup.write_bytes((folder / '.makora/preparation/state.json').read_bytes())
             stage = payload.get('stage', item['stage'])
             if type(stage) is not int or stage not in self.available_stages(state):
                 raise AgentRuntimeError('STAGE_UNAVAILABLE', 'Этот этап ещё недоступен.', 409)
@@ -486,7 +519,7 @@ class Preparation:
                 raise AgentRuntimeError('INVALID_STAGE', 'Неизвестный этап.')
             if any(s.get('status') in ('launching', 'running', 'unconfirmed') for s in self.state['stages'].values()):
                 raise AgentRuntimeError('PREPARATION_BUSY', 'Предыдущая операция ещё выполняется или её доставка не подтверждена.', 409)
-            if stage > 1 and self.state['stages'].get(str(stage-1), {}).get('status') != 'approved':
+            if any(self.state['stages'].get(str(previous), {}).get('status') != 'approved' for previous in range(1, stage)):
                 raise AgentRuntimeError('PREVIOUS_STAGE_REQUIRED', 'Сначала утверди предыдущий этап.', 409)
             brief = payload.get('brief', self.state['brief'])
             if not isinstance(brief, str) or not 10 <= len(brief.strip()) <= 100000:
@@ -500,6 +533,7 @@ class Preparation:
                     history.mkdir(exist_ok=True)
                     (history / (uuid.uuid4().hex + '.json')).write_text(json.dumps(self.state, ensure_ascii=False), 'utf-8')
                     self.state['projectId'] = uuid.uuid4().hex
+                    self.state.pop('competitorPreferences', None)
                 self.state['brief'] = brief
             if self.state.get('storageRoot'):
                 self._storage_write('input/brief.txt', self.state['brief'].encode('utf-8'))
@@ -507,7 +541,7 @@ class Preparation:
             folder.mkdir()
             context = self.context(stage)
             decisions = {k: v.get('approvalNote', '') for k, v in self.state['stages'].items() if int(k)<stage and v.get('status')=='approved'}
-            (folder / 'INPUT.json').write_text(json.dumps({'brief': self.state['brief'], 'artifacts': context, 'decisions': decisions, 'previousChecks': self.state['stages'].get(str(stage), {}).get('checks', []), 'previousError': self.state['stages'].get(str(stage), {}).get('error'), 'previousResult': self.state['stages'].get(str(stage), {}).get('files', {}), 'feedback': payload.get('feedback', '')}, ensure_ascii=False), 'utf-8')
+            (folder / 'INPUT.json').write_text(json.dumps({'brief': self.state['brief'], 'artifacts': context, 'decisions': decisions, 'previousChecks': self.state['stages'].get(str(stage), {}).get('checks', []), 'previousError': self.state['stages'].get(str(stage), {}).get('error'), 'previousResult': self.state['stages'].get(str(stage), {}).get('files', {}), 'feedback': payload.get('feedback', ''), 'competitorPreferences': self.state.get('competitorPreferences', '')}, ensure_ascii=False), 'utf-8')
             skills_root = Path(__file__).resolve().parent.parent / 'skills'
             task = {
                 'stage': stage, 'title': STAGES[stage][0],
@@ -521,7 +555,7 @@ class Preparation:
             prompt = (f'Этап {stage}: {STAGES[stage][0]}. Примени навык '
                       f'{task["protocol"]}. Задание и пути: {folder / "TASK.json"}. '
                       'Прочитай только навыки и материалы этого этапа. Сохрани результат по указанному пути.')
-            group_key = self.state['projectId'] + (':planning' if stage <= 3 else ':mocks')
+            group_key = self.state['projectId'] + self.stage_group(stage)
             chat = self.state.setdefault('preparationChats', {}).get(group_key)
             record = {'status': 'launching', 'folder': str(folder), 'files': {}, 'checks': [], **self._agent_config('preparation')}
             self.state['stages'][str(stage)] = record
@@ -530,6 +564,8 @@ class Preparation:
                     self.state['stages'][key]['status'] = 'stale'
             if self.state.get('prototype'):
                 self.state['prototype']['status'] = 'stale'
+            if self.state.get('returnedProject'):
+                self.state['returnedProject']['status'] = 'stale'
             self.save()  # Save uncertain delivery before contacting Codex; never resend automatically.
             try:
                 if chat:
@@ -538,8 +574,8 @@ class Preparation:
                     created = {**sent, 'id': chat['threadId'], 'model': chat['model'],
                                'reasoningEffort': chat.get('reasoningEffort'), 'transport': chat.get('transport', 'app-server')}
                 else:
-                    title = 'Макора — анализ, идея и план' if stage <= 3 else 'Макора — мок-данные'
-                    created = self._create_agent('preparation', cwd=folder, name=title, prompt=prompt)
+                    title = 'Макора — конкуренты' if stage == 2 else 'Макора — анализ, идея и план' if stage <= 4 else 'Макора — мок-данные'
+                    created = self._create_agent('preparation', cwd=folder, name=title, prompt=prompt, **({'desktop': False, 'network_access': True} if stage == 2 else {}))
                     if created.get('id'):
                         self.state['preparationChats'][group_key] = {
                             'threadId': created['id'], 'model': created.get('model', record['model']),
@@ -609,7 +645,42 @@ class Preparation:
                 json.loads(text)
         if total > 8 * 1024 * 1024 or len(files) > 200:
             raise AgentRuntimeError('ARTIFACT_LIMIT', 'Пакет артефактов слишком большой.')
-        if stage == 3 and files.get('03_tasks.json'):
+        if stage == 2:
+            from urllib.parse import urlparse
+            research = json.loads(files.get('02_competitors.json', '{}'))
+            if not isinstance(research, dict) or not isinstance(research.get('competitors'), list) or not research['competitors']:
+                raise ValueError('Нужен список конкурентов с источниками в 02_competitors.json')
+            def valid_url(value):
+                parsed = urlparse(value) if isinstance(value, str) else None
+                return parsed and parsed.scheme in ('http', 'https') and parsed.hostname and not parsed.username and not parsed.password
+            ids = set()
+            verified = 0
+            for competitor in research['competitors']:
+                if not isinstance(competitor, dict) or not isinstance(competitor.get('id'), str) or not competitor['id'] or competitor['id'] in ids:
+                    raise ValueError('У конкурента должен быть уникальный id')
+                ids.add(competitor['id'])
+                if not isinstance(competitor.get('name'), str) or not competitor['name'].strip() or not valid_url(competitor.get('url')):
+                    raise ValueError('У конкурента нужны название и официальный HTTP(S) адрес')
+                if competitor.get('status') not in ('verified', 'unverified'):
+                    raise ValueError('Отметьте статус проверки конкурента: verified или unverified')
+                if not isinstance(competitor.get('comparison'), list) or not competitor['comparison']:
+                    raise ValueError('Нужно сравнение конкурента с требованиями продукта')
+                for row in competitor['comparison']:
+                    if not isinstance(row, dict) or not all(isinstance(row.get(key), str) and row[key].strip() for key in ('criterion', 'ours', 'theirs')):
+                        raise ValueError('Сравнение должно содержать criterion, ours и theirs')
+                ideas = competitor.get('ideasToBorrow', [])
+                if not isinstance(ideas, list) or not all(isinstance(idea, str) for idea in ideas):
+                    raise ValueError('ideasToBorrow должен быть списком строк')
+                sources = competitor.get('sources', [])
+                if not isinstance(sources, list) or any(not isinstance(source, dict) or not valid_url(source.get('url')) or not source.get('checkedAt') for source in sources):
+                    raise ValueError('Укажите URL источника и дату проверки checkedAt')
+                if competitor['status'] == 'verified':
+                    if not sources:
+                        raise ValueError('Проверенный конкурент должен иметь источники и дату проверки')
+                    verified += 1
+            checks.append({'name': f'Конкуренты, сравнение и ссылки: {len(ids)}; отмечено проверенными: {verified}',
+                           'status': 'passed' if verified else 'failed'})
+        if stage == 4 and files.get('03_tasks.json'):
             tasks = json.loads(files['03_tasks.json'])
             tasks = tasks.get('tasks', []) if isinstance(tasks, dict) else tasks
             if not isinstance(tasks, list) or not tasks:
@@ -640,7 +711,7 @@ class Preparation:
             if not isinstance(schema, dict) or not str(schema.get('openapi', '')).startswith('3.') or not isinstance(schema.get('paths'), dict):
                 raise ValueError('Ожидается OpenAPI 3 с paths')
             checks.append({'name': 'DAG задач и структура OpenAPI 3', 'status': 'passed'})
-        if stage == 4:
+        if stage == 5:
             from jsonschema import validators
             scenario_path = 'mocks/scenarios.json'
             visited = set()
@@ -721,7 +792,7 @@ class Preparation:
             if record.get('sessionId'):
                 session = self.runtime.refresh_session(record['sessionId'])
             else:
-                group = self.state.get('projectId', '') + (':planning' if stage <= 3 else ':mocks')
+                group = self.state.get('projectId', '') + self.stage_group(stage)
                 thread_id = record.get('threadId') or self.state.get('preparationChats', {}).get(group, {}).get('threadId')
                 if not thread_id or not record.get('folder'):
                     return self.snapshot()
@@ -757,7 +828,7 @@ class Preparation:
                         raise ValueError('Результат пытается заменить артефакт утверждённого предыдущего этапа')
                     record.update(files=files, checks=[])
                     checks = self.validate(files, stage)
-                    if stage == 4:
+                    if stage == 5:
                         tasks = json.loads(self.context(stage).get('03_tasks.json', '[]'))
                         tasks = tasks.get('tasks', []) if isinstance(tasks, dict) else tasks
                         for task in tasks:
@@ -792,6 +863,13 @@ class Preparation:
             record = self.state['stages'].get(str(stage), {})
             if record.get('status') != 'review':
                 raise AgentRuntimeError('STAGE_NOT_READY', 'Этап ещё не прошёл проверки.', 409)
+            if stage == 2:
+                note = str((payload or {}).get('note', '')).strip()
+                if not note:
+                    raise AgentRuntimeError('COMPETITOR_DECISION_REQUIRED', 'Отметьте, что перенять у конкурентов или почему ничего не подходит.', 409)
+                self.state['competitorPreferences'] = note[:20000]
+            if any(self.state['stages'].get(str(previous), {}).get('status') != 'approved' for previous in range(1, stage)):
+                raise AgentRuntimeError('PREVIOUS_STAGE_REQUIRED', 'Сначала утвердите предыдущие этапы.', 409)
             record['status'] = 'approved'
             record['approvalNote'] = str((payload or {}).get('note', ''))[:20000]
             record['digest'] = hashlib.sha256(json.dumps(record['files'], sort_keys=True).encode()).hexdigest()
@@ -800,8 +878,8 @@ class Preparation:
 
     def archive(self):
         with self.lock:
-            files = self.context(5)
-            if self.state['stages'].get('4', {}).get('status') != 'approved':
+            files = self.context(6)
+            if self.state['stages'].get('5', {}).get('status') != 'approved':
                 raise AgentRuntimeError('MOCKS_NOT_APPROVED', 'Сначала утверди мок-данные.', 409)
             files['input/brief.txt'] = self.state['brief']
             files['project-decisions.json'] = json.dumps({k:v.get('approvalNote', '') for k,v in self.state['stages'].items() if v.get('status')=='approved'}, ensure_ascii=False, indent=2)
@@ -844,7 +922,7 @@ class Preparation:
         from .iterations import read_project_archive
         from .workspace import atomic
         with self.lock:
-            if self.state['stages'].get('4', {}).get('status') != 'approved':
+            if self.state['stages'].get('5', {}).get('status') != 'approved':
                 raise AgentRuntimeError('MOCKS_NOT_APPROVED', 'Сначала утверди мок-данные.', 409)
             if not name.lower().endswith('.zip'):
                 raise AgentRuntimeError('ZIP_REQUIRED', 'Выберите ZIP-архив проекта.')
@@ -857,7 +935,7 @@ class Preparation:
                 self._storage_write(relative, blob)
             else:
                 atomic(self.root / relative, blob)
-            original_mocks = {path: text.encode('utf-8') for path, text in self.context(5).items() if path.startswith('mocks/')}
+            original_mocks = {path: text.encode('utf-8') for path, text in self.context(6).items() if path.startswith('mocks/')}
             changed = sorted(path for path, data in original_mocks.items() if files.get(path) != data)
             result = {'status': 'received', 'name': name.replace('\\', '/').split('/')[-1][:200],
                       'path': relative, 'sha256': digest, 'bytes': len(blob), 'fileCount': len(files),
@@ -889,7 +967,7 @@ class Preparation:
             if result.get('status') == 'prepared':
                 return self.snapshot()
             files = read_project_archive(self.returned_project_archive())
-            changed = [name for name, text in self.context(5).items()
+            changed = [name for name, text in self.context(6).items()
                        if name.startswith('mocks/') and files.get(name) != text.encode('utf-8')]
             if changed:
                 raise AgentRuntimeError('MOCKS_CHANGED', 'В ZIP изменены или отсутствуют исходные моки. Верните mocks/ из пакета, а изменения поместите в new_mocks/, затем загрузите ZIP заново.', 409)
@@ -910,19 +988,19 @@ class Preparation:
             self.save()
             return self.snapshot()
 
-    def development(self, stage=5):
+    def development(self, stage=6):
         """Seed a dedicated project with approved artifacts; coding uses the existing runtime."""
         with self.lock:
-            if stage not in (5, 6):
-                raise AgentRuntimeError('INVALID_STAGE', 'Разработка доступна только на этапах 5 и 6.')
-            self.archive()  # Enforce stage 4 approval.
+            if stage not in (6, 7):
+                raise AgentRuntimeError('INVALID_STAGE', 'Разработка доступна только на этапах 6 и 7.')
+            self.archive()  # Enforce stage 5 approval.
             imported = self.state.get('returnedProject', {}).get('status') == 'prepared'
-            if stage == 6 and not imported and (self.state.get('prototype') or {}).get('status') != 'approved':
+            if stage == 7 and not imported and (self.state.get('prototype') or {}).get('status') != 'approved':
                 raise AgentRuntimeError('PROTOTYPE_REQUIRED', 'Сначала заверши и утверди работающий прототип.', 409)
             project = self.project_directory()
-            if stage == 6 and not imported and (not project.exists() or self.runtime._run_git(project, 'rev-parse', 'HEAD').strip() != self.state['prototype'].get('commit')):
+            if stage == 7 and not imported and (not project.exists() or self.runtime._run_git(project, 'rev-parse', 'HEAD').strip() != self.state['prototype'].get('commit')):
                 raise AgentRuntimeError('PROJECT_CHANGED', 'Git-проект изменился после утверждения прототипа. Повтори проверку.', 409)
-            files = self.context(5)
+            files = self.context(6)
             files['project-decisions.json'] = json.dumps({k:v.get('approvalNote', '') for k,v in self.state['stages'].items() if v.get('status')=='approved'}, ensure_ascii=False, indent=2)
             digest = hashlib.sha256((json.dumps(files, sort_keys=True) + (self.state['returnedProject']['sha256'] if imported else '')).encode()).hexdigest()
             if not project.exists():
@@ -975,7 +1053,7 @@ class Preparation:
             commit = self.runtime._run_git(project, 'rev-parse', 'HEAD').strip()
             if commit != run.get('baseCommit'):
                 raise AgentRuntimeError('PROJECT_CHANGED', 'После последней интеграции Git-проект изменился. Требуется повторная проверка.', 409)
-            for name, text in self.context(5).items():
+            for name, text in self.context(6).items():
                 if name.startswith('mocks/'):
                     path = project / name
                     if not path.resolve().is_relative_to(project.resolve()) or not path.is_file() or path.is_symlink() or path.read_bytes() != text.encode('utf-8'):

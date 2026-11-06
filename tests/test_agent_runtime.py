@@ -216,6 +216,23 @@ class AgentRuntimeTests(unittest.TestCase):
         self.assertEqual('real-thread', result['id'])
         self.assertEqual(['/api/models', '/api/threads'], calls)
 
+    def test_competitor_thread_enables_network_and_live_web_search_explicitly(self):
+        api = CodexLocalApi(self.integration, self.workspace)
+        api.ensure_started = lambda: None
+        requests = []
+        def request(path, payload=None, timeout=8):
+            if path == '/api/models':
+                return {'data': [{'id': MODEL_ID}]}
+            requests.append(payload)
+            return {'id': 'research'}
+        api._request = request
+        api.create_thread(cwd=self.project, name='Research', prompt='Compare competitors', network_access=True)
+        self.assertEqual('live', requests[-1]['config']['web_search'])
+        self.assertTrue(requests[-1]['config']['permissions.makora']['network']['enabled'])
+        api.create_thread(cwd=self.project, name='Build', prompt='Build')
+        self.assertNotIn('web_search', requests[-1]['config'])
+        self.assertFalse(requests[-1]['config']['permissions.makora']['network']['enabled'])
+
     def test_codex_active_writer_409_is_a_confirmed_rejection(self):
         api = CodexLocalApi(self.integration, self.workspace)
         error = urllib.error.HTTPError('http://localhost/api/threads/t/messages', 409, 'Conflict', {},

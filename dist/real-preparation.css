@@ -1,6 +1,6 @@
 /* Pixel chrome, readable document typography. */
 @font-face{font-family:MakoraSteps;src:url('fonts/Tiny5.ttf') format('truetype');font-display:swap}
-#first-stage .board-stages:has([data-real-stage]){display:grid;grid-template-columns:repeat(6,minmax(0,1fr));gap:4px}
+#first-stage .board-stages:has([data-real-stage]){display:grid;grid-template-columns:repeat(7,minmax(0,1fr));gap:4px}
 #first-stage .board-stages [data-real-stage]{display:flex;align-items:center;justify-content:center;gap:8px;min-width:0;min-height:57px;padding:7px 5px;border:1px solid #393939;background:#101010;color:#999;text-align:left;cursor:pointer}
 #first-stage .board-stages [data-real-stage].active{border:2px solid #eee;background:#222;color:white;box-shadow:3px 3px 0 #525252;transform:translate(-1px,-1px)}
 #first-stage .board-stages [data-real-stage]:disabled{opacity:.38;cursor:not-allowed}
@@ -639,3 +639,5 @@
 #first-stage .rp-analysis:not(.expanded) .analysis-actions button:is(.rp-primary,.rp-secondary){min-height:36px;padding:7px 10px;font-size:11px}
 
 #first-stage .rp-analysis:not(.expanded) .runtime-summary .analysis-thinking .analysis-wheel{width:80px;height:80px}
+
+.competitor-review{margin-block:24px}.competitor-review h3{font-size:18px}.competitor-card{padding:18px 0;border-top:1px solid #444}.competitor-card header{display:flex;flex-wrap:wrap;align-items:baseline;justify-content:space-between;gap:8px}.competitor-card h4{margin:0;font-size:17px}.competitor-card header span,.competitor-sources{font-size:12px;color:#bbb}.competitor-card a{color:#d5e8ff;text-decoration:underline;text-underline-offset:3px}.competitor-table{overflow:auto;margin-block:12px}.competitor-table table{width:100%;border-collapse:collapse;text-align:left;font-size:13px}.competitor-table caption{text-align:left;margin-bottom:8px}.competitor-table th,.competitor-table td{padding:9px;border:1px solid #444;min-width:110px;vertical-align:top}.competitor-decision{display:block;font-weight:600}.competitor-decision textarea{display:block;width:100%;box-sizing:border-box;margin-top:10px;padding:12px;background:#151515;border:1px solid #777;border-radius:3px;color:#fff;font:inherit;font-size:16px;resize:vertical}.competitor-review :focus-visible{outline:2px solid #fff;outline-offset:3px}.competitor-review p{line-height:1.6}.competitor-sources{padding-left:20px;overflow-wrap:anywhere}

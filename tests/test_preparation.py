@@ -28,6 +28,73 @@ class PreparationTests(unittest.TestCase):
                                        _save=lambda: None, refresh_session=lambda _: {'status': 'completed'})
         self.pipeline = Preparation(Path(self.tmp.name), self.runtime)
 
+    def competitor_files(self):
+        return {'02_competitors.md': '# Сравнение', '02_competitors.json': json.dumps({
+            'searchBrief': 'Прямые конкуренты', 'competitors': [{'id': 'one', 'name': 'Example',
+            'url': 'https://example.com', 'status': 'verified', 'comparison': [
+                {'criterion': 'Поиск', 'ours': 'По требованиям', 'theirs': 'Есть фильтры'}],
+            'sources': [{'url': 'https://example.com/features', 'checkedAt': '2026-11-06'}]}]})}
+
+    def test_competitor_research_revisions_and_decisions_reach_idea(self):
+        self.generate_analysis()
+        self.pipeline.approve(1)
+        original_create = self.runtime.provider.create_thread
+        def research_create(**kwargs):
+            result = original_create(**kwargs)
+            return {**result, 'id': 'competitor-thread'}
+        self.runtime.provider.create_thread = research_create
+        self.pipeline.start(2, {})
+        record = self.pipeline.state['stages']['2']
+        self.assertTrue(self.calls[-1]['network_access'])
+        self.assertFalse(self.calls[-1]['desktop'])
+        self.assertNotEqual(self.pipeline.state['stages']['1']['threadId'], record['threadId'])
+        files = self.competitor_files()
+        (Path(record['folder'])/'result.json').write_text(json.dumps({'files': files}), 'utf-8')
+        self.assertEqual('review', self.pipeline.refresh(2)['stages']['2']['status'])
+        with self.assertRaises(AgentRuntimeError):
+            self.pipeline.approve(2)
+        self.pipeline.state['stages']['3'] = {'status': 'approved', 'files': {}}
+        self.pipeline.start(2, {'feedback': 'Найди ещё локальные альтернативы'})
+        inputs = json.loads((Path(self.pipeline.state['stages']['2']['folder'])/'INPUT.json').read_text('utf-8'))
+        self.assertEqual(files, inputs['previousResult'])
+        self.assertEqual('stale', self.pipeline.state['stages']['3']['status'])
+        record = self.pipeline.state['stages']['2']
+        (Path(record['folder'])/'result.json').write_text(json.dumps({'files': files}), 'utf-8')
+        self.pipeline.refresh(2)
+        self.pipeline.approve(2, {'note': 'Перенять фильтры, отказаться от регистрации'})
+        self.pipeline.start(3, {})
+        inputs = json.loads((Path(self.pipeline.state['stages']['3']['folder'])/'INPUT.json').read_text('utf-8'))
+        self.assertIn('фильтры', inputs['competitorPreferences'])
+        self.assertIn('02_competitors.json', inputs['artifacts'])
+        self.assertEqual(inputs['competitorPreferences'], inputs['decisions']['2'])
+
+    def test_competitor_validation_rejects_unsafe_links_and_unverified_only_results(self):
+        files = self.competitor_files()
+        research = json.loads(files['02_competitors.json'])
+        research['competitors'][0]['url'] = 'javascript:alert(1)'
+        files['02_competitors.json'] = json.dumps(research)
+        with self.assertRaisesRegex(ValueError, 'HTTP'):
+            Preparation.validate(files, 2)
+        research['competitors'][0].update(url='https://example.com', status='unverified', sources=[])
+        files['02_competitors.json'] = json.dumps(research)
+        self.assertTrue(any(check['status']=='failed' for check in Preparation.validate(files, 2)))
+
+    def test_legacy_stage_migration_is_idempotent_and_preserves_artifacts(self):
+        old = {'brief':'Legacy', 'lastStage':6, 'stages': {'1':{'status':'approved'},
+            '2':{'status':'approved','files':{'02_solution_concept.md':'idea'}},
+            '4':{'status':'approved','files':{'mocks/fixtures/data.json':'[]'}}}}
+        self.assertTrue(Preparation.migrate_state(old))
+        self.assertFalse(Preparation.migrate_state(old))
+        self.assertEqual('idea', old['stages']['3']['files']['02_solution_concept.md'])
+        self.assertEqual('stale', old['stages']['3']['status'])
+        self.assertEqual('[]', old['stages']['5']['files']['mocks/fixtures/data.json'])
+        self.assertEqual([1,2], Preparation.available_stages(old))
+        self.assertEqual(2, old['lastStage'])
+        self.pipeline.index.write_text(json.dumps({'brief':'Legacy','stages':{'2':{'status':'review'}}}), 'utf-8')
+        restored = Preparation(Path(self.tmp.name), self.runtime)
+        self.assertEqual('review', restored.state['stages']['3']['status'])
+        self.assertTrue(self.pipeline.index.with_name('state-before-competitors.json').is_file())
+
     def test_chat_is_readonly_deduplicated_and_uses_exact_turn(self):
         folder=self.select_folder()
         self.pipeline.state['brief']='Project notes and search'
@@ -186,7 +253,7 @@ class PreparationTests(unittest.TestCase):
         original=b'# Original case'
         self.pipeline.store_source('case.md',original)
         self.pipeline.state['brief']='Create local notes'
-        self.pipeline.state['stages']={'1':{'status':'approved','files':{'01_case_analysis.md':'# Analysis'}},'4':{'status':'approved','files':{'mocks/fixtures/data.json':'[]'}}}
+        self.pipeline.state['stages']={'1':{'status':'approved','files':{'01_case_analysis.md':'# Analysis'}},'5':{'status':'approved','files':{'mocks/fixtures/data.json':'[]'}}}
         result=self.pipeline.handoff_package()
         self.assertIn('new_mocks/',result['prompt'])
         for required in ('полноценный работающий веб-сайт', 'страницы', 'скачиваемый ZIP-архив',
@@ -205,7 +272,7 @@ class PreparationTests(unittest.TestCase):
     def test_development_and_archive_live_in_selected_folder(self):
         folder=self.select_folder()
         self.pipeline.state['brief']='Local catalog project'
-        self.pipeline.state['stages']={'1':{'status':'approved','files':{'01_case_analysis.md':'# Requirements'}},'4':{'status':'approved','files':{'mocks/fixtures/data.json':'[]'}}}
+        self.pipeline.state['stages']={'1':{'status':'approved','files':{'01_case_analysis.md':'# Requirements'}},'5':{'status':'approved','files':{'mocks/fixtures/data.json':'[]'}}}
         result=self.pipeline.development()
         self.assertEqual(Path(result['projectRoot']),folder/'app')
         self.assertTrue((folder/'exports/project-context.zip').is_file())
@@ -216,7 +283,7 @@ class PreparationTests(unittest.TestCase):
     def test_returned_zip_is_preserved_and_survives_restart_without_running_code(self):
         from makora_core.iterations import zip_files
         folder = self.select_folder()
-        self.pipeline.state['stages'] = {'4': {'status': 'approved', 'files': {'mocks/fixtures/data.json': '[]'}}}
+        self.pipeline.state['stages'] = {'5': {'status': 'approved', 'files': {'mocks/fixtures/data.json': '[]'}}}
         blob = zip_files({'site/index.html': b'<h1>Site</h1>', 'site/mocks/fixtures/data.json': b'[]'})
         result = self.pipeline.receive_project('site.zip', blob)
         self.assertEqual('received', result['status'])
@@ -232,7 +299,7 @@ class PreparationTests(unittest.TestCase):
     def test_invalid_return_does_not_replace_previous_zip(self):
         from makora_core.iterations import zip_files
         from makora_core.workspace import MakoraError
-        self.pipeline.state['stages'] = {'4': {'status': 'approved', 'files': {'mocks/fixtures/data.json': '[]'}}}
+        self.pipeline.state['stages'] = {'5': {'status': 'approved', 'files': {'mocks/fixtures/data.json': '[]'}}}
         blob = zip_files({'index.html': b'Site'})
         result = self.pipeline.receive_project('site.zip', blob)
         self.assertEqual('changed', result['mocksStatus'])
@@ -248,13 +315,13 @@ class PreparationTests(unittest.TestCase):
 
     def test_continue_imports_uploaded_site_for_stage_six_without_claiming_approval(self):
         from makora_core.iterations import zip_files
-        self.pipeline.state['stages'] = {'4': {'status': 'approved', 'files': {'mocks/fixtures/data.json': '[]'}}}
+        self.pipeline.state['stages'] = {'5': {'status': 'approved', 'files': {'mocks/fixtures/data.json': '[]'}}}
         self.pipeline.receive_project('site.zip', zip_files({'index.html': b'<h1>Uploaded</h1>', 'mocks/fixtures/data.json': b'[]'}))
         result = self.pipeline.continue_returned_project()
         project = self.pipeline.project_directory()
         self.assertEqual(b'<h1>Uploaded</h1>', (project / 'index.html').read_bytes())
         self.assertNotIn('prototype', result)
-        developed = self.pipeline.development(6)
+        developed = self.pipeline.development(7)
         self.assertEqual(str(project), developed['projectRoot'])
         self.assertEqual(b'<h1>Uploaded</h1>', (project / 'index.html').read_bytes())
         self.assertEqual(project, Path(self.pipeline.continue_returned_project()['returnedProject']['projectRoot']))
@@ -262,7 +329,7 @@ class PreparationTests(unittest.TestCase):
 
     def test_continue_rejects_changed_mocks_and_git_metadata(self):
         from makora_core.iterations import zip_files
-        self.pipeline.state['stages'] = {'4': {'status': 'approved', 'files': {'mocks/fixtures/data.json': '[]'}}}
+        self.pipeline.state['stages'] = {'5': {'status': 'approved', 'files': {'mocks/fixtures/data.json': '[]'}}}
         for files in ({'index.html': b'Site'}, {'index.html': b'Site', 'mocks/fixtures/data.json': b'[]', '.git/config': b'bad'}):
             self.pipeline.receive_project('site.zip', zip_files(files))
             with self.assertRaises(AgentRuntimeError):
@@ -275,7 +342,7 @@ class PreparationTests(unittest.TestCase):
         from http.server import ThreadingHTTPServer
         from makora_core.server import MakoraHandler
         from makora_core.iterations import zip_files
-        self.pipeline.state['stages'] = {'4': {'status': 'approved', 'files': {}}}
+        self.pipeline.state['stages'] = {'5': {'status': 'approved', 'files': {}}}
         server = ThreadingHTTPServer(('127.0.0.1', 0), MakoraHandler)
         server.preparation = self.pipeline
         server.agent_token = 'test-token'
@@ -311,10 +378,12 @@ class PreparationTests(unittest.TestCase):
         self.assertEqual(state['stages']['1']['status'], 'review')
         restored = Preparation(Path(self.tmp.name), self.runtime)
         self.assertEqual(restored.state['stages']['1']['turnId'], 'turn-exact')
-        with self.assertRaises(AgentRuntimeError): restored.start(2, {})
+        with self.assertRaises(AgentRuntimeError): restored.start(3, {})
         restored.approve(1)
-        restored.start(2, {})
-        inputs = json.loads((Path(restored.state['stages']['2']['folder']) / 'INPUT.json').read_text('utf-8'))
+        restored.state['stages']['2'] = {'status': 'approved', 'files': {}}
+        restored.state['stages']['2'] = {'status': 'approved', 'files': {}}
+        restored.start(3, {})
+        inputs = json.loads((Path(restored.state['stages']['3']['folder']) / 'INPUT.json').read_text('utf-8'))
         self.assertIn('01_case_analysis.md', inputs['artifacts'])
 
     def test_preparation_groups_survive_restart_and_stage_four_is_separate(self):
@@ -334,16 +403,17 @@ class PreparationTests(unittest.TestCase):
         self.pipeline.state['stages']['1'].update(status='approved', files={})
         self.pipeline.save()
         restored = Preparation(Path(self.tmp.name), self.runtime)
-        restored.start(2, {})
-        second = restored.state['stages']['2']
+        restored.state['stages']['2'] = {'status': 'approved', 'files': {}}
+        restored.start(3, {})
+        second = restored.state['stages']['3']
         self.assertEqual(first['threadId'], second['threadId'])
         self.assertNotEqual(first['turnId'], second['turnId'])
-        restored.state['stages']['2'].update(status='approved', files={})
-        restored.start(3, {})
-        self.assertEqual(first['threadId'], restored.state['stages']['3']['threadId'])
         restored.state['stages']['3'].update(status='approved', files={})
         restored.start(4, {})
-        self.assertNotEqual(first['threadId'], restored.state['stages']['4']['threadId'])
+        self.assertEqual(first['threadId'], restored.state['stages']['4']['threadId'])
+        restored.state['stages']['4'].update(status='approved', files={})
+        restored.start(5, {})
+        self.assertNotEqual(first['threadId'], restored.state['stages']['5']['threadId'])
         self.assertEqual(2, len(created))
         self.assertEqual(2, len(self.sends))
         self.assertTrue(all(options.get('desktop') for _, _, options in self.sends))
@@ -407,10 +477,10 @@ class PreparationTests(unittest.TestCase):
     def test_regeneration_invalidates_downstream_approval(self):
         self.generate_analysis()
         self.pipeline.approve(1)
-        self.pipeline.state['stages']['2'] = {'status': 'approved', 'files': {'02_research.md': 'old'}}
+        self.pipeline.state['stages']['3'] = {'status': 'approved', 'files': {'02_research.md': 'old'}}
         self.pipeline.start(1, {'brief': 'Совсем другой проект склада и движения товаров.'})
-        self.assertEqual(self.pipeline.state['stages']['2']['status'], 'stale')
-        self.assertNotIn('02_research.md', self.pipeline.context(3))
+        self.assertEqual(self.pipeline.state['stages']['3']['status'], 'stale')
+        self.assertNotIn('02_research.md', self.pipeline.context(4))
 
     def test_unsafe_artifacts_and_missing_outputs_do_not_pass(self):
         for name in ('../outside.md', '.git/config', 'C:/secret.md', '/absolute.md', 'mocks\\escape.json'):
@@ -429,9 +499,9 @@ class PreparationTests(unittest.TestCase):
                  'mocks/space.schema.json': json.dumps({'type': 'array'}),
                  'mocks/fixtures/invalid.json': '{}',
                  'mocks/scenarios.json': json.dumps([{'fixture': 'mocks/fixtures/invalid.json', 'schema': 'mocks/space.schema.json', 'expectedValid': False}])}
-        self.assertTrue(all(c['status'] == 'passed' for c in Preparation.validate(files, 4)))
+        self.assertTrue(all(c['status'] == 'passed' for c in Preparation.validate(files, 5)))
         files['mocks/fixtures/invalid.json'] = '[]'
-        self.assertTrue(any(c['status'] == 'failed' for c in Preparation.validate(files, 4)))
+        self.assertTrue(any(c['status'] == 'failed' for c in Preparation.validate(files, 5)))
 
     def test_scenario_index_follows_local_file_and_checks_actual_payload(self):
         files={'mocks/fixtures/data.json':'{"cases":[{"payload":{"id":"ok"}},{"payload":{}}]}',
@@ -440,13 +510,13 @@ class PreparationTests(unittest.TestCase):
                'mocks/scenarios/items.json':json.dumps({'scenarios':[
                    {'id':'valid','fixture':'mocks/fixtures/data.json#/cases/0/payload','schema':'mocks/item.schema.json#/$defs/Item','expectedValid':True},
                    {'id':'invalid','fixture':'mocks/fixtures/data.json#/cases/1/payload','schema':'mocks/item.schema.json#/$defs/Item','expectedValid':False}]})}
-        self.assertTrue(all(c['status']=='passed' for c in Preparation.validate(files,4)))
+        self.assertTrue(all(c['status']=='passed' for c in Preparation.validate(files, 5)))
         files['mocks/fixtures/data.json']='{"cases":[{"payload":{"id":"ok"}},{"payload":{"id":"also-valid"}}]}'
-        self.assertTrue(any(c['status']=='failed' for c in Preparation.validate(files,4)))
+        self.assertTrue(any(c['status']=='failed' for c in Preparation.validate(files, 5)))
         files['mocks/scenarios/items.json']='{"scenariosFile":"mocks/scenarios.json"}'
-        with self.assertRaisesRegex(ValueError,'Цикл'):Preparation.validate(files,4)
+        with self.assertRaisesRegex(ValueError,'Цикл'):Preparation.validate(files, 5)
         files['mocks/scenarios/items.json']='{"scenariosFile":"https://example.com/scenarios.json"}'
-        with self.assertRaisesRegex(ValueError,'внутри mocks'):Preparation.validate(files,4)
+        with self.assertRaisesRegex(ValueError,'внутри mocks'):Preparation.validate(files, 5)
 
     def test_failed_validation_keeps_generated_files_for_inspection(self):
         self.pipeline.start(1,{'brief':'Проверка сохранения документов'})
@@ -459,7 +529,7 @@ class PreparationTests(unittest.TestCase):
     def test_development_uses_separate_git_project_and_refuses_dirty_updates(self):
         self.pipeline.state['brief'] = 'Локальный каталог'
         self.pipeline.state['stages'] = {'1': {'status': 'approved', 'files': {'01_case_analysis.md': '# Пользовательский кейс'}},
-                                         '4': {'status': 'approved', 'files': {'mocks/fixtures/data.json': '[\n]'}}}
+                                         '5': {'status': 'approved', 'files': {'mocks/fixtures/data.json': '[\n]'}}}
         result = self.pipeline.development()
         project = Path(result['projectRoot'])
         self.assertEqual((project / '01_case_analysis.md').read_text('utf-8'), '# Пользовательский кейс')
@@ -485,25 +555,25 @@ class PreparationTests(unittest.TestCase):
                  'mocks/schemas/List.json': '{"type":"array","items":{"$ref":"Item.json"}}',
                  'mocks/scenarios.json': json.dumps([{'fixture':'mocks/fixtures/data.json',
                      'schema':'mocks/schemas/List.json','expectedValid':True}])}
-        self.assertTrue(all(c['status']=='passed' for c in Preparation.validate(files,4)))
+        self.assertTrue(all(c['status']=='passed' for c in Preparation.validate(files, 5)))
         files['mocks/fixtures/data.json'] = '[{}]'
-        self.assertTrue(any(c['status']=='failed' for c in Preparation.validate(files,4)))
+        self.assertTrue(any(c['status']=='failed' for c in Preparation.validate(files, 5)))
         del files['mocks/schemas/Item.json']
         with self.assertRaisesRegex(ValueError, 'Item.json'):
-            Preparation.validate(files,4)
+            Preparation.validate(files, 5)
         files['mocks/schemas/List.json'] = '{"type":"not-a-json-schema-type"}'
         with self.assertRaisesRegex(ValueError, 'List.json'):
-            Preparation.validate(files,4)
+            Preparation.validate(files, 5)
 
     def test_schema_reference_errors_identify_missing_or_external_resource(self):
         files = {'mocks/fixtures/data.json':'{}','04_validation_report.md':'# Checks',
                  'mocks/scenarios.json':json.dumps([{'fixture':'mocks/fixtures/data.json',
                      'schema':'mocks/schemas/Absent.json','expectedValid':False}])}
         with self.assertRaisesRegex(ValueError, 'Absent.json'):
-            Preparation.validate(files,4)
+            Preparation.validate(files, 5)
         files['mocks/schemas/Absent.json']='{"$ref":"https://example.com/private.json"}'
         with self.assertRaisesRegex(ValueError, 'private.json'):
-            Preparation.validate(files,4)
+            Preparation.validate(files, 5)
 
     def test_scenario_bundle_supports_json_pointer_and_local_schema_refs(self):
         files = {'mocks/fixtures/data.json': '{"fixtures":{"items":[{"id":"one"}],"invalid":[{}]}}',
@@ -513,7 +583,7 @@ class PreparationTests(unittest.TestCase):
         files['mocks/scenarios.json'] = json.dumps({'scenarios': [
             {'fixture': 'mocks/fixtures/data.json#/fixtures/items', 'schema': 'mocks/schemas/list.schema.json', 'expectedValid': True},
             {'fixture': 'mocks/fixtures/data.json#/fixtures/invalid', 'schema': 'mocks/schemas/list.schema.json', 'expectedValid': False}]})
-        self.assertTrue(all(c['status'] == 'passed' for c in Preparation.validate(files, 4)))
+        self.assertTrue(all(c['status'] == 'passed' for c in Preparation.validate(files, 5)))
 
     def test_rechecking_completed_artifacts_does_not_send_another_prompt(self):
         self.generate_analysis()
@@ -524,8 +594,8 @@ class PreparationTests(unittest.TestCase):
         self.assertEqual(len(self.calls), 1)
 
     def test_stage_six_requires_integrated_approved_prototype(self):
-        self.pipeline.state['stages']['4'] = {'status': 'approved', 'files': {}}
-        with self.assertRaises(AgentRuntimeError): self.pipeline.development(6)
+        self.pipeline.state['stages']['5'] = {'status': 'approved', 'files': {}}
+        with self.assertRaises(AgentRuntimeError): self.pipeline.development(7)
         with self.assertRaises(AgentRuntimeError): self.pipeline.approve_prototype()
 
     def test_tasks_cannot_pass_descriptions_as_mock_paths(self):
@@ -535,10 +605,10 @@ class PreparationTests(unittest.TestCase):
         files = {'03_architecture.md': '# Архитектура', '03_test_plan.md': '# План',
                  '03_tasks.json': json.dumps([task]), '03_contracts/openapi.yaml': 'openapi: 3.0.3\npaths: {}'}
         with self.assertRaisesRegex(ValueError, 'mocks должен содержать пути'):
-            Preparation.validate(files, 3)
+            Preparation.validate(files, 4)
         task['mocks'] = ['mocks/fixtures/data.json']
         files['03_tasks.json'] = json.dumps([task])
-        self.assertTrue(all(c['status'] == 'passed' for c in Preparation.validate(files, 3)))
+        self.assertTrue(all(c['status'] == 'passed' for c in Preparation.validate(files, 4)))
 
     def test_two_local_servers_cannot_own_the_same_port(self):
         from makora_core.server import LocalHTTPServer, MakoraHandler

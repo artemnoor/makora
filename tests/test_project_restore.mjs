@@ -5,7 +5,7 @@ import { JSDOM } from 'jsdom';
 const script = readFileSync(new URL('../dist/project-start.js', import.meta.url), 'utf8');
 for (const snapshot of [
   { storageRoot: 'project', brief: '', lastStage: 1 },
-  { storageRoot: 'project', brief: 'Saved task', lastStage: 3, stages: { '3': { status: 'review' } } },
+  { storageRoot: 'project', brief: 'Saved task', lastStage: 3, stages: { '4': { status: 'review' } } },
 ]) {
   const dom = new JSDOM('<section id="first-stage"><div class="first-form"><h1>Task</h1><p>Intro</p><button data-choose-project-folder></button></div></section>', { runScripts: 'outside-only' });
   let restored = null;
