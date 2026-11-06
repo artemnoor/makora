@@ -709,6 +709,14 @@ class AgentRuntimeTests(unittest.TestCase):
         self.assertEqual(run["id"], restored.get_run(run["id"])["id"])
         self.assertEqual(run["baseCommit"], restored.get_run(run["id"])["baseCommit"])
 
+    def test_late_final_response_overrides_terminal_failed_tracker(self):
+        run = self.create_run()
+        session = self.runtime.launch_agent(run['id'], 'T01', 'test_designer')
+        self.provider.operation = lambda _: {'state': 'failed', 'done': True, 'assistantResponse': False}
+        self.provider.history = lambda _: {'turns': [{'id': session['turnId'],
+            'status': 'completed', 'items': [{'role': 'assistant', 'phase': 'final_answer', 'text': 'Done.'}]}]}
+        self.assertEqual('completed', self.runtime.refresh_session(session['id'])['status'])
+
     def test_interrupted_turn_has_public_error_without_history(self):
         run = self.create_run()
         session = self.runtime.launch_agent(run['id'], 'T01', 'test_designer')

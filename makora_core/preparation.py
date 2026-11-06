@@ -470,8 +470,10 @@ class Preparation:
     def poll(self):
         with self.lock:
             pending = next((int(k) for k, value in self.state['stages'].items()
-                            if value.get('status') in ('running', 'unconfirmed') and value.get('sessionId')), None)
-        return self.refresh(pending) if pending else self.snapshot()
+                            if (value.get('status') in ('running', 'unconfirmed') or
+                                (value.get('status') == 'failed' and value.get('agentStatus') == 'failed'))
+                            and value.get('sessionId')), None)
+        return self.refresh(pending, recheck=True) if pending else self.snapshot()
 
     def context(self, before):
         return {name: text for key, value in self.state['stages'].items()
@@ -757,6 +759,9 @@ class Preparation:
                     else:record['error']='Не пройдены проверки: '+ '; '.join(c['name'] for c in checks if c['status']!='passed')
                 except Exception as exc:
                     record.update(status='failed', error=str(exc))
+            elif session['status'] in ('accepted', 'delivered', 'running'):
+                record.update(status='running')
+                record.pop('error', None)
             elif session['status'] in ('failed', 'unconfirmed'):
                 record.update(status=session['status'])
                 record['sessionEvidence'] = session.get('lastRefreshEvidence')
