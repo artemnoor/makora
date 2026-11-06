@@ -43,9 +43,13 @@ async page => {
   assert(await page.locator('.competitor-sources a').getAttribute('href')==='https://example.com/features','Нет ссылки на источник');
   await page.locator('[data-competitor-open]').click();
   await page.screenshot({path:'output/browser/competitors-review.png'});
+  await page.locator('.board-expand').click();
   await page.setViewportSize({width:390,height:844});
+  await page.locator('[data-competitor-open]').click();
   assert(await page.locator('.board-content').evaluate(e=>e.scrollWidth<=e.clientWidth+1),'Сравнение выходит за экран телефона');
+  await page.locator('.board-expand').click();
   await page.setViewportSize({width:1280,height:900});
+  await page.locator('[data-competitor-open]').click();
   await page.locator('[data-competitor-decision]').fill('Перенять фильтры, упростить вход');
   await page.locator('[data-real-approve]').click();await page.locator('[data-real-stage="3"].active').waitFor();
   assert(state.competitorPreferences.includes('фильтры'),'Решение не передано при утверждении');
