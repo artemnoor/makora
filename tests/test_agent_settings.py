@@ -75,6 +75,7 @@ class AgentSettingsTests(unittest.TestCase):
         adapter.create_thread(cwd=self.project, name='test', prompt='test', model='other-model', reasoning_effort='high')
         payload = adapter._request.call_args.args[1]
         self.assertEqual('never', payload['approvalPolicy'])
+        self.assertTrue(payload['desktopVisible'])
         self.assertEqual('other-model', payload['model'])
         self.assertEqual('high', payload['reasoningEffort'])
         self.assertEqual('high', payload['config']['model_reasoning_effort'])
