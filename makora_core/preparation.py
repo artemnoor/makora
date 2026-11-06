@@ -759,6 +759,9 @@ class Preparation:
                     else:record['error']='Не пройдены проверки: '+ '; '.join(c['name'] for c in checks if c['status']!='passed')
                 except Exception as exc:
                     record.update(status='failed', error=str(exc))
+            elif session['status'] in ('accepted', 'delivered', 'running'):
+                record.update(status='running')
+                record.pop('error', None)
             elif session['status'] in ('failed', 'unconfirmed'):
                 record.update(status=session['status'])
                 record['sessionEvidence'] = session.get('lastRefreshEvidence')

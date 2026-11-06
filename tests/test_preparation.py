@@ -379,6 +379,9 @@ class PreparationTests(unittest.TestCase):
         self.generate_analysis()
         record = self.pipeline.state['stages']['1']
         record.update(status='failed', agentStatus='failed', error='Interrupted')
+        self.runtime.refresh_session = lambda _: {'status': 'running'}
+        self.assertEqual('running', self.pipeline.poll()['stages']['1']['status'])
+        self.runtime.refresh_session = lambda _: {'status': 'completed'}
         self.assertEqual('review', self.pipeline.poll()['stages']['1']['status'])
         self.assertNotIn('error', record)
 
