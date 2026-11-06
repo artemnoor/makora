@@ -4,6 +4,7 @@ from __future__ import annotations
 import hashlib
 import io
 import json
+import logging
 import os
 import re
 import subprocess
@@ -16,6 +17,8 @@ from pathlib import Path, PurePosixPath
 
 from .agents.runtime import AgentRuntime, AgentRuntimeError, MODEL_ID
 
+
+logger = logging.getLogger(__name__)
 
 STAGES = {
     1: ('Анализ задания', ['requirements-analysis'], ['01_case_analysis.md']),
@@ -687,9 +690,33 @@ class Preparation:
         with self.lock:
             record = self.state['stages'].get(str(stage))
             allowed = ('running', 'unconfirmed', 'failed') if recheck else ('running', 'unconfirmed')
-            if not record or record['status'] not in allowed or not record.get('sessionId'):
+            if not record or record['status'] not in allowed:
                 return self.snapshot()
-            session = self.runtime.refresh_session(record['sessionId'])
+            if record.get('sessionId'):
+                session = self.runtime.refresh_session(record['sessionId'])
+            else:
+                group = self.state.get('projectId', '') + (':planning' if stage <= 3 else ':mocks')
+                thread_id = record.get('threadId') or self.state.get('preparationChats', {}).get(group, {}).get('threadId')
+                if not thread_id or not record.get('folder'):
+                    return self.snapshot()
+                task_path = str(Path(record['folder']) / 'TASK.json').replace('\\', '/').casefold()
+                try:
+                    history = self.runtime.provider.history(thread_id)
+                    matches = []
+                    for turn in history.get('turns', []):
+                        items = turn.get('items', [])
+                        requested = any(item.get('role') == 'user' and task_path in str(item.get('text', '')).replace('\\', '/').casefold() for item in items if isinstance(item, dict))
+                        final = any(item.get('role') == 'assistant' and item.get('phase') == 'final_answer' and str(item.get('text', '')).strip() for item in items if isinstance(item, dict))
+                        if requested and final and turn.get('status') == 'completed' and turn.get('id'):
+                            matches.append(turn)
+                    if len(matches) != 1:
+                        return self.snapshot()
+                    record.update(threadId=thread_id, turnId=matches[0]['id'])
+                    logger.info('[FIX] Recovered completed preparation stage %s from matching thread history', stage)
+                    session = {'status': 'completed'}
+                except Exception:
+                    logger.exception('[FIX] Could not recover preparation stage %s from thread history', stage)
+                    return self.snapshot()
             record['agentStatus'] = session['status']
             if session['status'] == 'completed':
                 try:

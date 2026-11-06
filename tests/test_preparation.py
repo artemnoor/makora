@@ -355,6 +355,26 @@ class PreparationTests(unittest.TestCase):
         self.assertEqual(2, len(self.calls))
         self.assertEqual(0, len(self.sends))
 
+    def test_missing_ids_recovers_only_matching_completed_turn(self):
+        def missing(**kwargs):
+            return {'id': 'desktop-thread', 'transport': 'desktop', 'operation': {'id': 'op'}}
+        self.runtime.provider.create_thread = missing
+        with self.assertRaises(AgentRuntimeError):
+            self.pipeline.start(1, {'brief': 'Проект каталога с поиском'})
+        record = self.pipeline.state['stages']['1']
+        folder = Path(record['folder'])
+        (folder / 'result.json').write_text(json.dumps({'files': {'01_case_analysis.md': '# Анализ'}}), 'utf-8')
+        self.runtime.provider.history = lambda _: {'turns': [{'id': 'actual-turn', 'status': 'completed', 'items': [
+            {'role': 'user', 'text': str(folder / 'TASK.json')},
+            {'role': 'assistant', 'phase': 'final_answer', 'text': 'Готово'}]}]}
+        matching = self.runtime.provider.history
+        self.runtime.provider.history = lambda _: {'turns': [{'id': 'wrong', 'status': 'completed', 'items': [
+            {'role': 'user', 'text': 'another task'}, {'role': 'assistant', 'phase': 'final_answer', 'text': 'Готово'}]}]}
+        self.assertEqual('unconfirmed', self.pipeline.refresh(1)['stages']['1']['status'])
+        self.runtime.provider.history = matching
+        self.assertEqual('review', self.pipeline.refresh(1)['stages']['1']['status'])
+        self.assertEqual('actual-turn', record['turnId'])
+
     def test_unconfirmed_is_waiting_not_raw_json_error(self):
         self.pipeline.start(1, {'brief':'Проект каталога'})
         self.runtime.refresh_session=lambda _: {'status':'unconfirmed','lastRefreshEvidence':{'turnStatus':'completed','decision':'unconfirmed'}}
