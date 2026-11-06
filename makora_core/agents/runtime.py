@@ -289,7 +289,7 @@ class CodexLocalApi:
         return self._request("/api/threads", {
             "transport": "app-server", "cwd": str(cwd), "model": model, "reasoningEffort": reasoning_effort,
             "name": name[:100], "prompt": prompt, "sandbox": sandbox_mode,
-            "approvalPolicy": "never", "permissions": "makora", "threadSource": "user" if user_chat else "appServer",
+            "approvalPolicy": "never", "permissions": "makora", "threadSource": "user" if user_chat else "appServer", "desktopVisible": True,
             "config": {"permissions.makora": {"filesystem": filesystem, "network": {"enabled": False}},
                        **({"model_reasoning_effort": reasoning_effort} if reasoning_effort else {})},
         }, timeout=200)

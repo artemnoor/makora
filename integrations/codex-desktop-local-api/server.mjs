@@ -1,4 +1,5 @@
 import { spawn } from 'node:child_process';
+import { desktopProjectForDirectory } from './desktop-project.mjs';
 import { createServer } from 'node:http';
 import { watch } from 'node:fs';
 import { readdir } from 'node:fs/promises';
@@ -1023,10 +1024,17 @@ const server = createServer(async (request, response) => {
       // the thread, leaving the caller without its ID and making delivery
       // ambiguous. Keep this bounded, but give thread creation more time.
       let result;
+      const threadDirectory = input.projectless === true ? cwd : input.cwd || cwd;
+      let desktopProjectId = null;
+      if (input.desktopVisible === true && input.projectless !== true) {
+        const catalog = await rpc('project/list', { limit: 100 });
+        desktopProjectId = desktopProjectForDirectory(catalog.data || catalog.projects || [], threadDirectory);
+      }
       try {
         result = await rpc('thread/start', {
-        cwd: input.projectless === true ? cwd : input.cwd || cwd,
-        threadSource: input.threadSource === 'user' ? 'user' : 'appServer',
+        cwd: threadDirectory,
+        ...(desktopProjectId ? { projectId: desktopProjectId } : {}),
+        threadSource: input.desktopVisible === true || input.threadSource === 'user' ? 'user' : 'appServer',
         ephemeral: false,
         approvalPolicy: input.approvalPolicy || 'onRequest',
         ...(input.permissions ? {permissions:input.permissions, config:input.config || {}} : {sandbox: input.sandbox || 'workspace-write'}),
