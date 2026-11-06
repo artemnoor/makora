@@ -1902,7 +1902,12 @@ class AgentRuntime:
                     else:
                         state, detail = 'completed', history
                 elif turn.get('status') in ('failed', 'interrupted'):
-                    if not operation_error and state in ('accepted', 'delivered', 'running'):
+                    if (turn.get('status') == 'interrupted' and result.get('transport') == 'desktop'
+                            and not turn.get('error')):
+                        # A separate App Server cannot confirm that a Desktop-owned
+                        # turn stopped: its persisted history may lag live execution.
+                        state, detail = 'unconfirmed', {'message': 'Состояние Desktop-сессии уточняется.'}
+                    elif not operation_error and state in ('accepted', 'delivered', 'running'):
                         # The bridge retains its writer briefly while it verifies
                         # that a failed turn has no final assistant response.
                         detail = history
@@ -1934,6 +1939,8 @@ class AgentRuntime:
                 'turnStatus': turn.get('status') if isinstance(turn, dict) else None,
                 'decision': state,
             }
+            if state == 'unconfirmed':
+                session['error'] = None
             if state == 'running' and not session.get('executionObservedStartAt'):
                 session['executionObservedStartAt'] = session['lastCheckedAt']
             if state in ('completed','failed') and not session.get('executionObservedEndAt'):

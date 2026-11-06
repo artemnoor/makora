@@ -23,3 +23,22 @@ captureTurnError({method:'turn/completed',params:{turn:{id:'terminal-turn',error
 assert.equal(turnErrors.get('terminal-turn').message,'failed');
 `,{Map,assert});
 console.log('Terminal turn errors preserved; retryable errors excluded');
+
+const deliveryCode=source.slice(source.indexOf('function operationView('),source.indexOf('function localOrigin('));
+await runInNewContext(`const callbacks=[];const history={turns:[{id:'exact-turn',status:'interrupted',items:[]}]};
+const readThreadTimeline=async()=>history;
+const setTimeout=(callback)=>{callbacks.push(callback);return {unref(){}}};
+`+deliveryCode+`
+(async()=>{
+ const view=startDeliveryTracking('desktop-thread','prompt',null,'exact-turn','desktop');
+ await callbacks.shift()();
+ const op=operations.get(view.id);
+ assert.equal(op.state,'unconfirmed');
+ assert.equal(op.done,false);
+ assert.equal(activeThreadOperations.get('desktop-thread'),op.id);
+ history.turns[0]={id:'exact-turn',status:'completed',items:[{role:'assistant',phase:'final_answer',text:'Done'}]};
+ await callbacks.shift()();
+ assert.equal(op.state,'completed');
+ assert.equal(activeThreadOperations.has('desktop-thread'),false);
+})()
+`,{assert,Date,Map,operations:new Map(),activeThreadOperations:new Map(),randomUUID:()=> 'op',publish:()=>{}});

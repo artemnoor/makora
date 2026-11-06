@@ -771,7 +771,7 @@ function operationView(operation) {
   return { id, threadId, turnId, done, state, createdAt, updatedAt, userDelivered, assistantResponse, ...(lastError ? { lastError } : {}) };
 }
 
-function startDeliveryTracking(threadId, prompt, baselineTurnId = null, turnId = null) {
+function startDeliveryTracking(threadId, prompt, baselineTurnId = null, turnId = null, transport = 'app-server') {
   const now = Date.now();
   for (const [id, op] of operations) {
     if (op.done && now - op.updatedAt > 60 * 60 * 1000) operations.delete(id);
@@ -795,6 +795,12 @@ function startDeliveryTracking(threadId, prompt, baselineTurnId = null, turnId =
         operation.assistantResponse = assistants.some(item => item.phase === 'final_answer')
           || (matchingTurn.status === 'completed' && assistants.some(item => !item.phase));
         if (operation.assistantResponse) { operation.state = 'completed'; operation.done = true; }
+        else if (transport === 'desktop' && matchingTurn.status === 'interrupted' && !matchingTurn.error) {
+          // Persisted history from our App Server can report interruption while
+          // the Desktop process still owns this turn. Retain the writer guard.
+          operation.state = 'unconfirmed';
+          operation.terminalSince = 0;
+        }
         else if (['failed', 'interrupted'].includes(matchingTurn.status)) {
           operation.terminalSince ||= Date.now();
           if (Date.now() - operation.terminalSince >= 5000) { operation.state = 'failed'; operation.done = true; }
@@ -1022,7 +1028,7 @@ const server = createServer(async (request, response) => {
         if (input.projectless && input.projectId) return json(response, 400, { error: 'Choose projectless or projectId' });
         try {
           const thread = await createDesktopThread(input);
-          const operation = startDeliveryTracking(thread.id, String(input.prompt).trim(), null, thread.turnId);
+          const operation = startDeliveryTracking(thread.id, String(input.prompt).trim(), null, thread.turnId, 'desktop');
           return json(response, 201, { ...thread, transport: 'desktop', initialPromptSubmitted: true, operation });
         } catch (error) {
           if (/timed out/i.test(error.message)) return json(response, 504, { error: error.message, deliveryUnknown: true });
@@ -1129,7 +1135,7 @@ const server = createServer(async (request, response) => {
             if (latest && latest !== baselineTurnId) turnId = latest;
             else await new Promise(resolve => setTimeout(resolve, 200));
           }
-          const operation = startDeliveryTracking(threadId, prompt, baselineTurnId, turnId);
+          const operation = startDeliveryTracking(threadId, prompt, baselineTurnId, turnId, 'desktop');
           return json(response, 202, { threadId: data.threadId || threadId, turnId, status: 'accepted', transport: 'desktop', operation });
         } catch (error) {
           if (sending && /timed out/i.test(error.message)) return json(response, 504, { error: error.message, deliveryUnknown: true });

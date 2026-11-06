@@ -717,6 +717,17 @@ class AgentRuntimeTests(unittest.TestCase):
             'status': 'completed', 'items': [{'role': 'assistant', 'phase': 'final_answer', 'text': 'Done.'}]}]}
         self.assertEqual('completed', self.runtime.refresh_session(session['id'])['status'])
 
+    def test_desktop_interrupted_history_without_error_is_not_a_confirmed_stop(self):
+        run = self.create_run()
+        session = self.runtime.launch_agent(run['id'], 'T01', 'test_designer')
+        self.runtime.state['sessions'][session['id']]['transport'] = 'desktop'
+        self.provider.operation = lambda _: {'state': 'failed', 'done': True, 'assistantResponse': False}
+        self.provider.history = lambda _: {'turns': [{'id': session['turnId'],
+            'status': 'interrupted', 'items': [{'role': 'assistant', 'phase': 'commentary', 'text': 'Working'}]}]}
+        result = self.runtime.refresh_session(session['id'])
+        self.assertEqual('unconfirmed', result['status'])
+        self.assertFalse(result.get('error'))
+
     def test_interrupted_turn_has_public_error_without_history(self):
         run = self.create_run()
         session = self.runtime.launch_agent(run['id'], 'T01', 'test_designer')
