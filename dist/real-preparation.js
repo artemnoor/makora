@@ -17,7 +17,17 @@
     }finally{if(foreground)window.dispatchEvent(new CustomEvent('makora:activity',{detail:{active:false}}))}
   }
   function markdown(text){let html='',end=0;for(const match of text.matchAll(/```([^\n]*)\n([\s\S]*?)```/g)){html+=render(text.slice(end,match.index));html+=match[1].trim()==='mermaid'?'<pre data-real-mermaid>'+esc(match[2])+'</pre>':'<pre class="case-source"><code>'+esc(match[2])+'</code></pre>';end=match.index+match[0].length}return html+render(text.slice(end))}
-  async function diagrams(host){const elements=[...host.querySelectorAll('[data-real-mermaid]')];if(!elements.length)return;try{const mermaid=(await import('https://cdn.jsdelivr.net/npm/mermaid@11/dist/mermaid.esm.min.mjs')).default;mermaid.initialize({startOnLoad:false,theme:'dark',securityLevel:'strict',flowchart:{htmlLabels:false}});for(const el of elements){const svg=await mermaid.render('real-'+crypto.randomUUID(),el.textContent);if(el.isConnected)el.innerHTML=svg.svg}}catch{}}
+  async function diagrams(host){
+    const elements=[...host.querySelectorAll('[data-real-mermaid]')];if(!elements.length)return;
+    const mermaid=window.mermaid;
+    if(mermaid)mermaid.initialize({startOnLoad:false,theme:'dark',securityLevel:'strict',flowchart:{htmlLabels:false}});
+    for(const el of elements){
+      const source=el.textContent;
+      try{if(!mermaid)throw Error('Библиотека Mermaid недоступна');const result=await mermaid.render('real-'+crypto.randomUUID(),source);if(el.isConnected){const figure=document.createElement('figure');figure.className='real-diagram';figure.innerHTML=result.svg;figure.setAttribute('aria-label','Диаграмма Mermaid');el.replaceWith(figure)}}
+      catch(error){if(!el.isConnected)continue;const message=document.createElement('p');message.className='real-diagram-error';message.setAttribute('role','alert');message.textContent='Не удалось построить схему. Ниже показан её исходный текст.';el.before(message);el.classList.add('case-source');el.removeAttribute('data-real-mermaid')}
+    }
+  }
+
   async function extract(file,attachment=false){const token=await(await fetch('/api/agents/token',{headers:{'X-Makora-Request':'token'}})).json();const response=await fetch('/api/preparation/'+(attachment&&state.storageRoot?'attachment':'extract')+'?name='+encodeURIComponent(file.name),{method:'POST',headers:{'X-Makora-Token':token.result.token},body:file});const result=await response.json();if(!response.ok)throw Error(result.error?.message||'Не удалось прочитать файл');return result.result.text}
   const root=()=>document.querySelector('#first-stage');
   function error(message){const host=root()?.querySelector('.board-content');if(host){let el=host.querySelector('[data-real-error]');if(!el){el=document.createElement('p');el.dataset.realError='';el.setAttribute('role','alert');host.prepend(el)}el.textContent=message;el.hidden=false}}
@@ -27,6 +37,7 @@
   async function start(brief,sourceFile){if(sourceFile)await uploadSource(sourceFile);state=await api('/api/preparation/1/start',{brief});stage=1;file=null;localStorage.setItem('makora.real-stage','1');history.replaceState(null,'',location.pathname)}
   function schedule(){clearTimeout(timer);if(stage<=4&&['running','unconfirmed'].includes(state.stages[stage]?.status)){timer=setTimeout(async()=>{try{state=await api(`/api/preparation/${stage}/refresh`,{});paint()}catch(e){error(e.message);schedule()}},4000)}}
   function paint(){
+    if(stage!==6)window.makoraCodingAgents?.hide();
     const scene=root();if(!scene||!state.brief)return;
     const board=scene.querySelector('.board'),content=scene.querySelector('.board-content');
     window.makoraRealAgents?.cancel?.();
@@ -36,18 +47,20 @@
     board.classList.toggle('agent-real-mode',stage>=5);
     board.classList.add('rp-analysis');
 
-    scene.querySelector('.board-kicker').textContent='ПРОЕКТ · GPT-6 LUNA';
+    scene.querySelector('.board-kicker').textContent='ПРОЕКТ · МАКОРА';
+    const headerStage=scene.querySelector('[data-header-stage]');if(headerStage)headerStage.textContent='Этап '+stage+' из 6 · '+['Анализ','Идея','План','Мок-данные','Прототип','Агенты'][stage-1];
     scene.querySelector('.board-bar h2').textContent=names[stage-1];scene.querySelector('.board-heading span:first-child').textContent=String(stage).padStart(2,'0')+' / '+names[stage-1];scene.querySelector('.board-footer span:last-child').textContent=String(stage).padStart(2,'0')+' / 06';
     scene.querySelector('.scene-bottom p').textContent='Реальные артефакты проекта · результаты требуют вашего утверждения';
     scene.querySelector('.board-next').hidden=true;
     const nav=scene.querySelector('.board-stages')||scene.querySelector('[data-board-stage]')?.parentElement;
-    if(nav){nav.innerHTML=names.map((name,i)=>{const approved=i<4?state.stages[i+1]?.status==='approved':i===4&&state.prototype?.status==='approved';const unlocked=i===0||(i<5?state.stages[i]?.status==='approved':state.prototype?.status==='approved');return `<button type="button" data-real-stage="${i+1}" class="${stage===i+1?'active':''} ${approved?'rp-complete':''}" ${unlocked?'':'disabled'} ${stage===i+1?'aria-current="step"':''} title="${name}"><b class="rp-stage-index">${approved?'✓':String(i+1).padStart(2,'0')}</b><span>${['Анализ','Идея','План','Моки','Прототип','Агенты'][i]}<small>${stage===i+1?'Вы здесь':approved?'Утверждено':unlocked?'Доступно':'Впереди'}</small></span></button>`}).join('')}
+    if(nav){nav.innerHTML=names.map((name,i)=>{const approved=i<4?state.stages[i+1]?.status==='approved':i===4&&(state.prototype?.status==='approved'||state.returnedProject?.status==='prepared');const unlocked=i===0||(i<5?state.stages[i]?.status==='approved':(state.prototype?.status==='approved'||state.returnedProject?.status==='prepared'));return `<button type="button" data-real-stage="${i+1}" class="${stage===i+1?'active':''} ${approved?'rp-complete':''}" ${unlocked?'':'disabled'} ${stage===i+1?'aria-current="step"':''} title="${name}"><b class="rp-stage-index">${approved?'✓':String(i+1).padStart(2,'0')}</b><span>${['Анализ','Идея','План','Моки','Прототип','Агенты'][i]}<small>${stage===i+1?'Вы здесь':approved?'Утверждено':unlocked?'Доступно':'Впереди'}</small></span></button>`}).join('')}
     scene.querySelectorAll('[data-real-stage]').forEach(b=>b.onclick=()=>open(Number(b.dataset.realStage)).catch(e=>error(e.message)));
     scene.querySelectorAll('.capabilities-toggle,.capabilities-menu').forEach(el=>el.hidden=true);
     const projectKey='makora.real-feedbacks.'+(state.projectId||'current');if(feedbackProject!==projectKey){feedbackProject=projectKey;try{feedbacks=JSON.parse(localStorage.getItem(projectKey))||{}}catch{feedbacks={}}}
-    if(stage===5){handoffView(content,board);return}
-    if(stage===6){development(content,board);return}
+    if(stage===5){window.makoraModelStatus?.external();handoffView(content,board);return}
+    if(stage===6){window.makoraModelStatus?.agents([]);development(content,board);return}
     const record=state.stages[stage],files=record?.files||{},status=record?.status||'not_started';
+    window.makoraModelStatus?.preparation(record);
     const working=['running','launching','unconfirmed'].includes(status);
     artifactView(scene,board,content,record,files,status,working,projectKey);
   }
@@ -70,7 +83,7 @@
       if(!files[path])return;file=path;content.querySelector('.analysis-summary').hidden=true;
       const doc=content.querySelector('[data-real-document]');doc.hidden=false;
       const checks=record?.checks||[],questions=record?.questions||[],limits=record?.limitations||[];
-      doc.innerHTML=`<header class="analysis-reader-header"><button class="rp-text-button" data-analysis-close data-rp-back>← К результату</button><span>${String(step).padStart(2,'0')} / ${esc(names[step-1])}</span><a download="${esc(path.split('/').pop())}">Скачать файл ↓</a></header><div class="artifact-reader-layout"><aside class="artifact-files" aria-label="Файлы этапа">${paths.map(p=>`<button data-real-file="${esc(p)}" class="${p===path?'active':''}" ${p===path?'aria-current="page"':''}><strong>${esc(fileTitle(p))}</strong><small>${esc(p)}</small></button>`).join('')}${checks.length?`<details class="artifact-checks"><summary>Проверки · ${checks.filter(c=>c.status==='passed').length}/${checks.length}</summary>${checks.map(c=>`<p>${c.status==='passed'?'✓':'×'} ${esc(c.name)}</p>`).join('')}<small>Проверки артефактов. Тесты приложения выполняются при разработке.</small></details>`:''}${questions.length?`<details><summary>Открытые вопросы · ${questions.length}</summary><ul>${questions.map(q=>`<li>${esc(q)}</li>`).join('')}</ul></details>`:''}${limits.length?`<details><summary>Ограничения · ${limits.length}</summary><ul>${limits.map(q=>`<li>${esc(q)}</li>`).join('')}</ul></details>`:''}</aside><div class="analysis-paper"><p class="analysis-filename">${esc(path)}</p>${/\.md$/i.test(path)?markdown(files[path]):/\.mmd$/i.test(path)?markdown('```mermaid\n'+files[path]+'\n```'):`<h1>${esc(fileTitle(path))}</h1><pre class="case-source"><code>${esc(files[path])}</code></pre>`}</div></div>${ready?`<footer class="artifact-approval"><div><strong>${status==='approved'?'Этап уже утверждён':step===3?'Подтверждение плана разработки':'Подтверждение результата'}</strong><p>${status==='approved'?'Материалы сохранены и доступны следующему этапу.':`Утверждение относится ко всем ${paths.length} файлам этапа. Каждый файл отдельно подтверждать не нужно.`}</p></div><div><button class="rp-secondary" data-reader-edit>Нужны правки</button><button class="rp-primary" data-reader-approve>${status==='approved'?'Перейти дальше →':step===3?'Утвердить весь план →':'Утвердить и продолжить →'}</button></div></footer>`:''}`;
+      doc.innerHTML=`<header class="analysis-reader-header"><button class="rp-text-button" data-analysis-close data-rp-back>← К результату</button><span>${String(step).padStart(2,'0')} / ${esc(names[step-1])}</span><a download="${esc(path.split('/').pop())}">Скачать файл ↓</a></header><div class="artifact-reader-layout"><aside class="artifact-files" aria-label="Файлы этапа">${paths.map(p=>`<button data-real-file="${esc(p)}" class="${p===path?'active':''}" ${p===path?'aria-current="page"':''}><strong>${esc(fileTitle(p))}</strong><small>${esc(p)}</small></button>`).join('')}${checks.length?`<details class="artifact-checks"><summary>Проверки · ${checks.filter(c=>c.status==='passed').length}/${checks.length}</summary>${checks.map(c=>`<p>${c.status==='passed'?'✓':c.status==='not_checked'?'?':'×'} ${esc(c.name)}${c.detail?`<br><small>${esc(c.detail)}</small>`:''}</p>`).join('')}<small>Проверки артефактов. Тесты приложения выполняются при разработке.</small></details>`:''}${questions.length?`<details><summary>Открытые вопросы · ${questions.length}</summary><ul>${questions.map(q=>`<li>${esc(q)}</li>`).join('')}</ul></details>`:''}${limits.length?`<details><summary>Ограничения · ${limits.length}</summary><ul>${limits.map(q=>`<li>${esc(q)}</li>`).join('')}</ul></details>`:''}</aside><div class="analysis-paper"><p class="analysis-filename">${esc(path)}</p>${/\.md$/i.test(path)?markdown(files[path]):/\.mmd$/i.test(path)?markdown('```mermaid\n'+files[path]+'\n```'):`<h1>${esc(fileTitle(path))}</h1><pre class="case-source"><code>${esc(files[path])}</code></pre>`}</div></div>${ready?`<footer class="artifact-approval"><div><strong>${status==='approved'?'Этап уже утверждён':step===3?'Подтверждение плана разработки':'Подтверждение результата'}</strong><p>${status==='approved'?'Материалы сохранены и доступны следующему этапу.':`Утверждение относится ко всем ${paths.length} файлам этапа. Каждый файл отдельно подтверждать не нужно.`}</p></div><div><button class="rp-secondary" data-reader-edit>Нужны правки</button><button class="rp-primary" data-reader-approve>${status==='approved'?'Перейти дальше →':step===3?'Утвердить весь план →':'Утвердить и продолжить →'}</button></div></footer>`:''}`;
       doc.querySelector('[data-reader-approve]')?.addEventListener('click',()=>action(async()=>{if(status!=='approved')state=await api(`/api/preparation/${step}/approve`,{note:feedbacks[step]||''});file=null;await open(step+1)}));
       doc.querySelector('[data-reader-edit]')?.addEventListener('click',()=>{if(board.classList.contains('expanded'))board.querySelector('.board-expand').click();else{file=null;paint()}root()?.querySelector('[data-analysis-edit]')?.click()});
       if(doc.dataset.downloadUrl)URL.revokeObjectURL(doc.dataset.downloadUrl);doc.dataset.downloadUrl=URL.createObjectURL(new Blob([files[path]],{type:'text/plain;charset=utf-8'}));doc.querySelector('a[download]').href=doc.dataset.downloadUrl;
@@ -81,7 +94,7 @@
     content.querySelector('[data-real-file]')?.addEventListener('click',()=>{show(main);if(!board.classList.contains('expanded'))board.querySelector('.board-expand').click()});
     if(file&&files[file])show(file);
     content.querySelector('[data-analysis-edit]')?.addEventListener('click',()=>{
-      const regenerate=feedback=>action(async()=>{artifactView(scene,board,content,record,{},'launching',true,projectKey);try{state=await api(`/api/preparation/${step}/start`,{feedback});file=null;root()?.querySelector('.analysis-chat')?.remove();paint()}catch(e){try{state=await api('/api/preparation')}catch{}paint();throw e}});
+      const regenerate=feedback=>action(async()=>{window.makoraModelStatus?.preparation({status:'dispatching'});artifactView(scene,board,content,record,{},'launching',true,projectKey);try{state=await api(`/api/preparation/${step}/start`,{feedback});file=null;root()?.querySelector('.analysis-chat')?.remove();paint()}catch(e){try{state=await api('/api/preparation')}catch{}paint();throw e}});
       if(!record){regenerate(feedbacks[step]||'');return}
       openRefinementChat({key:projectKey,step,title:'Какие правки внесём?',description:`Расскажи, что поправить: ${names[step-1].toLowerCase()}. Я обновлю материалы этапа.`,submit:'Пересоздать материалы →',onSubmit:regenerate});
     });
@@ -124,6 +137,45 @@
       const pack=await api('/api/preparation/package');if(ticket!==generation||stage!==5)return;
       content.innerHTML=`<section class="analysis-summary"><p class="analysis-purpose">Передайте промпт и ZIP своему ИИ-агенту для создания прототипа.</p><button class="analysis-file" data-handoff-open><span class="analysis-file-mark">ZIP</span><span><strong>Промпт и контекст проекта</strong><small>PROMPT.md · ${pack.files.length} файлов</small></span><span>↗</span></button><div class="analysis-actions"><button class="rp-secondary" data-handoff-copy>Скопировать промпт</button><a class="rp-primary handoff-download" href="/api/preparation/archive" download="makora-agent-package.zip">Скачать пакет ↓</a></div><small class="handoff-state" role="status">После передачи пакета ожидаем результат внешнего агента.</small></section><article class="analysis-reader" data-handoff-reader hidden></article>`;
       const copy=async button=>{try{await navigator.clipboard.writeText(pack.prompt);button.textContent='Промпт скопирован ✓'}catch{button.textContent='Откройте PROMPT.md и скопируйте текст'}};
+      const receive=document.createElement('section');receive.className='handoff-receive';
+      receive.innerHTML=`<h3>Готовый сайт</h3><p>Прикрепите ZIP, который вернул ваш ИИ-агент.</p><label class="handoff-drop" data-result-drop><span>＋ Выбрать ZIP проекта</span><small>или перетащить сюда · до 100 МБ</small><input type="file" accept=".zip,application/zip" data-result-file></label><p class="handoff-upload-status" role="status" aria-live="polite"></p><div data-result-summary></div>`;
+      content.querySelector('.analysis-summary').append(receive);
+      const resultHost=receive.querySelector('[data-result-summary]'),uploadStatus=receive.querySelector('.handoff-upload-status'),input=receive.querySelector('[data-result-file]'),drop=receive.querySelector('[data-result-drop]');
+      const packageTile=content.querySelector('[data-handoff-open]'),tiles=document.createElement('div');tiles.className='handoff-tiles';
+      packageTile.before(tiles);tiles.append(packageTile);
+      const uploadTile=document.createElement('button');uploadTile.type='button';uploadTile.className='analysis-file';uploadTile.dataset.handoffUpload='';
+      uploadTile.innerHTML='<span class="analysis-file-mark">↑</span><span><strong>Прикрепить готовый ZIP</strong><small>Сайт от вашего ИИ-агента</small></span><span>＋</span>';
+      uploadTile.onclick=()=>input.click();tiles.append(uploadTile);
+      const showResult=result=>{
+        if(!result)return;
+        resultHost.innerHTML=`<div class="handoff-received"><strong>✓ ZIP проекта сохранён</strong><p>${esc(result.name)} · файлов: ${result.fileCount}</p><p>${result.mocksStatus==='passed'?'Исходные мок-данные сохранены.':'В исходных мок-данных есть изменения или отсутствующие файлы.'}${result.newMocks?.length?' Новых мок-файлов: '+result.newMocks.length+'.':''}</p><details><summary>Файлы проекта</summary><ul>${result.files.map(path=>`<li>${esc(path)}</li>`).join('')}</ul></details><a href="/api/preparation/result" download="makora-website.zip">Скачать сохранённый ZIP ↓</a><small>Архив проверен и сохранён. Работоспособность сайта ещё не проверялась.</small></div>`;
+        const actions=document.createElement('div');actions.className='analysis-actions';
+        actions.innerHTML='<button type="button" class="rp-primary" data-result-continue>Продолжить с этим сайтом →</button><button type="button" class="rp-secondary" data-result-replace>Заменить ZIP</button>';
+        resultHost.prepend(actions);
+        const next=actions.querySelector('[data-result-continue]');
+        next.onclick=()=>action(async()=>{next.disabled=true;next.textContent='Подготавливаем сайт…';try{state=await api('/api/preparation/result/continue',{});await open(6)}finally{next.disabled=false;next.textContent='Продолжить с этим сайтом →'}});
+        actions.querySelector('[data-result-replace]').onclick=()=>input.click();
+        const explanation=document.createElement('p');explanation.textContent='Дальше агенты изучат загруженный сайт и составят план проверки и доработок. Запуск плана — на следующем этапе.';resultHost.prepend(explanation);
+        uploadTile.querySelector('strong').textContent='Продолжить с сайтом →';uploadTile.onclick=()=>{resultHost.scrollIntoView({block:'nearest'});next.focus()};
+      };
+      showResult(pack.returnedProject);
+      let uploading=false;
+      const upload=async selected=>{
+        if(!selected||uploading)return;
+        if(!/\.zip$/i.test(selected.name)||!selected.size||selected.size>100*1024*1024){uploadStatus.textContent='Выберите непустой ZIP-архив размером до 100 МБ.';input.value='';receive.scrollIntoView({block:'nearest'});return}
+        uploading=true;input.disabled=true;uploadTile.disabled=true;drop.setAttribute('aria-busy','true');uploadStatus.textContent='Загружаем и проверяем архив…';receive.scrollIntoView({block:'nearest'});
+        try{
+          const tokenResponse=await fetch('/api/agents/token',{headers:{'X-Makora-Request':'token'},credentials:'same-origin'}),auth=await tokenResponse.json();
+          if(!tokenResponse.ok)throw Error(auth.error?.message||'Нет доступа к локальному API');
+          const response=await fetch('/api/preparation/result?name='+encodeURIComponent(selected.name),{method:'POST',headers:{'Content-Type':'application/zip','X-Makora-Token':auth.result.token},credentials:'same-origin',body:selected}),data=await response.json();
+          if(!response.ok)throw Error(data.error?.message||'Не удалось загрузить ZIP');
+          state.returnedProject=data.result;showResult(data.result);uploadStatus.textContent='Готово. Нажмите «Продолжить с этим сайтом».';resultHost.scrollIntoView({block:'nearest'});
+        }catch(e){uploadStatus.textContent=e.message}finally{uploading=false;input.disabled=false;uploadTile.disabled=false;input.value='';drop.removeAttribute('aria-busy')}
+      };
+      input.onchange=()=>upload(input.files[0]);
+      for(const event of ['dragenter','dragover'])drop.addEventListener(event,e=>{e.preventDefault();drop.classList.add('drag-over')});
+      for(const event of ['dragleave','drop'])drop.addEventListener(event,e=>{e.preventDefault();drop.classList.remove('drag-over')});
+      drop.addEventListener('drop',e=>upload(e.dataTransfer.files[0]));
       content.querySelector('[data-handoff-copy]').onclick=e=>copy(e.currentTarget);
       const show=(path='PROMPT.md')=>{
         const doc=content.querySelector('[data-handoff-reader]');content.querySelector('.analysis-summary').hidden=true;doc.hidden=false;
@@ -140,9 +192,9 @@
     if(state.stages['4']?.status!=='approved'){content.innerHTML='<div class="board-document"><p>Сначала выполни и утверди подготовку мок-данных.</p></div>';return}
     content.innerHTML='<div class="board-document"><p>Подготавливаем отдельный Git-проект по утверждённым файлам…</p></div>';
     try{const project=await api('/api/preparation/development',{stage});if(ticket!==generation||stage<5)return;
-      if(stage===6&&state.prototype?.status!=='approved'){throw Error('Сначала утверди работающий прототип на этапе 5.')}
-      if(!window.makoraRealAgents){await new Promise((resolve,reject)=>{const script=document.createElement('script');script.src='agent-runtime-ui.js?v=chat-13';script.onload=resolve;script.onerror=reject;document.head.append(script)})}
-      if(stage===6&&localStorage.getItem('makora.real-stage6-base')!==state.prototype.commit){window.makoraRealAgents.selectRun?.('__new__');localStorage.setItem('makora.real-stage6-base',state.prototype.commit)}
+      if(stage===6&&state.prototype?.status!=='approved'&&state.returnedProject?.status!=='prepared'){throw Error('Сначала утверди работающий прототип на этапе 5.')}
+      if(!window.makoraRealAgents){await new Promise((resolve,reject)=>{const script=document.createElement('script');script.src='agent-runtime-ui.js?v=stage-model-41';script.onload=resolve;script.onerror=reject;document.head.append(script)})}
+      if(stage===6&&localStorage.getItem('makora.real-stage6-base')!==(state.returnedProject?.commit||state.prototype?.commit)){window.makoraRealAgents.selectRun?.('__new__');localStorage.setItem('makora.real-stage6-base',(state.returnedProject?.commit||state.prototype?.commit))}
       const previousDigest=localStorage.getItem('makora.real-development-digest');if(previousDigest!==project.digest){window.makoraRealAgents.selectRun?.('__new__');localStorage.setItem('makora.real-development-digest',project.digest)}
       project.brief+=stage===5?'\nСоздай работающий прототип на исходных mocks/fixtures/. Сохрани mocks/, изменения предлагай в new_mocks/.':'\nПродолжи разработку текущего проекта по утверждённым требованиям.';
       const ctx={board,content,project,preparationStage:stage,approvePrototype:()=>action(async()=>{state=await api('/api/preparation/prototype/approve',{});await open(6)}),status:document.createElement('span'),primary:null,workflow:{getTasks:()=>[]},announce:error};
@@ -151,7 +203,8 @@
 
     }catch(e){if(ticket===generation)error(e.message)}
   }
-  async function open(number){root()?.querySelector('.analysis-chat')?.remove();generation++;clearTimeout(timer);root()?.querySelectorAll('.board-content button,.board-content textarea,.board-content input').forEach(el=>el.disabled=true);stage=Math.max(1,Math.min(6,number));file=null;localStorage.setItem('makora.real-stage',String(stage));state=await api('/api/preparation');paint()}
-  async function mount(){state=await api('/api/preparation');if(!state.brief)return;stage=Number(localStorage.getItem('makora.real-stage'))||1;paint()}
+  async function open(number){root()?.querySelector('.analysis-chat')?.remove();generation++;clearTimeout(timer);root()?.querySelectorAll('.board-content button,.board-content textarea,.board-content input').forEach(el=>el.disabled=true);stage=Math.max(1,Math.min(6,number));file=null;localStorage.setItem('makora.real-stage',String(stage));state=await api('/api/preparation/projects/stage',{stage});paint()}
+  async function mount(){window.makoraModelStatus?.refresh();state=await api('/api/preparation');if(!state.brief)return;stage=Number(state.lastStage)||1;paint()}
   window.makoraPreparation={start,mount,open,extract,openRefinementChat,chooseFolder,openFolder};
 })();
+

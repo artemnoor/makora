@@ -1,0 +1,25 @@
+.codex-auth{position:fixed;right:16px;top:82px;z-index:10010;font:12px/1.5 Manrope,Arial,sans-serif;color:#eee}
+.codex-auth button{font:inherit;cursor:pointer;color:#eee;background:#1c1922;border:1px solid #625b70;padding:8px 12px}
+.codex-auth button:focus-visible{outline:2px solid #c2c4d8;outline-offset:3px}
+.codex-auth button:disabled{opacity:.6;cursor:wait}
+.codex-auth-toggle{float:right;min-height:36px}
+.codex-auth[data-status=signed_out] .codex-auth-toggle{color:#f2c092;border-color:#a7805f}
+.codex-auth[data-status=signed_in] .codex-auth-toggle{color:#b9d7bf}
+.codex-auth-console{clear:both;position:relative;top:8px;width:min(350px,calc(100vw - 32px));box-sizing:border-box;background:#101014;border:1px solid #625b70;padding:14px;box-shadow:0 12px 40px #0008}
+.codex-auth-console[hidden]{display:none}
+.codex-auth-console header{display:flex;align-items:center;justify-content:space-between;gap:12px}
+.codex-auth-console pre{white-space:pre-wrap;overflow-wrap:anywhere;background:#08080b;padding:12px;font:12px/1.6 Consolas,monospace;color:#c2c4d8}
+.codex-auth-console p{color:#aaa;font-size:11px}
+.codex-auth-console>div{display:flex;flex-wrap:wrap;gap:8px}
+@media(max-width:720px){.codex-auth{top:14px;right:12px}.codex-auth-toggle{font-size:10px;padding:6px 8px}.codex-auth-console{max-height:calc(100dvh - 78px);overflow:auto}}
+
+#first-stage .codex-auth{position:relative;inset:auto;z-index:2;margin-left:auto;margin-right:8px;letter-spacing:normal}
+#first-stage .codex-auth-console{position:absolute;right:0;top:44px;z-index:3}
+@media(max-width:720px){#first-stage .codex-auth-toggle{font-size:10px}#first-stage .codex-auth-console{right:-46px}}
+
+#first-stage .first-top-actions .codex-auth{position:relative;inset:auto;margin:0;float:none;flex:none;z-index:30}
+#first-stage .first-top-actions .codex-auth-toggle{float:none}
+#first-stage .first-top-actions .codex-auth[data-status=signed_in] .codex-auth-toggle{color:#bbc8bc}
+#first-stage .first-top-actions .codex-auth-console{right:-44px;top:44px;border-color:#555;border-radius:8px;background:#151515}
+#first-stage .codex-auth-console header{height:auto;min-height:0;padding:0 0 10px;border:0;gap:12px}
+@media(max-width:760px){#first-stage .codex-auth-status{display:none}#first-stage .first-top-actions .codex-auth-console{right:-44px;width:min(350px,calc(100vw - 32px))}}

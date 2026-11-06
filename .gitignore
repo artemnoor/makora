@@ -4,3 +4,11 @@ __pycache__/
 workspace/
 
 .venv/
+
+node_modules/
+
+output/
+.makora/
+.agents/
+.env
+.env.*

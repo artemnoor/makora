@@ -14,7 +14,9 @@ from urllib.parse import parse_qs, unquote, urlparse
 from .iterations import IterationStore, MAX_ARCHIVE
 from .workspace import MakoraError
 from .agents import AgentRuntime, AgentRuntimeError
+from .agents.runtime import configure_codex_binary
 from .preparation import Preparation
+from .codex_auth import CodexAuth
 
 
 class LocalHTTPServer(ThreadingHTTPServer):
@@ -127,6 +129,12 @@ class MakoraHandler(SimpleHTTPRequestHandler):
                 self._json({'token':self.server.agent_token});return
             if path == '/api/agents/status':
                 self._agent_json(self.server.agent_runtime.status);return
+            if path == '/api/preparation/projects':
+                self._agent_json(self.server.preparation.list_projects);return
+            if path == '/api/preparation/agent-settings':
+                self._agent_json(self.server.preparation.agent_settings);return
+            if path == '/api/agents/auth':
+                self._agent_json(self.server.codex_auth.status);return
             if path == '/api/preparation/chat':
                 self._agent_json(self.server.preparation.chat_snapshot);return
             if path == '/api/preparation':
@@ -135,6 +143,8 @@ class MakoraHandler(SimpleHTTPRequestHandler):
                 self._agent_json(self.server.preparation.handoff_package);return
             if path == '/api/preparation/archive':
                 self._zip(self.server.preparation.archive(), 'makora-project-context.zip');return
+            if path == '/api/preparation/result':
+                self._zip(self.server.preparation.returned_project_archive(), 'makora-website.zip');return
             if path == '/api/agents/approvals':
                 self._agent_json(self.server.agent_runtime.approvals);return
             if path == '/api/agents/state':
@@ -202,9 +212,22 @@ class MakoraHandler(SimpleHTTPRequestHandler):
         try:
             if path.startswith(('/api/agents/', '/api/preparation')) and not self._agent_auth():
                 self._error(AgentRuntimeError('AUTH_REQUIRED','Нужен действующий токен этой страницы Макоры.',401),401);return
+            if path in ('/api/preparation/projects/create', '/api/preparation/projects/open', '/api/preparation/folder/select', '/api/preparation/chat', '/api/preparation/chat/recover'):
+                self._error(AgentRuntimeError('PROJECT_FIXED', 'Макора работает с текущим проектом Codex. Общайтесь с ней в Codex Desktop.', 409),409);return
+            if path in ('/api/preparation/projects/create', '/api/preparation/projects/open', '/api/preparation/projects/stage'):
+                value=self._read_json()
+                action={'/api/preparation/projects/create':self.server.preparation.create_project,'/api/preparation/projects/open':self.server.preparation.open_project,'/api/preparation/projects/stage':self.server.preparation.select_project_stage}[path]
+                self._agent_json(lambda:action(value));return
+            if path == '/api/preparation/agent-settings':
+                value=self._read_json()
+                self._agent_json(lambda:self.server.preparation.save_agent_settings(value));return
             if path == '/api/preparation/chat':
                 value=self._read_json()
                 self._agent_json(lambda:self.server.preparation.send_chat(value));return
+            if path == '/api/preparation/chat/recover':
+                self._agent_json(self.server.preparation.recover_chat);return
+            if path == '/api/agents/auth/login':
+                self._agent_json(self.server.codex_auth.login);return
             if path == '/api/preparation/folder/select':
                 self._agent_json(self.server.preparation.choose_directory);return
             if path == '/api/preparation/folder/open':
@@ -217,6 +240,11 @@ class MakoraHandler(SimpleHTTPRequestHandler):
                 self._agent_json(lambda:self.server.preparation.development(int(value.get('stage',5))));return
             if path == '/api/preparation/prototype/approve':
                 self._agent_json(self.server.preparation.approve_prototype);return
+            if path == '/api/preparation/result/continue':
+                self._agent_json(self.server.preparation.continue_returned_project);return
+            if path == '/api/preparation/result':
+                name = parse_qs(urlparse(self.path).query).get('name', ['project.zip'])[0]
+                self._agent_json(lambda: self.server.preparation.receive_project(name, self._body()));return
             if path == '/api/preparation/extract':
                 name=parse_qs(urlparse(self.path).query).get('name',['brief.txt'])[0]
                 self._agent_json(lambda:self.server.preparation.extract(name,self._body(20*1024*1024)));return
@@ -323,7 +351,8 @@ class MakoraHandler(SimpleHTTPRequestHandler):
             super().log_message(fmt, *args)
 
 
-def serve(workspace, static, host='127.0.0.1', port=8765, agent_roots=None):
+def serve(workspace, static, host='127.0.0.1', port=8765, agent_roots=None, project_root=None):
+    configure_codex_binary()
     workspace = Path(workspace).expanduser().resolve()
     workspace.mkdir(parents=True, exist_ok=True)
     handler = lambda *args, **kwargs: MakoraHandler(*args, directory=static, **kwargs)
@@ -334,6 +363,22 @@ def serve(workspace, static, host='127.0.0.1', port=8765, agent_roots=None):
     roots=[Path(p).expanduser().resolve() for p in (agent_roots or [])]
     server.agent_runtime=AgentRuntime(workspace,default_root/'integrations'/'codex-desktop-local-api',roots or [default_root])
     server.preparation=Preparation(workspace,server.agent_runtime)
+    project = Path(project_root or server.preparation.state.get('storageRoot') or Path.cwd()).expanduser().resolve()
+    project.mkdir(parents=True, exist_ok=True)
+    saved = project / '.makora' / 'preparation' / 'state.json'
+    if saved.exists():
+        import json
+        server.preparation.state = json.loads(saved.read_text('utf-8'))
+        server.preparation.root = saved.parent
+        server.preparation.state['storageRoot'] = str(project)
+        server.preparation.save()
+    elif server.preparation.state.get('storageRoot') != str(project):
+        server.preparation._initialize_project(project)
+    server.agent_runtime.register_project_storage(project / 'app', project)
+    for root in (project / 'app', server.preparation.project_directory()):
+        if root.resolve() not in server.agent_runtime.allowed_roots:
+            server.agent_runtime.allowed_roots.append(root.resolve())
+    server.codex_auth=CodexAuth(server.agent_runtime.provider, lambda: server.agent_runtime.snapshot()['sessions'])
     prepared_projects=server.preparation.root/'projects'
     if prepared_projects.exists():server.agent_runtime.allowed_roots.extend(p.resolve() for p in prepared_projects.iterdir() if p.is_dir())
     server.agent_token=secrets.token_urlsafe(32)
@@ -354,9 +399,10 @@ def main():
     parser.add_argument('--host', default='127.0.0.1')
     parser.add_argument('--port', type=int, default=8765)
     parser.add_argument('--agent-root', action='append', default=[], help='Разрешённая Git-папка проекта для Agent Worktree (можно указать несколько раз)')
+    parser.add_argument('--project-root', help='Папка текущего проекта Codex; один проект на сервер')
     args=parser.parse_args()
     if args.port < 1 or args.port > 65535: parser.error('Порт должен быть между 1 и 65535.')
-    serve(args.workspace,args.static,args.host,args.port,args.agent_root)
+    serve(args.workspace,args.static,args.host,args.port,args.agent_root,args.project_root)
 
 
 if __name__ == '__main__': main()

@@ -65,6 +65,38 @@ class FakeProvider:
 
 
 class AgentRuntimeTests(unittest.TestCase):
+    def test_revised_plan_parses_only_the_current_turn(self):
+        session = self.runtime.start_mahoraga_planning({'projectRoot': str(self.project), 'brief': 'Plan a feature.'})
+        stored = self.runtime.state['sessions'][session['id']]
+        stored['turnId'] = 'revised-turn'
+        old = {'summary': 'Outdated plan', 'tasks': [self.task() | {'allowedPaths': ['old.py']}]}
+        new = {'summary': 'Current plan from actual sources', 'tasks': [self.task() | {'allowedPaths': ['current.py']}]}
+        self.provider.operation = lambda _: {'state': 'completed', 'assistantResponse': True}
+        self.provider.history = lambda _: {'turns': [
+            {'id': session['turnId'], 'status': 'completed', 'items': [{'role': 'assistant', 'text': json.dumps(old)}]},
+            {'id': 'revised-turn', 'status': 'completed', 'items': [{'role': 'assistant', 'text': json.dumps(new)}]}]}
+        result = self.runtime.refresh_session(session['id'])
+        self.assertEqual('Current plan from actual sources', result['proposal']['summary'])
+        self.assertEqual(['current.py'], result['proposal']['tasks'][0]['allowedPaths'])
+
+    def test_source_snapshot_includes_app_code_and_excludes_secrets_and_dependencies(self):
+        (self.project / 'server.js').write_text('console.log("site");', encoding='utf-8')
+        (self.project / '.env').write_text('TOKEN=private', encoding='utf-8')
+        dependency = self.project / 'node_modules' / 'pkg'
+        dependency.mkdir(parents=True)
+        (dependency / 'index.js').write_text('dependency', encoding='utf-8')
+        (self.project / 'too-large.js').write_bytes(b'x' * 512001)
+        folder = self.base / 'planner-snapshot'
+        folder.mkdir()
+        result = self.runtime.copy_planner_sources(self.project, folder)
+        paths = {item['path'] for item in result['files']}
+        self.assertIn('server.js', paths)
+        self.assertNotIn('.env', paths)
+        self.assertNotIn('node_modules/pkg/index.js', paths)
+        self.assertIn('too-large.js', result['omitted'])
+        self.assertEqual((self.project / 'server.js').read_bytes(), (folder / 'project-source/server.js').read_bytes())
+        self.assertEqual(result, json.loads((folder / 'PROJECT_FILES.json').read_text('utf-8')))
+
     def setUp(self):
         self.temp = tempfile.TemporaryDirectory()
         self.base = Path(self.temp.name)

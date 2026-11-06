@@ -2,16 +2,16 @@
   const root = document.createElement('section');
   root.id = 'first-stage';
   root.setAttribute('aria-label', 'Анализ задания');
-  root.innerHTML = `<div class="first-top"><a class="first-logo" href="/">✳ <span>макора</span></a><span>РАБОЧЕЕ ПРОСТРАНСТВО / 01</span><span>ЭТАП 01 / 06</span></div>
+  root.innerHTML = `<div class="first-top"><a class="first-logo" href="/" aria-label="Макора — главная">✳ <span>макора</span></a><div class="first-header-project"><span data-header-project>Новый проект</span><small data-header-stage>Этап 1 из 6</small></div><nav class="first-top-actions" aria-label="Действия проекта"></nav></div>
   <div class="first-intro"><div class="mascot-area" tabindex="0" role="button" aria-label="Макора. Нажмите, чтобы подпрыгнуть; перетащите мышью или перемещайте стрелками." title="Нажмите для прыжка или перетащите Макору"><iframe class="mascot-frame" src="mascot.html" title="Персонаж Макоры" tabindex="-1"></iframe></div>
   <form class="first-form"><div class="speech-label">ПЕРВЫЙ ШАГ <span>01 / 06</span></div><h1>Привет!<br>Разберём задание?</h1><p>Пришли условие хакатона — соберём всё важное в одном месте.</p>
-  <label class="pixel-drop"><input type="file" accept=".pdf,.docx,.txt,.md" class="sr-only"><span class="pixel-plus" aria-hidden="true"><svg viewBox="0 0 24 24" width="28" height="28" shape-rendering="crispEdges"><path fill="currentColor" d="M2 5h8v2h12v14H2zm2 4v10h16V9z"/><path fill="currentColor" d="M11 11h2v2h2v2h-2v2h-2v-2H9v-2h2z"/></svg></span><strong class="file-label">Выбрать файл</strong><small>или перетащить сюда<br>PDF, DOCX, TXT, MD · до 20 МБ</small></label><div class="or-line"><span>ИЛИ ВСТАВЬ ТЕКСТ</span></div><label class="sr-only" for="first-text">Текст задания</label><textarea id="first-text" placeholder="Вставь условие задания сюда…"></textarea><div class="first-project-folder"><button type="button" data-choose-project-folder>▱ Выбрать папку проекта</button><small data-project-folder-label>Здесь будут условие, документы и код</small></div><p class="first-error" role="alert" hidden></p><button class="pixel-start" type="submit" disabled>Начать анализ <span aria-hidden="true">▶</span></button><p class="first-disclaimer">Анализ выполняет Codex GPT-6 Luna. Результаты сохраняются локально и требуют утверждения.</p></form></div>
+  <label class="pixel-drop"><input type="file" accept=".pdf,.docx,.txt,.md" class="sr-only"><span class="pixel-plus" aria-hidden="true"><svg viewBox="0 0 24 24" width="28" height="28" shape-rendering="crispEdges"><path fill="currentColor" d="M2 5h8v2h12v14H2zm2 4v10h16V9z"/><path fill="currentColor" d="M11 11h2v2h2v2h-2v2h-2v-2H9v-2h2z"/></svg></span><strong class="file-label">Выбрать файл</strong><small>или перетащить сюда<br>PDF, DOCX, TXT, MD · до 20 МБ</small></label><div class="or-line"><span>ИЛИ ВСТАВЬ ТЕКСТ</span></div><label class="sr-only" for="first-text">Текст задания</label><textarea id="first-text" placeholder="Вставь условие задания сюда…"></textarea><div class="first-project-folder"><button type="button" data-choose-project-folder>▱ Выбрать папку проекта</button><small data-project-folder-label>Здесь будут условие, документы и код</small></div><p class="first-error" role="alert" hidden></p><button class="pixel-start" type="submit" disabled>Начать анализ <span aria-hidden="true">▶</span></button><p class="first-disclaimer">Модели агентов настраиваются для проекта. Результаты сохраняются локально и требуют утверждения.</p></form></div>
   <div class="board-scene" hidden><div class="board-heading"><span>01 / АНАЛИЗ ЗАДАНИЯ</span><span>01_CASE_ANALYSIS.MD</span></div><div class="board-stage"><div class="board-mascot" aria-hidden="true"></div><div class="board" aria-label="Доска рабочего пространства"><nav class="board-stages" aria-label="Этапы проекта"><button type="button" data-board-stage="1">01 <span>Анализ</span></button><button type="button" data-board-stage="2">02 <span>Идея</span></button><button type="button" data-board-stage="3">03 <span>План</span></button><button type="button" data-board-stage="4">04 <span>Мок-данные</span></button></nav><div class="board-stage-message" role="status" hidden></div><div class="board-sprite"><img class="board-shadow-art" src="analysis-board.png" alt="" draggable="false"><img class="board-art" src="analysis-board.png" alt="" draggable="false"></div><div class="board-inner"><div class="board-bar"><div><span class="board-kicker">ДЕМО-КЕЙС / ТИХИЙ КАМПУС</span><h2>Анализ задания<span>.</span></h2></div><button type="button" class="board-expand" aria-label="Развернуть доску" title="Развернуть доску">⛶</button></div><div class="board-content"></div><div class="board-footer"><span>ТЯНИ ЗА РАМКУ · ДВОЙНОЙ КЛИК — НА ВЕСЬ ЭКРАН</span><span>01 / 06</span></div></div></div></div><div class="scene-bottom"><p>Демо-анализ: показан пример, файл не анализируется.</p><button type="button" class="board-next">Далее <span>→</span></button></div></div>`;
   document.body.append(root);
   const newTask = new URLSearchParams(location.search).has('new');
   const newLink = document.createElement('a');
-  newLink.href='?new=1';newLink.textContent='Новое задание';newLink.className='first-new-task';
-  root.querySelector('.first-top').append(newLink);
+  newLink.href='?new=1';newLink.textContent='Новый проект';newLink.className='first-new-task';
+  root.querySelector('.first-top-actions').append(newLink);
   document.body.classList.add('first-stage-active');
   const underneath = document.querySelectorAll('body > header, body > main');
   underneath.forEach(el => el.inert = true);
@@ -20,12 +20,12 @@
   let selectedFile = null, selectedFolder = '';
   const chooseFolder=root.querySelector('[data-choose-project-folder]'),folderLabel=root.querySelector('[data-project-folder-label]');
   const folderOpen=document.createElement('button');folderOpen.className='first-open-folder';folderOpen.type='button';folderOpen.disabled=true;folderOpen.title='Сначала выберите папку проекта';folderOpen.setAttribute('aria-label','Открыть папку проекта в Проводнике');folderOpen.innerHTML='<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" aria-hidden="true"><path d="M3 7V4h6l3 3h9v13H3z"/><path d="M3 9h18"/></svg>';
-  root.querySelector('.first-top').append(folderOpen);
-  function applyFolder(path,forNew=true){if(!path)return;folderOpen.disabled=false;folderOpen.title='Открыть папку проекта: '+path;if(forNew){error.hidden=true;selectedFolder=path;chooseFolder.dataset.folderSelected='true';chooseFolder.textContent='▱ Изменить папку проекта';folderLabel.textContent=path;folderLabel.title=path;update()}}
+  root.querySelector('.first-top-actions').append(folderOpen);
+  function applyFolder(path,forNew=true){if(!path)return;if(forNew||!newTask){const projectName=root.querySelector('[data-header-project]');projectName.textContent=path.split(/[\\/]/).filter(Boolean).at(-1)||'Проект';projectName.title=path;}folderOpen.disabled=false;folderOpen.title='Открыть папку проекта: '+path;if(forNew){error.hidden=true;selectedFolder=path;chooseFolder.dataset.folderSelected='true';chooseFolder.textContent='▱ Изменить папку проекта';folderLabel.textContent=path;folderLabel.title=path;update()}}
   window.addEventListener('makora:project-folder',e=>applyFolder(e.detail.path));
   chooseFolder.onclick=async()=>{chooseFolder.disabled=true;chooseFolder.textContent='Выберите папку в открывшемся окне…';try{const result=await window.makoraPreparation.chooseFolder();if(result.cancelled)chooseFolder.textContent=selectedFolder?'▱ Изменить папку проекта':'▱ Выбрать папку проекта'}catch(e){error.textContent=e.message;error.hidden=false;chooseFolder.textContent='▱ Выбрать папку проекта'}finally{chooseFolder.disabled=false}};
   folderOpen.onclick=async()=>{try{await window.makoraPreparation.openFolder()}catch(e){folderOpen.title=e.message;error.textContent=e.message;error.hidden=false}};
-  fetch('/api/preparation').then(r=>r.json()).then(data=>applyFolder(data.result?.storageRoot,!newTask)).catch(()=>{});
+
   function update() { start.disabled = (!selectedFile && !textarea.value.trim()) || (!!window.makoraPreparation&&!selectedFolder); }
 
   function setFile(file) {
@@ -514,7 +514,6 @@
     if(restore)setTimeout(()=>{if(frame.isConnected)frame.contentWindow.location.reload()},100);
     if(restore)root.classList.add('board-visible');
     else requestAnimationFrame(()=>requestAnimationFrame(()=>root.classList.add('board-visible')));
-    if(!window.makoraPreparation&&window.makoraDemoWorkflow.isDemoPrototypeReady())setTimeout(()=>window.makoraAgentPlan?.open(),restore?350:1250);
     if(!restore)setTimeout(()=>{form.hidden=true;},650);
   }
   board.addEventListener('pointerdown', e => {
@@ -568,16 +567,13 @@
     if(boardStage===1){const result=window.makoraDemoWorkflow.approveAnalysis();if(!result.ok){stageMessage.textContent=result.error;stageMessage.hidden=false;return;}}
     openBoardStage(next);
   });
-  const previousSource=!newTask&&localStorage.getItem('makora.real-project')==='1'?window.makoraProject.source():null;
-  if(!newTask&&!previousSource&&window.makoraPreparation){fetch('/api/preparation',{cache:'no-store'}).then(r=>r.json()).then(data=>{const source=data.result?.brief;if(!source||textarea.value.trim()||selectedFile||root.classList.contains('departing'))return;window.makoraProject.setSource({name:'Сохранённое условие проекта',text:source});localStorage.setItem('makora.real-project','1');textarea.value=source;update();revealWorkspace(root.querySelector('.mascot-area').getBoundingClientRect(),{restore:true})}).catch(()=>{})}
-  if(previousSource){
-    textarea.value=previousSource.text||previousSource.name||'';
-    update();
-    if(previousSource.text||previousSource.name){
-      revealWorkspace(root.querySelector('.mascot-area').getBoundingClientRect(),{restore:true});
-    }
-    let resumeStage=Math.max(1,Math.min(4,Number(savedWorkspaceView.stage)||1));
-    while(resumeStage>1&&!window.makoraDemoWorkflow.canOpenStage(resumeStage))resumeStage--;
-    if(resumeStage>1)setTimeout(()=>openBoardStage(resumeStage),1900);
-  }
+  window.addEventListener('makora:resume-project',event=>{
+    const snapshot=event.detail;
+    if(!snapshot?.brief)return;
+    selectedFile=null;input.value='';textarea.value=snapshot.brief;
+    applyFolder(snapshot.storageRoot);
+    window.makoraProject.setSource({name:snapshot.name||'Сохранённый проект',text:snapshot.brief});
+    localStorage.setItem('makora.real-project','1');localStorage.setItem('makora.real-stage',String(snapshot.lastStage||1));
+    revealWorkspace(mascotArea.getBoundingClientRect(),{restore:true});
+  });
 })();

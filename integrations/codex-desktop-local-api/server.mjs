@@ -33,6 +33,35 @@ const threadSendInFlight = new Set();
 const approvals = new Map();
 const startedThreads = new Set();
 const resumedThreads = new Set();
+const turnErrors = new Map();
+function captureTurnError(message) {
+  const params=message.params || {};
+  const turnId=params.turnId || params.turn?.id;
+  const error=params.error || params.turn?.error;
+  if(!turnId || !error || params.willRetry===true || !['error','turn/completed'].includes(message.method))return;
+  turnErrors.set(turnId,error);
+  if(turnErrors.size>10000)turnErrors.delete(turnErrors.keys().next().value);
+}
+let accountCheck = null;
+let accountCheckTime = 0;
+let accountCheckPending = null;
+async function authStatus() {
+  if (accountCheck && Date.now()-accountCheckTime < 30000) return accountCheck;
+  if (accountCheckPending) return accountCheckPending;
+  accountCheckPending=(async()=>{
+    let result;
+    try {
+      const data=await rpc('account/read',{refreshToken:true});
+      const signedIn=Boolean(data.account)||data.requiresOpenaiAuth===false;
+      result={status:signedIn?'signed_in':'signed_out',message:signedIn?'Вход в Codex подтверждён.':'Войдите в Codex, чтобы запускать агентов.'};
+    } catch(error) {
+      const unauthorized=/unauthorized|access token|refresh token|sign in again|logged out|authentication required|not authenticated|401/i.test(error.message);
+      result={status:unauthorized?'signed_out':'unavailable',message:unauthorized?'Авторизация Codex истекла. Нужно войти заново.':'Не удалось проверить вход в Codex. Проверьте подключение.'};
+    }
+    accountCheck=result;accountCheckTime=Date.now();return result;
+  })();
+  try{return await accountCheckPending}finally{accountCheckPending=null}
+}
 const appToolsContextThreadId = process.env.CODEX_APP_TOOLS_CONTEXT_THREAD_ID || '';
 const appToolsContextHostId = process.env.CODEX_APP_TOOLS_CONTEXT_HOST_ID || 'local';
 let appToolsSocket = null;
@@ -380,6 +409,7 @@ function failPending(error) {
 }
 
 function handleMessage(message) {
+  captureTurnError(message);
   if (message.id !== undefined && pending.has(message.id)) {
     const request = pending.get(message.id);
     pending.delete(message.id);
@@ -591,7 +621,8 @@ function mapStoredItem(item) {
 }
 
 function mapStoredTurn(turn) {
-  return { id: turn.id, status: turn.status, items: (turn.items || []).map(mapStoredItem) };
+  const error=turn.error || turnErrors.get(turn.id);
+  return { id: turn.id, status: turn.status, ...(error?{error}:{}), items: (turn.items || []).map(mapStoredItem) };
 }
 
 async function listThreadHistory(id, { cursor, limit = 20, itemsView = 'full', includeRaw = false } = {}) {
@@ -673,9 +704,11 @@ async function readThreadTimeline(id, { cursor, limit = 100, tailOnly = false } 
       conversationalItems += olderPage.items.filter(entry => ['user', 'assistant'].includes(entry.item.role)).length;
       if (!olderPage.items.length) break;
     }
+    const errors=new Map(turnPage.turns.map(turn=>[turn.id,turn.error || turnErrors.get(turn.id)]));
+    const withErrors=turns=>turns.map(turn=>errors.get(turn.id)?{...turn,error:errors.get(turn.id)}:turn);
     return {
-      turns: groupHistoryItems(firstItemsPage.items, statuses),
-      olderTurns: groupHistoryItems(olderItems, statuses),
+      turns: withErrors(groupHistoryItems(firstItemsPage.items, statuses)),
+      olderTurns: withErrors(groupHistoryItems(olderItems, statuses)),
       historyNextCursor: nextCursor,
       historyMode: 'items',
     };
@@ -810,13 +843,14 @@ const server = createServer(async (request, response) => {
     ready,
     apiVersion: '1.0',
     appServerVersion,
-    transport: 'Codex Desktop app-tools named pipe for native chat operations; managed App Server control socket for history',
+    transport: process.env.CODEX_APP_SERVER_BINARY ? 'Dedicated Codex App Server · stdio' : 'Codex Desktop managed App Server control socket',
     cwd,
     desktopHostId: appToolsContextHostId || null,
     pendingApprovals: approvals.size,
     capabilities: { projectScopedThreads: true, desktopAppTools: Boolean(appToolsContextThreadId), desktopHistoryInput: Boolean(appToolsContextThreadId), desktopStoreEvents: localStoreWatchSupported, projectlessThreadCreation: Boolean(appToolsContextThreadId) },
   });
   }
+  if (request.method === 'GET' && url.pathname === '/api/auth/status') return json(response,200,await authStatus());
   if (request.method === 'GET' && url.pathname === '/api/desktop/status') {
     try {
       if (!appToolsContextThreadId) throw new Error('Desktop bridge context is not configured');
@@ -992,7 +1026,7 @@ const server = createServer(async (request, response) => {
       try {
         result = await rpc('thread/start', {
         cwd: input.projectless === true ? cwd : input.cwd || cwd,
-        threadSource: 'appServer',
+        threadSource: input.threadSource === 'user' ? 'user' : 'appServer',
         ephemeral: false,
         approvalPolicy: input.approvalPolicy || 'onRequest',
         ...(input.permissions ? {permissions:input.permissions, config:input.config || {}} : {sandbox: input.sandbox || 'workspace-write'}),
@@ -1015,6 +1049,7 @@ const server = createServer(async (request, response) => {
         const turn = await rpc('turn/start', {
           threadId,
           input: [{ type: 'text', text: input.prompt.trim() }],
+          ...(typeof input.reasoningEffort === 'string' && input.reasoningEffort ? { effort: input.reasoningEffort } : {}),
           approvalPolicy: input.approvalPolicy || 'on-request',
           ...(input.permissions ? {permissions:input.permissions} : (input.sandboxPolicy && typeof input.sandboxPolicy === 'object' ? { sandboxPolicy: input.sandboxPolicy } : {})),
         });

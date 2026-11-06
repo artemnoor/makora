@@ -2,16 +2,15 @@
 window.createPrototypeHandoff = function(root, mascot, getSourceFile) {
   const key = 'makora.prototype-handoff.v1';
   const sampleKey = 'makora.prototype-example.v1';
-  const prompt = 'Разработай запускаемый рабочий прототип по приложенным материалам. Сохрани исходную папку mocks/ целиком и без изменений: приложение должно использовать mocks/fixtures/ как источник данных, не дублировать их в коде и не подменять другими записями. Новые или изменённые моки помещай отдельно в new_mocks/; исходную mocks/ не изменяй и не удаляй. Реализуй основной сценарий MVP, соблюдай контракты, обработай пустые состояния и ошибки. Предусмотри воспроизводимое включение ошибки источника и опиши его в README. Противоречия и выбранные допущения зафиксируй в отчёте; продолжай работу, если они не блокируют обязательные требования. Учебные примеры не выдавай за требования, отметь демо-данные. Создай в корне changeset.json по приложенной changeset.schema.json: укажи базовую ревизию из iteration-context.json, фактические операции, пути, причину и связанные ID. Создай prototype-report.json: features, checks (id, status passed/failed/not_run, command, result), run_commands, known_limitations и contradictions. Указывай только фактически выполненные проверки; не выполненные помечай not_run. Добавь инструкцию запуска. При следующем цикле продолжай существующий проект из ZIP, не пересоздавай его. Верни проект ZIP-архивом.';
+  const prompt = 'Разработай полноценный работающий веб-сайт по приложенным материалам: реализуй все предусмотренные требованиями страницы, переходы и функции, адаптивный интерфейс для телефона и компьютера. Сохрани исходную папку mocks/ целиком и без изменений: приложение должно использовать mocks/fixtures/ как источник данных, не дублировать их в коде и не подменять другими записями. Новые или изменённые моки помещай отдельно в new_mocks/; исходную mocks/ не изменяй и не удаляй. Реализуй основной сценарий MVP, соблюдай контракты, обработай пустые состояния и ошибки. Предусмотри воспроизводимое включение ошибки источника и опиши его в README. Противоречия и выбранные допущения зафиксируй в отчёте; продолжай работу, если они не блокируют обязательные требования. Учебные примеры не выдавай за требования, отметь демо-данные. Создай в корне changeset.json по приложенной changeset.schema.json: укажи базовую ревизию из iteration-context.json, фактические операции, пути, причину и связанные ID. Создай prototype-report.json: features, checks (id, status passed/failed/not_run, command, result), run_commands, known_limitations и contradictions. Указывай только фактически выполненные проверки; не выполненные помечай not_run. Добавь инструкцию запуска. При следующем цикле продолжай существующий проект из ZIP, не пересоздавай его. В финальном ответе прикрепи один скачиваемый ZIP-архив со всем проектом: исходным кодом сайта, стилями, изображениями и другими ресурсами, конфигурацией, файлами зависимостей и lock-файлом (если применимо), исходными материалами, папками mocks/ и new_mocks/ (если понадобилась), changeset.json, prototype-report.json и README.md с точными командами установки зависимостей и запуска. Проект должен запускаться после распаковки и установки зависимостей. Не включай установленные зависимости, кеши и секреты. Обязательно предоставь сам ZIP как скачиваемый файл.';
   let state, activeKey = key;
   function switchMode(sample) { activeKey=sample?sampleKey:key; try { state=JSON.parse(localStorage.getItem(activeKey))||{}; } catch { state={}; } selected=null; prepared=false; }
   let selected = null, sourceFile = null, prepared = false;
   const dock = document.createElement('div');
   dock.className = 'mascot-capabilities';
   dock.hidden = true;
-  dock.innerHTML = `<button type="button" class="capabilities-toggle" aria-expanded="false">✳ Возможности</button><div class="capabilities-menu" hidden><button type="button" data-prototype-open><span>01</span><strong>Рабочий прототип</strong><span>↗</span></button><button type="button" data-example-open><span>02</span><strong>Тестовый кейс</strong><span>↗</span></button><button type="button" data-agent-plan-open hidden><span>06</span><strong>Подготовка разработки</strong><span>↗</span></button></div>`;
+  dock.innerHTML = `<button type="button" class="capabilities-toggle" aria-expanded="false">✳ Возможности</button><div class="capabilities-menu" hidden><button type="button" data-prototype-open><span>01</span><strong>Рабочий прототип</strong><span>↗</span></button><button type="button" data-example-open><span>02</span><strong>Тестовый кейс</strong><span>↗</span></button></div>`;
   root.append(dock);
-  const agentPlan = window.createAgentPlan(root, mascot);
   const panel = document.createElement('section');
   panel.className = 'prototype-dialog';
   panel.hidden = true;
@@ -28,17 +27,11 @@ window.createPrototypeHandoff = function(root, mascot, getSourceFile) {
     dock.style.top = top + 'px';
     dock.classList.toggle('menu-above', top > window.innerHeight - 130);
     dock.classList.toggle('menu-align-right', left + 225 > window.innerWidth - 8);
-    agentPlan.position();
   }
   const toggle = dock.querySelector('.capabilities-toggle'), menu = dock.querySelector('.capabilities-menu');
   toggle.onclick = () => { menu.hidden = !menu.hidden; toggle.setAttribute('aria-expanded', String(!menu.hidden)); };
   dock.querySelector('[data-prototype-open]').onclick = () => { menu.hidden = true; toggle.setAttribute('aria-expanded', 'false'); open(); };
   dock.querySelector('[data-example-open]').onclick = () => { menu.hidden = true; toggle.setAttribute('aria-expanded', 'false'); openExample(); };
-  const agentEntry=dock.querySelector('[data-agent-plan-open]');
-  function refreshAgentEntry(){agentEntry.hidden=!window.makoraDemoWorkflow.isDemoPrototypeReady()}
-  refreshAgentEntry();
-  window.addEventListener('makora-demo-workflow-change',refreshAgentEntry);
-  agentEntry.onclick = () => { menu.hidden = true; toggle.setAttribute('aria-expanded', 'false'); if(!agentPlan.open())feedback('Сначала утвердите учебный мок-прототип после проверок этапа 4.'); };
   const dbOpen = () => new Promise((resolve, reject) => {
     const request = indexedDB.open('makora-prototype-result', 1);
     request.onupgradeneeded = () => request.result.createObjectStore('files');
@@ -241,14 +234,14 @@ window.createPrototypeHandoff = function(root, mascot, getSourceFile) {
   async function showDemoPrototype(){
     const bundle=await window.makoraDemoWorkflow.getStage4DemoBundle();
     if(!bundle?.approved){feedback('Демо-прототип заблокирован: сначала пройдите проверки и утвердите мок-данные этапа 4.');return}
-    shell(`<h2>Учебный мок-прототип.</h2><p>Пример результата для кейса «Тихий кампус». Он читает исходную фикстуру в браузере; внешняя ИИ и реальный код не запускались.</p><div class="demo-prototype-app"><header><span>ТИХИЙ КАМПУС · DEMO</span><b data-demo-count>Загружаем…</b></header><label for="demo-space-search">Найти пространство</label><input id="demo-space-search" placeholder="Библиотека или ID"><label for="demo-building">Корпус</label><select id="demo-building"><option value="">Все корпуса</option><option value="main">Главный</option><option value="north">Северный</option></select><div class="demo-space-results" data-demo-space-results></div><p class="prototype-note">Источник: <code>mocks/fixtures/spaces.json</code> · синтетические данные · запись/бронирование не выполняются.</p></div><button class="prototype-primary" type="button" data-demo-approve disabled>Утвердить мок-прототип и перейти к подготовке разработки →</button>`);
+    shell(`<h2>Учебный мок-прототип.</h2><p>Пример результата для кейса «Тихий кампус». Он читает исходную фикстуру в браузере; внешняя ИИ и реальный код не запускались.</p><div class="demo-prototype-app"><header><span>ТИХИЙ КАМПУС · DEMO</span><b data-demo-count>Загружаем…</b></header><label for="demo-space-search">Найти пространство</label><input id="demo-space-search" placeholder="Библиотека или ID"><label for="demo-building">Корпус</label><select id="demo-building"><option value="">Все корпуса</option><option value="main">Главный</option><option value="north">Северный</option></select><div class="demo-space-results" data-demo-space-results></div><p class="prototype-note">Источник: <code>mocks/fixtures/spaces.json</code> · синтетические данные · запись/бронирование не выполняются.</p></div><button class="prototype-primary" type="button" data-demo-approve disabled>Завершить просмотр примера</button>`);
     let spaces=[];
     try{const response=await fetch('./mocks/fixtures/spaces.json',{cache:'no-store'});if(!response.ok)throw new Error('Фикстура не найдена.');spaces=await response.json();if(!Array.isArray(spaces))throw new Error('Формат фикстуры неверный.');}
     catch(error){feedback(error.message);return}
     const search=panel.querySelector('#demo-space-search'),building=panel.querySelector('#demo-building'),results=panel.querySelector('[data-demo-space-results]'),count=panel.querySelector('[data-demo-count]'),approve=panel.querySelector('[data-demo-approve]');
     function draw(){const q=search.value.trim().toLowerCase(),b=building.value,rows=spaces.filter(s=>(!b||s.building===b)&&(!q||`${s.name} ${s.id}`.toLowerCase().includes(q)));count.textContent=`${rows.length} / ${spaces.length} мест`;results.innerHTML=rows.slice(0,10).map(s=>`<article><span><strong>${esc(s.name)}</strong><small>${esc(s.id)} · ${esc(s.building)} · ${esc(s.source)}</small></span><b>${esc(s.availableSeats??'—')} мест</b><em>${esc(s.status)}</em></article>`).join('')||'<p>Подходящих пространств нет.</p>'}
     search.oninput=draw;building.onchange=draw;draw();approve.disabled=false;
-    approve.onclick=async()=>{approve.disabled=true;const result=await window.makoraDemoWorkflow.approveDemoPrototype();if(!result.ok){approve.disabled=false;feedback(result.error);return}refreshAgentEntry();panel.hidden=true;const opened=agentPlan.open();if(!opened)feedback('Мок-данные изменились. Повторно проверьте этап 4.');};
+    approve.onclick=()=>{panel.hidden=true;toggle.focus()};
   }
   function showWaiting() {
     shell(`<h2>Жду твою<br>рабочую версию.</h2><p>Когда закончишь с ИИ, прикрепи ZIP проекта. Макора сравнит его с сохранённой базовой версией.</p><div class="prototype-waiting">◌ &nbsp; ОЖИДАЮ РЕЗУЛЬТАТ</div><label class="prototype-drop"><input class="sr-only" type="file" accept=".zip,application/zip"><strong>＋ Выбрать ZIP проекта</strong><small>или перетащить сюда · до 100 МБ</small></label><label for="prototype-link">ИЛИ ССЫЛКА НА ПРОЕКТ</label><input id="prototype-link" type="url" placeholder="https://…"><button class="prototype-primary" type="button" data-receive>Вернуть результат <span>→</span></button><button class="prototype-text-button" type="button" data-package>Посмотреть пакет ещё раз</button>${activeKey===sampleKey?'':'<button class="prototype-text-button" type="button" data-open-history>История проекта</button>'}<p class="prototype-note">ZIP сравнивается с ревизией передачи. Код не запускается. Ссылки не загружаются автоматически.</p>`);
@@ -385,7 +378,6 @@ window.createPrototypeHandoff = function(root, mascot, getSourceFile) {
   window.addEventListener('makora-open-prototype', open);
   window.addEventListener('resize', updatePosition);
   document.addEventListener('keydown', e => {if(e.key==='Escape' && !panel.hidden){e.stopImmediatePropagation();close();}}, true);
-  window.makoraAgentPlan=agentPlan;
-  return {show(){dock.hidden=false;updatePosition();refreshAgentEntry();}, updatePosition, open, openAgentPlan:()=>agentPlan.open(),
+  return {show(){dock.hidden=false;updatePosition();}, updatePosition, open,
     currentDocuments(stage){return api('/api/revisions/current/documents?stage='+encodeURIComponent(String(stage).padStart(2,'0')));}};
 };

@@ -30,7 +30,7 @@ class PreparationTests(unittest.TestCase):
         result=self.pipeline.send_chat({'message':'Что нужно сделать?','requestId':'chat-1'})
         self.assertEqual('running',result['status'])
         self.assertEqual('readOnly',self.calls[-1]['sandbox'])
-        self.assertIn('Notes requirements',self.calls[-1]['prompt'])
+        self.assertIn('Notes requirements',(self.calls[-1]['cwd']/'CONTEXT.json').read_text('utf-8'))
         self.pipeline.send_chat({'message':'Что нужно сделать?','requestId':'chat-1'})
         self.assertEqual(1,len(self.calls))
         with self.assertRaises(AgentRuntimeError):self.pipeline.send_chat({'message':'Второй вопрос','requestId':'chat-2'})
@@ -43,6 +43,24 @@ class PreparationTests(unittest.TestCase):
         self.assertEqual(2,len(self.pipeline.chat_snapshot()['messages']))
         self.assertEqual('approved',self.pipeline.state['stages']['1']['status'])
         self.assertIn('Создать API заметок.',(folder/'reports/chat.md').read_text('utf-8'))
+
+    def test_chat_uses_codex_tools_on_a_bounded_project_snapshot(self):
+        folder = self.select_folder()
+        project = folder / 'app'
+        project.mkdir()
+        (project / 'main.py').write_text('PROJECT_MARKER = 42', encoding='utf-8')
+        (project / '.env').write_text('SECRET_MARKER', encoding='utf-8')
+        self.pipeline.state['brief'] = 'Project context and actual code'
+        self.pipeline.send_chat({'message': 'Где находится реализация?', 'requestId': 'test-context'})
+        call = self.calls[-1]
+        self.assertEqual('readOnly', call['sandbox'])
+        self.assertIn('project-source/', call['prompt'])
+        self.assertNotIn('не выполняй команды', call['prompt'])
+        self.assertNotIn('Контекст проекта (полная версия', call['prompt'])
+        snapshot = next((call['cwd'] / 'snapshots').iterdir()) / 'project-source'
+        self.assertIn('PROJECT_MARKER', (snapshot / 'main.py').read_text('utf-8'))
+        self.assertFalse((snapshot / '.env').exists())
+        self.assertTrue((call['cwd'] / 'CONTEXT.json').is_file())
 
     def test_chat_followup_reuses_session_and_unconfirmed_delivery_does_not_repeat(self):
         self.pipeline.send_chat({'message':'Первый вопрос','requestId':'chat-1'})
@@ -76,6 +94,43 @@ class PreparationTests(unittest.TestCase):
         self.assertEqual('unconfirmed',result['status'])
         self.assertEqual(1,len(attempts))
         self.assertEqual(1,len(result['messages']))
+
+    def test_chat_recovery_unlocks_without_resending_or_losing_history(self):
+        self.pipeline.state['chat'] = {'status': 'unconfirmed', 'messages': [
+            {'id': 'm1', 'role': 'assistant', 'text': 'Previous answer'},
+            {'id': 'm2', 'role': 'user', 'text': 'Uncertain question', 'requestId': 'r2'}],
+            'sessionId': 'old-session', 'turnId': None, 'threadId': 'old-thread'}
+        result = self.pipeline.recover_chat()
+        self.assertEqual('idle', result['status'])
+        self.assertNotIn('sessionId', result)
+        self.assertEqual(2, len(result['messages']))
+        self.assertEqual('unconfirmed', result['messages'][-1]['deliveryState'])
+        self.assertEqual([], self.calls)
+        restored = Preparation(Path(self.tmp.name), self.runtime)
+        self.assertEqual('idle', restored.chat_snapshot()['status'])
+        restored.send_chat({'message': 'Continue conversation', 'requestId': 'r3'})
+        self.assertEqual(1, len(self.calls))
+        self.assertIn('Previous answer', self.calls[-1]['prompt'])
+        self.assertEqual('readOnly', self.calls[-1]['sandbox'])
+
+    def test_chat_missing_turn_can_only_bind_using_same_operation(self):
+        self.pipeline.state['chat'] = {'status': 'unconfirmed', 'messages': [], 'sessionId': 'agent',
+                                      'turnId': None, 'operationId': 'new-op', 'previousTurnId': 'old-turn'}
+        self.runtime.refresh_session = lambda _: {'status': 'completed', 'operationId': 'old-op', 'turnId': 'old-turn',
+            'result': {'turns': [{'id': 'old-turn', 'items': [{'type': 'agentMessage', 'text': 'Stale reply'}]}]}}
+        self.assertEqual('unconfirmed', self.pipeline.chat_snapshot()['status'])
+        self.assertEqual([], self.pipeline.state['chat']['messages'])
+        self.runtime.refresh_session = lambda _: {'status': 'completed', 'operationId': 'new-op', 'turnId': 'new-turn',
+            'result': {'turns': [{'id': 'new-turn', 'items': [{'type': 'agentMessage', 'text': 'Confirmed reply'}]}]}}
+        result = self.pipeline.chat_snapshot()
+        self.assertEqual('idle', result['status'])
+        self.assertEqual('Confirmed reply', result['messages'][-1]['text'])
+
+    def test_chat_recovery_does_not_detach_a_known_running_request(self):
+        self.pipeline.state['chat'] = {'status': 'running', 'messages': [], 'sessionId': 'active'}
+        with self.assertRaises(AgentRuntimeError):
+            self.pipeline.recover_chat()
+        self.assertEqual('active', self.pipeline.state['chat']['sessionId'])
 
     def select_folder(self):
         folder=Path(self.tmp.name)/'chosen-project'
@@ -129,6 +184,13 @@ class PreparationTests(unittest.TestCase):
         self.pipeline.state['stages']={'1':{'status':'approved','files':{'01_case_analysis.md':'# Analysis'}},'4':{'status':'approved','files':{'mocks/fixtures/data.json':'[]'}}}
         result=self.pipeline.handoff_package()
         self.assertIn('new_mocks/',result['prompt'])
+        for required in ('полноценный работающий веб-сайт', 'страницы', 'скачиваемый ZIP-архив',
+                         'исходным кодом', 'стилями', 'ресурсами', 'файлами зависимостей', 'README.md'):
+            self.assertIn(required, result['prompt'])
+        import io
+        import zipfile
+        with zipfile.ZipFile(io.BytesIO(self.pipeline.archive())) as archive:
+            self.assertEqual(result['prompt'], archive.read('PROMPT.md').decode('utf-8'))
         self.assertIn('input/original/case.md',[f['path'] for f in result['files']])
         self.assertIn('mocks/fixtures/data.json',result['documents'])
         self.assertFalse((folder/'app').exists())
@@ -145,6 +207,93 @@ class PreparationTests(unittest.TestCase):
         self.assertTrue((folder/'artifacts/PROMPT.md').is_file())
         self.assertEqual((folder/'app/mocks/fixtures/data.json').read_text(),'[]')
         self.assertEqual(AgentRuntime._run_git(folder/'app','status','--porcelain').strip(),'')
+
+    def test_returned_zip_is_preserved_and_survives_restart_without_running_code(self):
+        from makora_core.iterations import zip_files
+        folder = self.select_folder()
+        self.pipeline.state['stages'] = {'4': {'status': 'approved', 'files': {'mocks/fixtures/data.json': '[]'}}}
+        blob = zip_files({'site/index.html': b'<h1>Site</h1>', 'site/mocks/fixtures/data.json': b'[]'})
+        result = self.pipeline.receive_project('site.zip', blob)
+        self.assertEqual('received', result['status'])
+        self.assertEqual(2, result['fileCount'])
+        self.assertEqual('passed', result['mocksStatus'])
+        self.assertEqual(blob, (folder / result['path']).read_bytes())
+        restored = Preparation(Path(self.tmp.name), self.runtime)
+        self.assertEqual(result, restored.snapshot()['returnedProject'])
+        self.assertEqual(blob, restored.returned_project_archive())
+        self.assertFalse((folder / 'app').exists())
+        self.assertEqual([], self.calls)
+
+    def test_invalid_return_does_not_replace_previous_zip(self):
+        from makora_core.iterations import zip_files
+        from makora_core.workspace import MakoraError
+        self.pipeline.state['stages'] = {'4': {'status': 'approved', 'files': {'mocks/fixtures/data.json': '[]'}}}
+        blob = zip_files({'index.html': b'Site'})
+        result = self.pipeline.receive_project('site.zip', blob)
+        self.assertEqual('changed', result['mocksStatus'])
+        import io
+        import zipfile
+        unsafe = io.BytesIO()
+        with zipfile.ZipFile(unsafe, 'w') as archive:
+            archive.writestr('../escape.txt', b'bad')
+        for invalid in (b'not a ZIP', unsafe.getvalue()):
+            with self.assertRaises(MakoraError):
+                self.pipeline.receive_project('bad.zip', invalid)
+        self.assertEqual(blob, self.pipeline.returned_project_archive())
+
+    def test_continue_imports_uploaded_site_for_stage_six_without_claiming_approval(self):
+        from makora_core.iterations import zip_files
+        self.pipeline.state['stages'] = {'4': {'status': 'approved', 'files': {'mocks/fixtures/data.json': '[]'}}}
+        self.pipeline.receive_project('site.zip', zip_files({'index.html': b'<h1>Uploaded</h1>', 'mocks/fixtures/data.json': b'[]'}))
+        result = self.pipeline.continue_returned_project()
+        project = self.pipeline.project_directory()
+        self.assertEqual(b'<h1>Uploaded</h1>', (project / 'index.html').read_bytes())
+        self.assertNotIn('prototype', result)
+        developed = self.pipeline.development(6)
+        self.assertEqual(str(project), developed['projectRoot'])
+        self.assertEqual(b'<h1>Uploaded</h1>', (project / 'index.html').read_bytes())
+        self.assertEqual(project, Path(self.pipeline.continue_returned_project()['returnedProject']['projectRoot']))
+        self.assertEqual([], self.calls)
+
+    def test_continue_rejects_changed_mocks_and_git_metadata(self):
+        from makora_core.iterations import zip_files
+        self.pipeline.state['stages'] = {'4': {'status': 'approved', 'files': {'mocks/fixtures/data.json': '[]'}}}
+        for files in ({'index.html': b'Site'}, {'index.html': b'Site', 'mocks/fixtures/data.json': b'[]', '.git/config': b'bad'}):
+            self.pipeline.receive_project('site.zip', zip_files(files))
+            with self.assertRaises(AgentRuntimeError):
+                self.pipeline.continue_returned_project()
+            self.assertEqual('received', self.pipeline.state['returnedProject']['status'])
+
+    def test_returned_zip_http_requires_auth_and_downloads_original_bytes(self):
+        import urllib.request
+        import urllib.error
+        from http.server import ThreadingHTTPServer
+        from makora_core.server import MakoraHandler
+        from makora_core.iterations import zip_files
+        self.pipeline.state['stages'] = {'4': {'status': 'approved', 'files': {}}}
+        server = ThreadingHTTPServer(('127.0.0.1', 0), MakoraHandler)
+        server.preparation = self.pipeline
+        server.agent_token = 'test-token'
+        worker = threading.Thread(target=server.serve_forever, daemon=True)
+        worker.start()
+        try:
+            url = f'http://127.0.0.1:{server.server_port}/api/preparation/result'
+            blob = zip_files({'index.html': b'<h1>Site</h1>'})
+            request = urllib.request.Request(url+'?name=site.zip', data=blob, headers={'Content-Type': 'application/zip'})
+            with self.assertRaises(urllib.error.HTTPError) as error:
+                urllib.request.urlopen(request)
+            self.assertEqual(401, error.exception.code)
+            request.add_header('X-Makora-Token', 'test-token')
+            with urllib.request.urlopen(request) as response:
+                result = json.load(response)['result']
+            self.assertEqual('site.zip', result['name'])
+            with urllib.request.urlopen(url) as response:
+                self.assertEqual('application/zip', response.headers['Content-Type'])
+                self.assertEqual(blob, response.read())
+        finally:
+            server.shutdown()
+            server.server_close()
+            worker.join()
 
     def generate_analysis(self):
         self.pipeline.start(1, {'brief': 'Реальный проект заметок: API, поиск, локальные данные.'})
