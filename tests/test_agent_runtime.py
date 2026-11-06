@@ -709,6 +709,18 @@ class AgentRuntimeTests(unittest.TestCase):
         self.assertEqual(run["id"], restored.get_run(run["id"])["id"])
         self.assertEqual(run["baseCommit"], restored.get_run(run["id"])["baseCommit"])
 
+    def test_interrupted_turn_has_public_error_without_history(self):
+        run = self.create_run()
+        session = self.runtime.launch_agent(run['id'], 'T01', 'test_designer')
+        self.provider.operation = lambda _: {'state': 'failed'}
+        self.provider.history = lambda _: {'turns': [{'id': session['turnId'],
+            'status': 'interrupted', 'items': [{'role': 'user', 'text': 'PRIVATE_PROMPT'}]}]}
+        result = self.runtime.refresh_session(session['id'])
+        self.assertEqual('failed', result['status'])
+        self.assertIn('прерван', result['error']['message'])
+        self.assertNotIn('history', result['error'])
+        self.assertNotIn('PRIVATE_PROMPT', json.dumps(result['error']))
+
     def test_recovery_does_not_accept_an_unrelated_completed_turn(self):
         run = self.create_run()
         session = self.runtime.launch_agent(run["id"], "T01", "test_designer")
