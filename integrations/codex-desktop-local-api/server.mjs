@@ -331,14 +331,16 @@ async function createDesktopThread(input) {
   const wanted = normalizeLocalPath(input.cwd || cwd);
   const project = input.projectless === true ? null : input.projectId
     ? projects.find(candidate => candidate.id === input.projectId)
-    : projects.find(candidate => (candidate.roots || []).some(root => normalizeLocalPath(root.path || root) === wanted));
+    : projects.find(candidate => candidate.id === desktopProjectForDirectory(projects, input.cwd || cwd));
   if (input.projectId && !project) throw Object.assign(new Error('Desktop project not found'), { status: 404 });
+  if (!project && input.projectless !== true) throw Object.assign(new Error('Add this project folder in Codex Desktop before starting Makora'), { status: 409 });
   const target = project
     ? { type: 'project', projectId: project.id, environment: { type: 'local' } }
     : { type: 'projectless' };
   const args = {
     prompt: String(input.prompt || '').trim(),
     target,
+    ...(input.reasoningEffort ? { thinking: input.reasoningEffort } : {}),
     ...(String(input.name || '').trim() ? { title: String(input.name).trim().slice(0, 120) } : {}),
     ...(typeof input.model === 'string' && input.model ? { model: input.model } : {}),
   };
@@ -351,12 +353,20 @@ async function createDesktopThread(input) {
   catch (error) { desktopNavigationError = error.message; }
   publish({ type: 'thread-created', threadId: data.threadId, desktopNavigated });
   let thread = { id: data.threadId, model: input.model || null };
-  try { thread = await readThread(data.threadId, false); }
+  try { thread = await readThread(data.threadId, true); }
   catch { /* Creation succeeded; history can be read separately. */ }
+  let turnId = thread.turns?.at(-1)?.id;
+  for (let attempt = 0; !turnId && attempt < 30; attempt++) {
+    await new Promise(resolve => setTimeout(resolve, 200));
+    try { thread = await readThread(data.threadId, true); turnId = thread.turns?.at(-1)?.id; }
+    catch { /* The Desktop task can take a moment to persist its first turn. */ }
+  }
   return {
     ...thread,
+    model: thread.model || input.model || null,
     hostId: data.hostId || appToolsContextHostId,
     desktopAppTools: true,
+    turnId,
     desktopNavigated,
     ...(desktopNavigationError ? { desktopNavigationError } : {}),
   };
@@ -1012,8 +1022,8 @@ const server = createServer(async (request, response) => {
         if (input.projectless && input.projectId) return json(response, 400, { error: 'Choose projectless or projectId' });
         try {
           const thread = await createDesktopThread(input);
-          const operation = startDeliveryTracking(thread.id, String(input.prompt).trim());
-          return json(response, 201, { ...thread, initialPromptSubmitted: true, operation });
+          const operation = startDeliveryTracking(thread.id, String(input.prompt).trim(), null, thread.turnId);
+          return json(response, 201, { ...thread, transport: 'desktop', initialPromptSubmitted: true, operation });
         } catch (error) {
           if (/timed out/i.test(error.message)) return json(response, 504, { error: error.message, deliveryUnknown: true });
           throw error;

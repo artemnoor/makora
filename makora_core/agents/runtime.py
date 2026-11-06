@@ -174,6 +174,10 @@ class CodexLocalApi:
                 stream = open(log, "ab", buffering=0)
                 self._log_stream = stream
                 env = os.environ.copy()
+                if env.get('CODEX_THREAD_ID'):
+                    env.setdefault('CODEX_APP_TOOLS_CONTEXT_THREAD_ID', env['CODEX_THREAD_ID'])
+                if env.get('CODEX_APP_TOOLS_PIPE_PATH'):
+                    env.setdefault('CODEX_APP_TOOLS_PIPE_NAME', env['CODEX_APP_TOOLS_PIPE_PATH'].replace('\\', '/').rsplit('/', 1)[-1])
                 env["CODEX_LOCAL_API_TOKEN"] = self._token
                 args = [pwsh, "-NoLogo", "-NoProfile", "-File", str(script), "-AppServerOnly", "-Port", str(self._port), "-WorkingDirectory", str(self.integration_dir)]
                 self._process = subprocess.Popen(args, cwd=self.integration_dir, env=env, stdin=subprocess.DEVNULL,
@@ -254,7 +258,7 @@ class CodexLocalApi:
         models = self._request('/api/models', timeout=15)
         return [item for item in models.get('data', []) if isinstance(item, dict)]
 
-    def create_thread(self, *, cwd: Path, name: str, prompt: str, sandbox: str = "workspaceWrite", denied_paths: list[str] | None = None, model: str = MODEL_ID, reasoning_effort: str | None = None, user_chat: bool = False) -> dict:
+    def create_thread(self, *, cwd: Path, name: str, prompt: str, sandbox: str = "workspaceWrite", denied_paths: list[str] | None = None, model: str = MODEL_ID, reasoning_effort: str | None = None, user_chat: bool = False, desktop: bool = False) -> dict:
         catalog = self.model_catalog()
         selected = next((item for item in catalog if model in (item.get('id'), item.get('model'))), None)
         if not selected:
@@ -287,16 +291,16 @@ class CodexLocalApi:
                               "readOnlyAccess": {"type": "restricted", "includePlatformDefaults": True,
                                                  "readableRoots": [root]}}
         return self._request("/api/threads", {
-            "transport": "app-server", "cwd": str(cwd), "model": model, "reasoningEffort": reasoning_effort,
+            "transport": "desktop" if desktop else "app-server", "cwd": str(cwd), "model": model, "reasoningEffort": reasoning_effort,
             "name": name[:100], "prompt": prompt, "sandbox": sandbox_mode,
             "approvalPolicy": "never", "permissions": "makora", "threadSource": "user" if user_chat else "appServer", "desktopVisible": True,
             "config": {"permissions.makora": {"filesystem": filesystem, "network": {"enabled": False}},
                        **({"model_reasoning_effort": reasoning_effort} if reasoning_effort else {})},
         }, timeout=200)
 
-    def send(self, thread_id: str, text: str) -> dict:
+    def send(self, thread_id: str, text: str, *, desktop: bool = False) -> dict:
         self.ensure_started()
-        return self._request(f"/api/threads/{thread_id}/messages", {"transport": "app-server", "text": text}, timeout=20)
+        return self._request(f"/api/threads/{thread_id}/messages", {"transport": "desktop" if desktop else "app-server", "text": text}, timeout=60)
 
     def operation(self, operation_id: str) -> dict:
         self.ensure_started()
@@ -442,6 +446,12 @@ class AgentRuntime:
         options = {'model': config['model'], 'reasoning_effort': config['reasoningEffort']} if config['model'] != MODEL_ID or config['reasoningEffort'] else {}
         if role == 'project_chat':
             options['user_chat'] = True
+        if role == 'preparation':
+            options['desktop'] = True
+            kwargs['prompt'] = ('Рабочая папка этого задания: ' + str(kwargs['cwd']) + '. '
+                'Все упоминания текущей папки и result.json в задании относятся именно к этой папке. '
+                'Используй абсолютные пути при чтении и записи и workdir этой папки для команд. '
+                'Не изменяй файлы вне рабочей папки задания.\n\n' + kwargs['prompt'])
         return {**self.provider.create_thread(**kwargs, **options), 'model': config['model'], 'reasoningEffort': config['reasoningEffort']}
 
     def _worktrees_for(self, project: Path) -> Path:
@@ -2397,7 +2407,7 @@ class AgentRuntime:
             requested_at = _now()
             task = self._task_for_session(session)
         try:
-            result = self.provider.send(thread_id, text)
+            result = self.provider.send(thread_id, text, desktop=True) if session.get('transport') == 'desktop' else self.provider.send(thread_id, text)
         except AgentRuntimeError as exc:
             if exc.code == "DELIVERY_UNKNOWN":
                 with self._lock:

@@ -543,6 +543,7 @@ class Preparation:
                     raise AgentRuntimeError('UNCONFIRMED_DELIVERY', 'Codex не вернул thread/turn/operation ID.', 502)
                 session_id = 'agent-' + uuid.uuid4().hex[:12]
                 session = {'id': session_id, 'role': 'preparation', 'taskId': None, 'runId': None,
+                           'transport': created.get('transport', 'app-server'),
                            'threadId': created['id'], 'turnId': created['turnId'], 'operationId': operation['id'],
                            'model': created['model'], 'reasoningEffort': created.get('reasoningEffort'), 'cwd': str(folder), 'status': operation.get('state', 'accepted'), 'result': None}
                 with self.runtime._lock:
