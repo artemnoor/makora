@@ -18,7 +18,12 @@ class PreparationTests(unittest.TestCase):
         def create_thread(**kwargs):
             self.calls.append(kwargs)
             return {'id': 'thread-exact', 'turnId': 'turn-exact', 'operation': {'id': 'operation-exact', 'state': 'accepted'}}
-        self.runtime = SimpleNamespace(provider=SimpleNamespace(create_thread=create_thread), _lock=threading.RLock(),
+        self.sends = []
+        def send(thread_id, text, **kwargs):
+            self.sends.append((thread_id, text, kwargs))
+            return {'threadId': thread_id, 'turnId': 'turn-followup-' + str(len(self.sends)),
+                    'operation': {'id': 'operation-followup-' + str(len(self.sends)), 'state': 'accepted'}}
+        self.runtime = SimpleNamespace(provider=SimpleNamespace(create_thread=create_thread, send=send), _lock=threading.RLock(),
                                        state={'sessions': {}, 'runs': {}}, allowed_roots=[], _run_git=AgentRuntime._run_git,
                                        _save=lambda: None, refresh_session=lambda _: {'status': 'completed'})
         self.pipeline = Preparation(Path(self.tmp.name), self.runtime)
@@ -311,6 +316,44 @@ class PreparationTests(unittest.TestCase):
         restored.start(2, {})
         inputs = json.loads((Path(restored.state['stages']['2']['folder']) / 'INPUT.json').read_text('utf-8'))
         self.assertIn('01_case_analysis.md', inputs['artifacts'])
+
+    def test_preparation_groups_survive_restart_and_stage_four_is_separate(self):
+        created = []
+        def create(**kwargs):
+            created.append(kwargs)
+            return {'id': 'desktop-' + str(len(created)), 'turnId': 'turn-' + str(len(created)),
+                    'transport': 'desktop', 'operation': {'id': 'op-' + str(len(created)), 'state': 'accepted'}}
+        self.runtime.provider.create_thread = create
+        self.pipeline.start(1, {'brief': 'Проверка общего чата анализа, идеи и плана.'})
+        first = self.pipeline.state['stages']['1']
+        task = json.loads((Path(first['folder']) / 'TASK.json').read_text('utf-8'))
+        self.assertEqual(['01_case_analysis.md'], task['requiredFiles'])
+        self.assertTrue(Path(task['protocol']).is_file())
+        self.assertLess(len(created[0]['prompt']), 600)
+        self.assertFalse((Path(first['folder']) / 'INSTRUCTIONS.md').exists())
+        self.pipeline.state['stages']['1'].update(status='approved', files={})
+        self.pipeline.save()
+        restored = Preparation(Path(self.tmp.name), self.runtime)
+        restored.start(2, {})
+        second = restored.state['stages']['2']
+        self.assertEqual(first['threadId'], second['threadId'])
+        self.assertNotEqual(first['turnId'], second['turnId'])
+        restored.state['stages']['2'].update(status='approved', files={})
+        restored.start(3, {})
+        self.assertEqual(first['threadId'], restored.state['stages']['3']['threadId'])
+        restored.state['stages']['3'].update(status='approved', files={})
+        restored.start(4, {})
+        self.assertNotEqual(first['threadId'], restored.state['stages']['4']['threadId'])
+        self.assertEqual(2, len(created))
+        self.assertEqual(2, len(self.sends))
+        self.assertTrue(all(options.get('desktop') for _, _, options in self.sends))
+
+    def test_changed_brief_starts_a_new_preparation_chat(self):
+        self.pipeline.start(1, {'brief': 'Исходное условие проекта заметок.'})
+        self.pipeline.state['stages']['1']['status'] = 'review'
+        self.pipeline.start(1, {'brief': 'Другое условие проекта каталога.'})
+        self.assertEqual(2, len(self.calls))
+        self.assertEqual(0, len(self.sends))
 
     def test_unconfirmed_is_waiting_not_raw_json_error(self):
         self.pipeline.start(1, {'brief':'Проект каталога'})

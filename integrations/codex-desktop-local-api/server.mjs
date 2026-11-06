@@ -1123,8 +1123,14 @@ const server = createServer(async (request, response) => {
             prompt,
           }));
           publish({ type: 'turn-started', threadId, desktopAppTools: true });
-          const operation = startDeliveryTracking(threadId, prompt, baselineTurnId);
-          return json(response, 202, { threadId: data.threadId || threadId, status: 'accepted', transport: 'desktop-app-tools', operation });
+          let turnId = null;
+          for (let attempt = 0; !turnId && attempt < 60; attempt++) {
+            const latest = await latestThreadTurnId(threadId);
+            if (latest && latest !== baselineTurnId) turnId = latest;
+            else await new Promise(resolve => setTimeout(resolve, 200));
+          }
+          const operation = startDeliveryTracking(threadId, prompt, baselineTurnId, turnId);
+          return json(response, 202, { threadId: data.threadId || threadId, turnId, status: 'accepted', transport: 'desktop', operation });
         } catch (error) {
           if (sending && /timed out/i.test(error.message)) return json(response, 504, { error: error.message, deliveryUnknown: true });
           throw error;

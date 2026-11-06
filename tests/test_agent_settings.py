@@ -98,7 +98,7 @@ class AgentSettingsTests(unittest.TestCase):
         self.assertEqual(result['roles'], json.loads((self.project / 'reports/agent-settings.json').read_text('utf-8')))
         created = pipeline._create_agent('preparation', cwd=self.project, name='analysis', prompt='test')
         self.assertTrue(self.provider.create_thread.call_args.kwargs['desktop'])
-        self.assertIn(str(self.project), self.provider.create_thread.call_args.kwargs['prompt'])
+        self.assertEqual('test', self.provider.create_thread.call_args.kwargs['prompt'])
         self.assertEqual('low', created['reasoningEffort'])
         self.assertEqual('low', self.provider.create_thread.call_args.kwargs['reasoning_effort'])
 

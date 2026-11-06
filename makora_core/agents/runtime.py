@@ -448,10 +448,6 @@ class AgentRuntime:
             options['user_chat'] = True
         if role == 'preparation':
             options['desktop'] = True
-            kwargs['prompt'] = ('Рабочая папка этого задания: ' + str(kwargs['cwd']) + '. '
-                'Все упоминания текущей папки и result.json в задании относятся именно к этой папке. '
-                'Используй абсолютные пути при чтении и записи и workdir этой папки для команд. '
-                'Не изменяй файлы вне рабочей папки задания.\n\n' + kwargs['prompt'])
         return {**self.provider.create_thread(**kwargs, **options), 'model': config['model'], 'reasoningEffort': config['reasoningEffort']}
 
     def _worktrees_for(self, project: Path) -> Path:
