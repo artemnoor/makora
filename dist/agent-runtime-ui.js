@@ -243,7 +243,7 @@
     if(planning)pages.overview.querySelector('.execution-tree .agent-board-empty').textContent='Ждём новый план от Махораги…';
     const rootTitle=pages.overview.querySelector('.execution-tree-root strong');if(rootTitle)rootTitle.textContent=planning?'Махорага составляет план':preview?'Махорага подготовила план':run?'Утверждённый план':'Махорага составляет план';
     for(const node of original){
-      if(node.matches('.runtime-back')){detail.before(node);continue}
+      if(node.matches('.runtime-back'))continue;
       if(node.matches('.rp-summary')){node.remove();continue}
       if(node.matches('.real-task-list')){
         pages.tasks.append(node);

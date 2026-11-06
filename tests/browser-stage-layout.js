@@ -1,6 +1,6 @@
 async page=>{
  const assert=(v,m)=>{if(!v)throw Error(m)},errors=[];page.on('pageerror',e=>errors.push(e.message));
- const state={projectId:'layout-all-stages',brief:'Проверочный проект',prototype:{status:'approved',commit:'abc123'},stages:{}};
+ const state={projectId:'layout-all-stages',storageRoot:'C:/temporary-layout-project',lastStage:2,brief:'Проверочный проект',prototype:{status:'approved',commit:'abc123'},stages:{}};
  const documents={1:{'01_case_analysis.md':'# Требования'},2:{'02_research.md':'# Исследование','02_solution_concept.md':'# Концепция','02_user_flow.mmd':'flowchart TD\nA-->B'},3:{'03_architecture.md':'# Архитектура','03_contracts/openapi.yaml':'openapi: 3.1.0','03_tasks.json':'[{"id":"T01"}]'},4:{'04_validation_report.md':'# Проверка моков','mocks/fixtures/spaces.json':'[{"id":"space-1"}]','mocks/scenarios.json':'{"scenarios":[]}'}};
  for(let i=1;i<=4;i++)state.stages[i]={status:'approved',files:documents[i],checks:[{name:'Проверка структуры',status:'passed'}]};
  let submitted,planningRequest,sessions=[],approvedStep=null;
@@ -33,14 +33,14 @@ async page=>{
   assert(await page.locator('.board-content').evaluate(e=>e.scrollHeight<=e.clientHeight+1),'Компактная разработка прокручивается: '+step);
   assert(await page.locator('.runtime-detail').isHidden(),'Детали разработки не скрыты');
   await page.locator('[data-runtime-open]').click();await page.locator('.runtime-detail').waitFor();
-  assert(await page.locator('[data-agent-autopilot]').isVisible(),'Управление агентами потеряно');
-  if(step===6)await page.screenshot({path:'C:/m/all-stages-expanded-runtime.png'});
+  assert(await page.locator('.agent-board-overview .agent-board-actions .rp-primary').isVisible(),'Управление агентами потеряно');
+  if(step===6)await page.screenshot({path:'output/browser/all-stages-expanded-runtime.png'});
   await page.locator('.runtime-back').click();assert(await page.locator('.runtime-summary').isVisible(),'Не вернулись к краткому виду');
  }
  for(const step of [6]){sessions=[{id:'active-builder',runId:run.id,taskId:'T01',role:'builder',status:'running',threadId:'fake-thread'}];await page.locator(`[data-real-stage="${step}"]`).click();await page.locator('.runtime-summary .analysis-wheel').waitFor();assert(await page.locator('.board-content').evaluate(e=>e.scrollHeight<=e.clientHeight+1),'Ожидание не вмещается в доску');sessions=[];}
- await page.screenshot({path:'C:/m/all-stages-runtime.png'});
+ await page.screenshot({path:'output/browser/all-stages-runtime.png'});
  await page.evaluate(()=>window.makoraRealAgents.selectRun('__new__'));await page.locator('[data-real-stage="6"]').click();await page.locator('.runtime-summary').waitFor();
  await page.locator('.runtime-summary button').filter({hasText:'Уточнить задание'}).click();await page.locator('.analysis-chat textarea').fill('Учесть офлайн режим');await page.locator('.analysis-chat [type=submit]').click();await page.waitForTimeout(200);assert(planningRequest?.brief?.includes('Учесть офлайн режим'),'Уточнение не передано планировщику');
- state.stages[3].status='review';await page.evaluate(()=>window.makoraPreparation.open(3));await page.locator('.analysis-file').click();await page.locator('[data-reader-approve]').waitFor();const approvalBounds=await page.locator('.artifact-approval').boundingBox();assert(approvalBounds.y>=0&&approvalBounds.y+approvalBounds.height<=page.viewportSize().height+1,'Подтверждение вне экрана');await page.screenshot({path:'C:/m/stage3-approve.png'});await page.locator('[data-reader-approve]').click();await page.locator('[data-real-stage="4"].active').waitFor();assert(approvedStep===3,'Не утверждён полный третий этап');
+ state.stages[3].status='review';await page.evaluate(()=>window.makoraPreparation.open(3));await page.locator('.analysis-file').click();await page.locator('[data-reader-approve]').waitFor();const approvalBounds=await page.locator('.artifact-approval').boundingBox();assert(approvalBounds.y>=0&&approvalBounds.y+approvalBounds.height<=page.viewportSize().height+1,'Подтверждение вне экрана');await page.screenshot({path:'output/browser/stage3-approve.png'});await page.locator('[data-reader-approve]').click();await page.locator('[data-real-stage="4"].active').waitFor();assert(approvedStep===3,'Не утверждён полный третий этап');
  assert(errors.length===0,errors.join('; '));return {provider:'fake-http',stages:[2,3,4,5,6],files:true,feedbackRouting:true,runtimeControls:true,noPageErrors:true};
 }
