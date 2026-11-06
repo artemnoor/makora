@@ -7,5 +7,6 @@
   if(!result.storageRoot)throw Error('Папка проекта не настроена. Запустите установку из Codex.');
   window.dispatchEvent(new CustomEvent('makora:project-folder',{detail:{path:result.storageRoot}}));
   if(choose){choose.hidden=true;choose.disabled=true}
+  if(result.brief)window.dispatchEvent(new CustomEvent('makora:resume-project',{detail:result}));
  }).catch(error=>{const el=root.querySelector('.first-error');if(el){el.textContent=error.message;el.hidden=false}});
 })();
