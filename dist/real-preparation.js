@@ -188,6 +188,13 @@
       const doc=content.querySelector('[data-real-document]');doc.hidden=false;
       const checks=record?.checks||[],questions=record?.questions||[],limits=record?.limitations||[];
       doc.innerHTML=`<header class="analysis-reader-header"><button class="rp-text-button" data-analysis-close data-rp-back>← К результату</button><span>${String(step+1).padStart(2,'0')} / ${esc(names[step])}</span><a download="${esc(path.split('/').pop())}">Скачать файл ↓</a></header><div class="artifact-reader-layout"><aside class="artifact-files" aria-label="Файлы этапа">${paths.map(p=>`<button data-real-file="${esc(p)}" class="${p===path?'active':''}" ${p===path?'aria-current="page"':''}><strong>${esc(fileTitle(p))}</strong><small>${esc(p)}</small></button>`).join('')}${checks.length?`<details class="artifact-checks"><summary>Проверки · ${checks.filter(c=>c.status==='passed').length}/${checks.length}</summary>${checks.map(c=>`<p>${c.status==='passed'?'✓':c.status==='not_checked'?'?':'×'} ${esc(c.name)}${c.detail?`<br><small>${esc(c.detail)}</small>`:''}</p>`).join('')}<small>Проверки артефактов. Тесты приложения выполняются при разработке.</small></details>`:''}${record?.requirementCoverage?.length?`<details><summary>Покрытие требований</summary>${record.requirementCoverage.map(row=>`<p>${esc(row.requirementId)} · ${esc(row.disposition)} · ${esc(row.reason||(row.artifacts||[]).join(', '))}</p>`).join('')}</details>`:''}${questions.length?`<details><summary>Открытые вопросы · ${questions.length}</summary><ul>${questions.map(q=>`<li>${esc(q)}</li>`).join('')}</ul></details>`:''}${limits.length?`<details><summary>Ограничения · ${limits.length}</summary><ul>${limits.map(q=>`<li>${esc(q)}</li>`).join('')}</ul></details>`:''}</aside><div class="analysis-paper"><p class="analysis-filename">${esc(path)}</p>${/\.md$/i.test(path)?markdown(files[path]):/\.mmd$/i.test(path)?markdown('```mermaid\n'+files[path]+'\n```'):`<h1>${esc(fileTitle(path))}</h1><pre class="case-source"><code>${esc(files[path])}</code></pre>`}</div></div>${ready?`<footer class="artifact-approval"><div><strong>${status==='approved'?'Этап уже утверждён':step===4?'Подтверждение плана разработки':'Подтверждение результата'}</strong><p>${status==='approved'?'Материалы сохранены и доступны следующему этапу.':`Утверждение относится ко всем ${paths.length} файлам этапа. Каждый файл отдельно подтверждать не нужно.`}</p></div><div><button class="rp-secondary" data-reader-edit>Нужны правки</button><button class="rp-primary" data-reader-approve>${status==='approved'?'Перейти дальше →':step===4?'Утвердить весь план →':'Утвердить и продолжить →'}</button></div></footer>`:''}`;
+      if(step===2&&!ready){
+        const footer=document.createElement('footer');
+        footer.className='artifact-approval';
+        footer.innerHTML='<div><strong>До этапа 04 осталась проверка источников</strong><p>Вернитесь к карточкам и нажмите «Исправить проверку источников».</p></div><button type="button" data-reader-return>К карточкам аналогов →</button>';
+        footer.querySelector('button').onclick=()=>{file=null;paint()};
+        doc.append(footer);
+      }
       doc.querySelector('[data-reader-approve]')?.addEventListener('click',approve);
       doc.querySelector('[data-reader-edit]')?.addEventListener('click',()=>{file=null;paint();root()?.querySelector('[data-analysis-edit]')?.click()});
       if(doc.dataset.downloadUrl)URL.revokeObjectURL(doc.dataset.downloadUrl);doc.dataset.downloadUrl=URL.createObjectURL(new Blob([files[path]],{type:'text/plain;charset=utf-8'}));doc.querySelector('a[download]').href=doc.dataset.downloadUrl;
@@ -288,12 +295,31 @@
       }).join('')}
       ${editable?`<details class="competitor-comment"><summary>Общее пожелание к идее</summary><label class="sr-only" for="analog-note-all">Общее пожелание к идее</label><textarea id="analog-note-all" data-competitor-decision rows="2">${esc(feedbacks.competitorDecision||'')}</textarea></details>`:''}
     `;
+    const next=document.createElement('section');
+    next.className='competitor-next';
+    const failed=record.status==='failed';
+    next.innerHTML=`<div><strong>Следующий шаг · 04 Разработка идеи</strong><p>${failed?'Сейчас переход закрыт. Не подтверждены источники у части аналогов. Запустите исправление, затем выберите решения по карточкам.':editable?'Выберите решение для каждого аналога, затем подтвердите выбор. Макора учтёт его при разработке идеи.':'Решения сохранены. Можно перейти к разработке идеи.'}</p></div>`;
+    let actionButton=summary.querySelector(failed?'[data-analysis-edit]':editable?'[data-real-approve]':'[data-real-next]');
+    if(actionButton){
+      if(failed){const original=actionButton;actionButton=original.cloneNode(true);original.replaceWith(actionButton)}
+      actionButton.textContent=failed?'Исправить проверку источников →':editable?'Подтвердить выбор и перейти к этапу 04 →':'Открыть этап 04 →';
+      if(failed)actionButton.onclick=()=>{
+        openRefinementChat({key:projectKey,step:2,title:'Исправить проверку источников',description:'Макора повторно проверит источники и уточнит неподтверждённые сведения.',submit:'Запустить исправление →',onSubmit:feedback=>action(async()=>{
+          state=await api('/api/preparation/2/start',{feedback,openInCodex:true});
+          root()?.querySelector('.analysis-chat')?.remove();file=null;paint();
+        })});
+        const input=root()?.querySelector('.analysis-chat textarea');
+        if(input&&!input.value)input.value='Исправь ошибки подтверждения источников. Проверь официальные страницы и точные цитаты. Сохрани проверенные аналоги; замени сведения, которые подтвердить не удалось.';
+      };
+      next.append(actionButton);
+    }
+    panel.prepend(next);
     summary.prepend(panel);
     if(record.status==='failed'){
       const intro=panel.querySelector('.competitor-intro');
       const checks=summary.querySelector('.competitor-checks');
       if(checks)intro.append(checks);
-      if(edit)intro.append(edit);
+
     }
     const report=summary.querySelector('[data-real-file]');
     if(report){
