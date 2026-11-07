@@ -280,6 +280,9 @@ class MakoraHandler(SimpleHTTPRequestHandler):
             if path == '/api/preparation/extract':
                 name=parse_qs(urlparse(self.path).query).get('name',['brief.txt'])[0]
                 self._agent_json(lambda:self.server.preparation.extract(name,self._body(20*1024*1024)));return
+            match=re.fullmatch(r'/api/preparation/([0-5])/open-codex',path)
+            if match:
+                self._agent_json(lambda: self.server.preparation.open_codex_chat(int(match.group(1))));return
             match=re.fullmatch(r'/api/preparation/([0-5])/(start|refresh|approve|cancel)',path)
             if match:
                 stage, action = int(match.group(1)), match.group(2)

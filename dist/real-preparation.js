@@ -173,7 +173,7 @@
     });
     const threadId=record?.threadId;
     const chatLink=threadId&&/^[0-9a-f-]{36}$/i.test(threadId)
-      ? `<a class="rp-thread-link" href="codex://threads/${threadId}">Чат в Codex ↗</a>`
+      ? `<button class="rp-thread-link" data-open-codex>Чат в Codex ↗</button>`
       : '';
     const motionKey=step;
     if(working&&analysisMotion.key!==motionKey)analysisMotion={key:motionKey,started:performance.now()};
@@ -223,7 +223,19 @@
     content.querySelector('[data-real-refresh]')?.addEventListener('click',()=>action(async()=>{state=await api(`/api/preparation/${step}/refresh`,{});paint()}));
     if(step===2&&!working)competitorView(content,record,competitors,projectKey);
     content.querySelector('[data-real-cancel]')?.addEventListener('click',()=>action(async()=>{state=await api(`/api/preparation/${step}/cancel`,{});paint()}));
+    bindCodexChat(content,record,step);
     approvals(content);schedule();
+  }
+  function bindCodexChat(content,record,stage){
+    if(record?.desktopOpenError){
+      const notice=document.createElement('p');notice.setAttribute('role','status');
+      notice.textContent='Этап запущен, но Codex не подтвердил открытие чата. Нажмите «Чат в Codex», чтобы повторить переход. '+record.desktopOpenError;
+      content.append(notice);
+    }
+    content.querySelector('[data-open-codex]')?.addEventListener('click',()=>action(async()=>{
+      state=await api(`/api/preparation/${stage}/open-codex`,{});paint();
+      if(state.stages[String(stage)]?.desktopOpenError)throw new Error(state.stages[String(stage)].desktopOpenError);
+    }));
   }
   const competitorActions={borrow:'Взять идею',adapt:'Переделать под нас',avoid:'Пропустить',research:'Изучить ещё'};
   async function beginIdea(){
@@ -240,11 +252,12 @@
       <h3>${record?'Расскажите свою идею в Codex':'Сформулируем вашу идею'}</h3>
       <p>${record?'В отдельный чат отправлено задание выслушать вашу задумку и помочь её уточнить. Перейдите туда и напишите, что хотите создать.':'Создадим чат, где ИИ сначала выслушает вашу задумку и поможет оформить её.'}</p>
       <ol><li>Расскажите, для кого продукт и какую задачу он решает.</li><li>Опишите, что хотите показать в демоверсии.</li><li>Обсудите детали и попросите ИИ оформить согласованную идею.</li></ol>
-      <div class="analysis-actions">${linked?`<a class="rp-primary idea-codex-link" href="codex://threads/${threadId}">Открыть чат идеи в Codex ↗</a>`:record?'<p role="status">Ожидаем подтверждение чата…</p>':'<button class="rp-primary" data-create-idea>Создать чат в Codex →</button>'}
+      <div class="analysis-actions">${linked?`<button class="rp-primary idea-codex-link" data-open-codex>Открыть чат идеи в Codex ↗</button>`:record?'<p role="status">Ожидаем подтверждение чата…</p>':'<button class="rp-primary" data-create-idea>Создать чат в Codex →</button>'}
       ${record?'<button class="rp-secondary" data-check-idea>Проверить готовность документов</button>':''}</div>
       ${record?'<small role="status">Документы появятся здесь после оформления идеи в Codex.</small>':''}
     </section>`;
     content.querySelector('[data-create-idea]')?.addEventListener('click',()=>action(beginIdea));
+    bindCodexChat(content,record,3);
     content.querySelector('[data-check-idea]')?.addEventListener('click',()=>action(async()=>{
       state=await api('/api/preparation/3/refresh',{});paint();
     }));

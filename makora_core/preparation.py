@@ -714,18 +714,25 @@ class Preparation:
             self.save()
             snapshot = self.snapshot()
         if payload.get('openInCodex') is True:
-            self.open_codex_thread(record['threadId'])
+            return self.open_codex_chat(stage)
         return snapshot
 
-    @staticmethod
-    def open_codex_thread(thread_id):
-        launch = getattr(os, 'startfile', None)
-        if launch is None:
-            return
+    def open_codex_chat(self, stage):
+        record = self.state['stages'].get(str(stage), {})
+        thread_id = record.get('threadId')
+        if not thread_id:
+            raise AgentRuntimeError('CHAT_NOT_CREATED', 'Чат этого этапа ещё не создан.', 409)
         try:
-            launch(f'codex://threads/{uuid.UUID(thread_id)}')
-        except (OSError, ValueError, TypeError, AttributeError):
-            logger.warning('Could not open preparation thread in Codex Desktop')
+            self.runtime.provider.open_desktop(thread_id)
+            record.update(desktopOpened=True, desktopOpenError=None)
+        except Exception as exc:
+            # Sending already succeeded. Preserve its ID and never resend the
+            # prompt merely because Desktop navigation failed.
+            record.update(desktopOpened=False, desktopOpenError=str(exc))
+            logger.warning('Could not open preparation thread in Codex Desktop: %s', exc)
+        with self.lock:
+            self.save()
+            return self.snapshot()
 
     @staticmethod
     def validate_diagrams(files):

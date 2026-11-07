@@ -130,6 +130,16 @@ class AgentRuntimeTests(unittest.TestCase):
         self.assertEqual(restored._worktrees_for(self.project),self.base.resolve()/'.makora/agents/worktrees')
         self.assertTrue(any(e['type']=='worktree_created' for e in report['events']))
 
+    def test_desktop_open_requires_navigation_confirmation(self):
+        api = CodexLocalApi(self.integration, self.workspace)
+        with patch.object(api, 'ensure_started'), patch.object(api, '_request', return_value={'navigated': False}) as request:
+            with self.assertRaises(AgentRuntimeError) as failure:
+                api.open_desktop('stage-chat')
+            self.assertEqual('DESKTOP_OPEN_FAILED', failure.exception.code)
+            request.assert_called_once_with('/api/threads/stage-chat/desktop/open', {}, timeout=45)
+            request.return_value = {'navigated': True}
+            self.assertTrue(api.open_desktop('stage-chat')['navigated'])
+
     def test_concurrent_codex_api_startup_starts_only_one_bridge(self):
         integration = self.base / 'integration-startup'
         workspace = self.base / 'workspace-startup'
