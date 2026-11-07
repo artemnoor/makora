@@ -2,7 +2,7 @@ import json
 import tempfile
 import threading
 import unittest
-from unittest.mock import patch
+from unittest.mock import Mock, patch
 from pathlib import Path
 from types import SimpleNamespace
 
@@ -536,10 +536,28 @@ class PreparationTests(unittest.TestCase):
         thread_id = '01a1b6b4-a4f1-7893-8945-c4076fe43907'
         create = self.runtime.provider.create_thread
         self.runtime.provider.create_thread = lambda **kwargs: {**create(**kwargs), 'id': thread_id}
+        self.runtime.provider.open_desktop = Mock(return_value={'navigated': True})
         with patch('makora_core.preparation.os.startfile', create=True) as launch:
             state = self.pipeline.start(0, {'brief': 'Сделать доступный каталог мероприятий.', 'openInCodex': True})
-            launch.assert_called_once_with(f'codex://threads/{thread_id}')
+            launch.assert_not_called()
+        self.runtime.provider.open_desktop.assert_called_once_with(thread_id)
         self.assertEqual(thread_id, state['stages']['0']['threadId'])
+        self.assertTrue(state['stages']['0']['desktopOpened'])
+
+    def test_desktop_navigation_failure_keeps_started_chat_and_retry_does_not_send(self):
+        self.runtime.provider.open_desktop = Mock(side_effect=RuntimeError('Desktop unavailable'))
+        state = self.pipeline.start(0, {'brief': 'Создать каталог мероприятий.', 'openInCodex': True})
+        record = state['stages']['0']
+        self.assertEqual('running', record['status'])
+        self.assertFalse(record['desktopOpened'])
+        self.assertIn('Desktop unavailable', record['desktopOpenError'])
+        before = len(self.calls)
+        self.runtime.provider.open_desktop = Mock(return_value={'navigated': True})
+        result = self.pipeline.open_codex_chat(0)
+        self.assertEqual(before, len(self.calls))
+        self.assertEqual([], self.sends)
+        self.assertTrue(result['stages']['0']['desktopOpened'])
+        self.assertIsNone(result['stages']['0']['desktopOpenError'])
 
     def test_continue_from_failed_analogs_starts_one_idea_chat_and_waits_for_user(self):
         self.generate_analysis()

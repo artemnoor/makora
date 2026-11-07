@@ -343,6 +343,13 @@ class CodexLocalApi:
             payload["reasoningEffort"] = reasoning_effort or details.get("defaultReasoningEffort")
         return self._request(f"/api/threads/{thread_id}/messages", payload, timeout=60)
 
+    def open_desktop(self, thread_id: str) -> dict:
+        self.ensure_started()
+        result = self._request(f'/api/threads/{thread_id}/desktop/open', {}, timeout=45)
+        if result.get('navigated') is not True:
+            raise AgentRuntimeError('DESKTOP_OPEN_FAILED', 'Codex не подтвердил открытие чата. Запрос уже отправлен; повторно запускать этап не нужно.', 503)
+        return result
+
     def interrupt(self, thread_id: str, turn_id: str) -> dict:
         self.ensure_started()
         return self._request(f'/api/threads/{thread_id}/interrupt', {'turnId': turn_id})
