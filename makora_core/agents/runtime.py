@@ -27,7 +27,13 @@ _LOG = logging.getLogger(__name__)
 
 
 MODEL_ID = "gpt-6-luna"
-AGENT_PROFILE_ROLES = ("makora", "mahoraga", "builder", "test_designer", "reviewer")
+AGENT_PROFILE_ROLES = ("preparation", "project_chat", "mahoraga_planner", "mahoraga_orchestrator",
+                       "mahoraga", "builder", "test_designer", "reviewer")
+LEGACY_PROFILE_ROLES = {"makora", "mahoraga", "builder", "test_designer", "reviewer"}
+LEGACY_ROLE_GROUPS = {
+    "preparation": "makora", "project_chat": "makora",
+    "mahoraga_planner": "mahoraga", "mahoraga_orchestrator": "mahoraga",
+}
 API_BASE = "http://127.0.0.1:4182"
 MAX_TASKS = 40
 AUTOPILOT_MAX_ACTIONS = 160
@@ -321,11 +327,21 @@ class CodexLocalApi:
                        **({"model_reasoning_effort": reasoning_effort} if reasoning_effort else {})},
         }, timeout=200)
 
-    def send(self, thread_id: str, text: str, *, desktop: bool = False, skills: list[dict] | None = None) -> dict:
+    def send(self, thread_id: str, text: str, *, desktop: bool = False, skills: list[dict] | None = None,
+             model: str | None = None, reasoning_effort: str | None = None) -> dict:
         self.ensure_started()
         if skills:
             self.require_native_skills()
-        return self._request(f"/api/threads/{thread_id}/messages", {"transport": "desktop" if desktop else "app-server", "text": text, **({"skills": skills} if skills else {})}, timeout=60)
+        payload = {"transport": "desktop" if desktop else "app-server", "text": text}
+        if skills:
+            payload["skills"] = skills
+        if model:
+            details = next((item for item in self.model_catalog() if model in (item.get("model"), item.get("id"))), None)
+            if details is None:
+                raise AgentRuntimeError('MODEL_UNAVAILABLE', f'Модель {model} недоступна.', 409)
+            payload["model"] = model
+            payload["reasoningEffort"] = reasoning_effort or details.get("defaultReasoningEffort")
+        return self._request(f"/api/threads/{thread_id}/messages", payload, timeout=60)
 
     def interrupt(self, thread_id: str, turn_id: str) -> dict:
         self.ensure_started()
@@ -441,16 +457,21 @@ class AgentRuntime:
     def agent_profile(self, project: Path) -> dict:
         with self._lock:
             stored = self.state.get('agentProfiles', {}).get(self._profile_key(project), {})
-            return {role: dict(stored.get(role, {'model': MODEL_ID, 'reasoningEffort': None})) for role in AGENT_PROFILE_ROLES}
+            default = {'model': MODEL_ID, 'reasoningEffort': None}
+            return {role: dict(stored.get(role, stored.get(LEGACY_ROLE_GROUPS.get(role), default)))
+                    for role in AGENT_PROFILE_ROLES}
 
     def set_agent_profile(self, project: Path, profile: dict) -> dict:
-        if not isinstance(profile, dict) or set(profile) != set(AGENT_PROFILE_ROLES):
-            raise AgentRuntimeError('INVALID_AGENT_PROFILE', 'Укажите настройки всех ролей агентов.')
+        if not isinstance(profile, dict) or not profile:
+            raise AgentRuntimeError('INVALID_AGENT_PROFILE', 'Укажите настройки хотя бы одной роли.')
+        if set(profile) == LEGACY_PROFILE_ROLES:
+            profile = {role: profile[LEGACY_ROLE_GROUPS.get(role, role)] for role in AGENT_PROFILE_ROLES}
+        if not set(profile).issubset(AGENT_PROFILE_ROLES):
+            raise AgentRuntimeError('INVALID_AGENT_PROFILE', 'Неизвестная роль агента.')
         catalog = self.provider.model_catalog()
         available = {item.get('model') or item.get('id'): item for item in catalog}
         clean = {}
-        for role in AGENT_PROFILE_ROLES:
-            value = profile[role]
+        for role, value in profile.items():
             if not isinstance(value, dict) or not isinstance(value.get('model'), str):
                 raise AgentRuntimeError('INVALID_AGENT_PROFILE', 'У каждой роли должна быть модель.')
             model, effort = value['model'], value.get('reasoningEffort')
@@ -461,13 +482,13 @@ class AgentRuntime:
                 raise AgentRuntimeError('REASONING_UNAVAILABLE', f'{model}: выбранный уровень рассуждений недоступен.', 409)
             clean[role] = {'model': model, 'reasoningEffort': effort}
         with self._lock:
-            self.state.setdefault('agentProfiles', {})[self._profile_key(project)] = clean
+            merged = {**self.agent_profile(project), **clean}
+            self.state.setdefault('agentProfiles', {})[self._profile_key(project)] = merged
             self._save()
-        return self.agent_profile(project)
+            return merged
 
     def role_config(self, project: Path, role: str) -> dict:
-        group = 'makora' if role in ('preparation', 'project_chat') else 'mahoraga' if role.startswith('mahoraga') else role
-        return self.agent_profile(project).get(group, {'model': MODEL_ID, 'reasoningEffort': None})
+        return self.agent_profile(project).get(role, {'model': MODEL_ID, 'reasoningEffort': None})
 
     def create_configured_thread(self, *, project: Path, role: str, **kwargs) -> dict:
         config = self.role_config(project, role)

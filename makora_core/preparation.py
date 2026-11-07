@@ -584,8 +584,12 @@ class Preparation:
                       f'{task["protocol"]}. Задание и пути: {folder / "TASK.json"}. '
                       'Прочитай только навыки и материалы этого этапа. Сохрани результат по указанному пути.')
             chat = self.state.setdefault('preparationChats', {}).get(group_key)
+            config = self._agent_config('preparation')
+            settings_changed = chat and any(chat.get(key) != value for key, value in config.items())
+            if settings_changed and chat.get('transport') == 'desktop':
+                chat = None
             previous_competitors = self.state['stages'].get(str(stage), {}).get('files', {}).get('02_competitors.json', '{}')
-            record = {'filesystemIsolation': 'windows-compatible-read' if os.name == 'nt' else 'restricted-root', 'previousCompetitorResult': previous_competitors, 'groupKey': group_key, 'skillManifest': bindings, 'skillBindingMode': 'native', 'nativeSkillStatus':'requested', 'methodologyStatus': 'not_verified', 'status': 'launching', 'folder': str(folder), 'files': {}, 'checks': [], **self._agent_config('preparation')}
+            record = {'filesystemIsolation': 'windows-compatible-read' if os.name == 'nt' else 'restricted-root', 'previousCompetitorResult': previous_competitors, 'groupKey': group_key, 'skillManifest': bindings, 'skillBindingMode': 'native', 'nativeSkillStatus':'requested', 'methodologyStatus': 'not_verified', 'status': 'launching', 'folder': str(folder), 'files': {}, 'checks': [], **config}
             previous = self.state['stages'].get(str(stage))
             if previous:
                 entry = {'stage':stage, 'folder':previous.get('folder'), 'status':previous.get('status'),
@@ -606,13 +610,15 @@ class Preparation:
             try:
                 if chat:
                     options = {'desktop': True} if chat.get('transport') == 'desktop' else {}
+                    if settings_changed:
+                        options.update(model=config['model'], reasoning_effort=config['reasoningEffort'])
                     self.lock.release()
                     try:
                         sent = self.runtime.provider.send(chat['threadId'], prompt, skills=bindings, **options)
                     finally:
                         self.lock.acquire()
-                    created = {**sent, 'id': chat['threadId'], 'model': chat['model'],
-                               'reasoningEffort': chat.get('reasoningEffort'), 'transport': chat.get('transport', 'app-server')}
+                    created = {**sent, 'id': chat['threadId'], **config,
+                               'transport': chat.get('transport', 'app-server')}
                 else:
                     title = f'Макора · {stage + 1:02d} — {STAGES[stage][0]}'
                     self.lock.release()
@@ -632,6 +638,8 @@ class Preparation:
                 operation = created.get('operation') or {}
                 if not created.get('id') or not operation.get('id') or not created.get('turnId'):
                     raise AgentRuntimeError('UNCONFIRMED_DELIVERY', 'Codex не вернул thread/turn/operation ID.', 502)
+                if chat and settings_changed:
+                    chat.update(config)
                 session_id = 'agent-' + uuid.uuid4().hex[:12]
                 session = {'id': session_id, 'role': 'preparation', 'taskId': None, 'runId': None,
                            'transport': created.get('transport', 'app-server'),

@@ -1166,7 +1166,12 @@ const server = createServer(async (request, response) => {
       }
       if (input.transport === 'desktop') return json(response, 503, { error: 'Desktop bridge is unavailable' });
       await ensureThreadLoaded(threadId);
-      const result = await rpc('turn/start', { threadId, input: await buildTurnInput(prompt, input.skills) });
+      const result = await rpc('turn/start', {
+        threadId,
+        input: await buildTurnInput(prompt, input.skills),
+        ...(input.model ? { model: input.model } : {}),
+        ...(input.reasoningEffort ? { effort: input.reasoningEffort } : {}),
+      });
       publish({ type: 'turn-started', threadId, turnId: result.turn?.id });
       const operation = startDeliveryTracking(threadId, prompt, baselineTurnId, result.turn?.id);
       return json(response, 202, { threadId, turnId: result.turn?.id, status: 'accepted', transport: 'app-server', nativeSkillBinding: input.skills?.length ? 'accepted' : null, operation });

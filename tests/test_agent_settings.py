@@ -28,8 +28,10 @@ class AgentSettingsTests(unittest.TestCase):
 
     def profile(self):
         value = self.runtime.agent_profile(self.project)
-        value['makora'] = {'model': MODEL_ID, 'reasoningEffort': 'low'}
+        value['preparation'] = {'model': MODEL_ID, 'reasoningEffort': 'low'}
+        value['project_chat'] = {'model': MODEL_ID, 'reasoningEffort': 'low'}
         value['mahoraga'] = {'model': 'other-model', 'reasoningEffort': 'high'}
+        value['mahoraga_orchestrator'] = {'model': 'other-model', 'reasoningEffort': 'high'}
         value['builder'] = {'model': 'other-model', 'reasoningEffort': 'high'}
         return value
 
@@ -40,6 +42,18 @@ class AgentSettingsTests(unittest.TestCase):
         self.assertEqual('high', restored.role_config(self.project, 'mahoraga_orchestrator')['reasoningEffort'])
         self.assertEqual('low', restored.role_config(self.project, 'project_chat')['reasoningEffort'])
         self.assertEqual(MODEL_ID, restored.role_config(self.base / 'different', 'builder')['model'])
+
+    def test_legacy_settings_are_inherited_then_roles_can_be_edited_independently(self):
+        old = {'model': 'other-model', 'reasoningEffort': 'high'}
+        self.runtime.state['agentProfiles'] = {str(self.project.resolve()): {'makora': old, 'mahoraga': old}}
+        for role in ('preparation', 'project_chat', 'mahoraga_planner', 'mahoraga_orchestrator', 'mahoraga'):
+            self.assertEqual(old, self.runtime.role_config(self.project, role))
+        new = {'model': MODEL_ID, 'reasoningEffort': 'low'}
+        self.runtime.set_agent_profile(self.project, {'preparation': new, 'mahoraga_planner': new})
+        self.assertEqual(new, self.runtime.role_config(self.project, 'preparation'))
+        self.assertEqual(new, self.runtime.role_config(self.project, 'mahoraga_planner'))
+        self.assertEqual(old, self.runtime.role_config(self.project, 'project_chat'))
+        self.assertEqual(old, self.runtime.role_config(self.project, 'mahoraga_orchestrator'))
 
     def test_returned_project_inherits_selected_storage_profile(self):
         self.runtime.register_project_storage(self.project / 'app', self.project)
@@ -112,7 +126,7 @@ class AgentSettingsTests(unittest.TestCase):
         first_id = first['sessionId']
         pipeline.state['chat']['status'] = 'idle'
         profile = self.profile()
-        profile['makora'] = {'model': 'other-model', 'reasoningEffort': 'high'}
+        profile['project_chat'] = {'model': 'other-model', 'reasoningEffort': 'high'}
         self.runtime.set_agent_profile(pipeline.project_directory(), profile)
         second = pipeline.send_chat({'message': 'Следующий вопрос', 'requestId': 'two'})
         self.assertNotEqual(first_id, second['sessionId'])
@@ -120,3 +134,19 @@ class AgentSettingsTests(unittest.TestCase):
         self.assertEqual('high', second['reasoningEffort'])
         self.assertIn('Первый вопрос', self.provider.create_thread.call_args.kwargs['prompt'])
         self.assertEqual(MODEL_ID, self.runtime.state['sessions'][first_id]['model'])
+
+    def test_preparation_uses_updated_settings_in_the_existing_stage_chat(self):
+        pipeline = Preparation(self.base / 'prep-state', self.runtime)
+        pipeline.state['storageRoot'] = str(self.project)
+        pipeline.start(0, {'brief': 'Сделать каталог заметок с поиском.'})
+        pipeline.state['stages']['0']['status'] = 'review'
+        self.runtime.set_agent_profile(pipeline.project_directory(), {
+            'preparation': {'model': 'other-model', 'reasoningEffort': 'high'},
+        })
+        self.provider.send.return_value = {'turnId': 'turn2', 'operation': {'id': 'o2', 'state': 'accepted'}}
+        result = pipeline.start(0, {'feedback': 'Объясни короче.'})
+        self.assertEqual(1, self.provider.create_thread.call_count)
+        self.assertEqual('t1', self.provider.send.call_args.args[0])
+        self.assertEqual('other-model', self.provider.send.call_args.kwargs['model'])
+        self.assertEqual('high', self.provider.send.call_args.kwargs['reasoning_effort'])
+        self.assertEqual('other-model', result['stages']['0']['model'])

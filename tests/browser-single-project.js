@@ -27,5 +27,28 @@ async page => {
   await page.locator('.stage-grid').waitFor();
   assert(await page.locator('.first-form').isHidden(),'Reload returned to attachment screen');
   assert(launches===1,'Reload launched the stage again');
-  return {singleProject:true,noSiteChat:true,originalUpload:true,reload:true};
+  const roles=Object.fromEntries(['preparation','project_chat','mahoraga_planner','mahoraga_orchestrator','mahoraga','builder','test_designer','reviewer']
+    .map(role=>[role,{model:'base',reasoningEffort:null}]));
+  let settingsPayload;
+  await page.route('**/api/preparation/agent-settings',route=>{
+    if(route.request().method()==='POST'){
+      settingsPayload=route.request().postDataJSON();
+      Object.assign(roles,settingsPayload.roles);
+    }
+    return route.fulfill({json:{ok:true,result:{projectId:state.projectId,storageRoot:state.storageRoot,roles,
+      models:[{model:'base'},{model:'alternate',supportedReasoningEfforts:[{reasoningEffort:'high'}]}]}}});
+  });
+  await page.locator('[data-open-agent-settings]').click();
+  const dialog=page.getByRole('dialog',{name:'Модели и рассуждения'});
+  await dialog.locator('[data-role="mahoraga_planner"] summary').click();
+  const planner=dialog.locator('[data-role="mahoraga_planner"]');
+  await planner.locator('[data-model]').selectOption('alternate');
+  await planner.locator('[data-effort]').selectOption('high');
+  await dialog.locator('[data-role="mahoraga_orchestrator"] summary').click();
+  assert(await dialog.locator('[data-role="mahoraga_orchestrator"] [data-model]').inputValue()==='base','Planner changes affected the coordinator');
+  await dialog.locator('[data-settings-save]').click();
+  await dialog.getByText('Настройки сохранены',{exact:true}).waitFor();
+  assert(Object.keys(settingsPayload.roles).join()==='mahoraga_planner','Save overwrote untouched roles');
+  assert(settingsPayload.roles.mahoraga_planner.reasoningEffort==='high','Selected reasoning was not saved');
+  return {singleProject:true,noSiteChat:true,originalUpload:true,reload:true,independentRoleSettings:true};
 }
