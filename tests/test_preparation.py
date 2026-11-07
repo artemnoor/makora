@@ -93,7 +93,7 @@ class PreparationTests(unittest.TestCase):
         self.assertEqual('idea', old['stages']['3']['files']['02_solution_concept.md'])
         self.assertEqual('stale', old['stages']['3']['status'])
         self.assertEqual('[]', old['stages']['5']['files']['mocks/fixtures/data.json'])
-        self.assertEqual([1,2], Preparation.available_stages(old))
+        self.assertEqual([0,1,2], Preparation.available_stages(old))
         self.assertEqual(2, old['lastStage'])
         self.pipeline.index.write_text(json.dumps({'brief':'Legacy','stages':{'2':{'status':'review'}}}), 'utf-8')
         restored = Preparation(Path(self.tmp.name), self.runtime)
@@ -110,18 +110,37 @@ class PreparationTests(unittest.TestCase):
             Preparation.validate(files,2)
 
     def test_native_skill_manifest_is_frozen_and_repeat_folders_share_write_root(self):
+        project_root = self.select_folder()
         self.pipeline.start(1,{'brief':'Проверка реального подключения методических навыков'})
         first=self.pipeline.state['stages']['1']
         self.assertEqual('native',first['skillBindingMode'])
         self.assertTrue(all('packageSha256' in binding for binding in first['skillManifest']))
         self.assertTrue(all(Path(binding['path']).is_file() for binding in first['skillManifest']))
-        write_root=self.calls[-1]['cwd']
+        self.assertEqual(project_root, self.calls[-1]['cwd'])
+        write_root = self.calls[-1]['execution_root']
+        self.assertNotEqual(project_root, write_root)
         self.assertTrue(Path(first['folder']).is_relative_to(write_root))
         self.pipeline.state['stages']['1']['status']='review'
         self.pipeline.start(1,{'feedback':'Уточни анализ'})
         second=self.pipeline.state['stages']['1']
         self.assertTrue(Path(second['folder']).is_relative_to(write_root))
         self.assertEqual(first['skillManifest'],second['skillManifest'])
+
+    def test_explanation_uses_its_own_skill_without_invalidating_analysis(self):
+        self.generate_analysis()
+        self.pipeline.approve(1)
+        result = self.pipeline.start(0, {})
+        stage = result['stages']['0']
+        self.assertEqual('approved', result['stages']['1']['status'])
+        self.assertEqual(['preparation-session', 'brief-explanation'],
+                         [skill['name'] for skill in stage['skillManifest']])
+        self.assertIn(':explanation', stage['groupKey'])
+        text = '## Что сделать\nСделайте каталог.\n\n## Пример\nДопустим, студент ищет кружок.'
+        files = {'00_brief_explanation.md': text}
+        (Path(stage['folder']) / 'result.json').write_text(json.dumps({'files': files}), 'utf-8')
+        self.assertEqual('review', self.pipeline.refresh(0)['stages']['0']['status'])
+        self.pipeline.approve(0)
+        self.assertNotIn('00_brief_explanation.md', self.pipeline.context(2))
 
     def test_stage_cancellation_waits_for_terminal_confirmation_and_is_idempotent(self):
         self.pipeline.start(1,{'brief':'Проверка остановки подготовки проекта'})
@@ -477,14 +496,14 @@ class PreparationTests(unittest.TestCase):
         inputs = json.loads((Path(restored.state['stages']['3']['folder']) / 'INPUT.json').read_text('utf-8'))
         self.assertIn('01_case_analysis.md', inputs['artifacts'])
 
-    def test_preparation_groups_survive_restart_and_stage_four_is_separate(self):
+    def test_preparation_chats_are_per_stage_and_reused_after_restart(self):
         created = []
         def create(**kwargs):
             created.append(kwargs)
             return {'id': 'desktop-' + str(len(created)), 'turnId': 'turn-' + str(len(created)),
                     'transport': 'desktop', 'operation': {'id': 'op-' + str(len(created)), 'state': 'accepted'}}
         self.runtime.provider.create_thread = create
-        self.pipeline.start(1, {'brief': 'Проверка общего чата анализа, идеи и плана.'})
+        self.pipeline.start(1, {'brief': 'Проверка отдельных чатов подготовки проекта.'})
         first = self.pipeline.state['stages']['1']
         task = json.loads((Path(first['folder']) / 'TASK.json').read_text('utf-8'))
         self.assertEqual(['01_case_analysis.md'], task['requiredFiles'])
@@ -497,17 +516,72 @@ class PreparationTests(unittest.TestCase):
         restored.state['stages']['2'] = {'status': 'approved', 'files': {}}
         restored.start(3, {})
         second = restored.state['stages']['3']
-        self.assertEqual(first['threadId'], second['threadId'])
+        self.assertNotEqual(first['threadId'], second['threadId'])
         self.assertNotEqual(first['turnId'], second['turnId'])
         restored.state['stages']['3'].update(status='approved', files={})
         restored.start(4, {})
-        self.assertEqual(first['threadId'], restored.state['stages']['4']['threadId'])
+        self.assertNotEqual(second['threadId'], restored.state['stages']['4']['threadId'])
         restored.state['stages']['4'].update(status='approved', files={})
         restored.start(5, {})
-        self.assertNotEqual(first['threadId'], restored.state['stages']['5']['threadId'])
-        self.assertEqual(2, len(created))
-        self.assertEqual(2, len(self.sends))
-        self.assertTrue(all(options.get('desktop') for _, _, options in self.sends))
+        self.assertEqual(4, len({restored.state['stages'][str(i)]['threadId'] for i in (1, 3, 4, 5)}))
+        self.assertEqual('Макора · 02 — Анализ задания', created[0]['name'])
+        restored.state['stages']['5']['status'] = 'review'
+        restored.start(5, {'feedback': 'Уточни набор тестовых данных'})
+        self.assertEqual(4, len(created))
+        self.assertEqual(1, len(self.sends))
+        self.assertEqual('desktop-4', self.sends[0][0])
+        self.assertTrue(self.sends[0][2]['desktop'])
+
+    def test_board_start_opens_the_accepted_thread_in_desktop(self):
+        thread_id = '01a1b6b4-a4f1-7893-8945-c4076fe43907'
+        create = self.runtime.provider.create_thread
+        self.runtime.provider.create_thread = lambda **kwargs: {**create(**kwargs), 'id': thread_id}
+        with patch('makora_core.preparation.os.startfile', create=True) as launch:
+            state = self.pipeline.start(0, {'brief': 'Сделать доступный каталог мероприятий.', 'openInCodex': True})
+            launch.assert_called_once_with(f'codex://threads/{thread_id}')
+        self.assertEqual(thread_id, state['stages']['0']['threadId'])
+
+    def test_continue_from_failed_analogs_starts_one_idea_chat_and_waits_for_user(self):
+        self.generate_analysis()
+        self.pipeline.approve(1)
+        self.pipeline.state['stages']['2'] = {
+            'status': 'failed', 'files': self.competitor_files(),
+            'checks': [{'name': 'Sources', 'status': 'not_checked'}],
+            'error': 'Sources could not be confirmed',
+        }
+        created_before = len(self.calls)
+        result = self.pipeline.start(3, {'userIdea': True, 'continueAnalogs': True})
+        self.assertEqual('continued', result['stages']['2']['status'])
+        self.assertEqual('not_checked', result['stages']['2']['checks'][0]['status'])
+        self.assertEqual('user_idea', result['stages']['3']['interactionMode'])
+        self.assertIn('попроси пользователя рассказать свою идею', self.calls[-1]['prompt'])
+        folder = Path(result['stages']['3']['folder'])
+        self.assertTrue(json.loads((folder / 'INPUT.json').read_text('utf-8'))['analogReview']['unverified'])
+        self.assertIn('02_competitors.json', self.pipeline.context(3))
+        waiting = self.pipeline.refresh(3)
+        self.assertEqual('awaiting_idea', waiting['stages']['3']['status'])
+        restored = Preparation(Path(self.tmp.name), self.runtime)
+        restored.start(3, {'userIdea': True, 'continueAnalogs': True})
+        self.assertEqual(created_before + 1, len(self.calls))
+        self.assertEqual(waiting['stages']['3']['threadId'], restored.state['stages']['3']['threadId'])
+        self.assertEqual('awaiting_idea', restored.poll()['stages']['3']['status'])
+        output = {'files': {'02_solution_concept.md': '# Согласованная идея'}}
+        (folder / 'result.json').write_text(json.dumps(output), 'utf-8')
+        self.runtime.provider.history = lambda _: {'turns': [{'id': 'user-idea-turn', 'status': 'inProgress'}]}
+        self.assertEqual('awaiting_idea', restored.refresh(3)['stages']['3']['status'])
+        self.runtime.provider.history = lambda _: {'turns': [{'id': 'user-idea-turn', 'status': 'completed'}]}
+        with patch.object(Preparation, 'validate', return_value=[]), patch.object(Preparation, 'validate_evidence', return_value=([], {})):
+            self.assertEqual('review', restored.refresh(3)['stages']['3']['status'])
+        self.assertIn('02_solution_concept.md', restored.state['stages']['3']['files'])
+
+    def test_continue_to_idea_requires_completed_analysis_and_no_active_research(self):
+        with self.assertRaises(AgentRuntimeError):
+            self.pipeline.start(3, {'userIdea': True, 'continueAnalogs': True})
+        self.generate_analysis()
+        self.pipeline.approve(1)
+        self.pipeline.state['stages']['2'] = {'status': 'running', 'files': {}}
+        with self.assertRaises(AgentRuntimeError):
+            self.pipeline.start(3, {'userIdea': True, 'continueAnalogs': True})
 
     def test_changed_brief_starts_a_new_preparation_chat(self):
         self.pipeline.start(1, {'brief': 'Исходное условие проекта заметок.'})

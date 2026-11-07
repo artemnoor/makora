@@ -8,7 +8,7 @@
   function removeDeparted(item){
     if(!item.leaving)return;clearTimeout(item.departureTimer);if(selected===item)closeDetails();
     const focused=item.card.contains(document.activeElement);item.card.remove();portraits.delete(item.session.id);dismissed.add(item.session.id);rememberDismissed();
-    if(focused){const next=portraits.values().next().value?.card||document.querySelector('.board-expand');next?.focus()}
+    if(focused){const next=portraits.values().next().value?.card||document.querySelector('.stage-board-back');next?.focus()}
     if(host&&!portraits.size)host.hidden=true;
   }
   function dismissAgent(item){

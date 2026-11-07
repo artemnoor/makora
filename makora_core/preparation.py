@@ -23,6 +23,7 @@ from .agents.runtime import AgentRuntime, AgentRuntimeError, MODEL_ID
 logger = logging.getLogger(__name__)
 
 STAGES = {
+    0: ('Простое объяснение', ['brief-explanation'], ['00_brief_explanation.md']),
     1: ('Анализ задания', ['requirements-analysis'], ['01_case_analysis.md']),
     2: ('Анализ конкурентов', ['product-research'], ['02_competitors.md', '02_competitors.json']),
     3: ('Разработка идеи', ['solution-design'], ['02_research.md', '02_solution_concept.md', '02_user_flow.mmd', '02_task_flow.mmd']),
@@ -154,13 +155,18 @@ class Preparation:
 
     @staticmethod
     def stage_group(stage):
-        return ':competitors' if stage == 2 else ':planning' if stage <= 4 else ':mocks'
+        return {0: ':explanation', 2: ':competitors', 5: ':mocks'}.get(stage, f':stage-{stage}')
+
+    @staticmethod
+    def stage_complete(state, stage):
+        status = state.get('stages', {}).get(str(stage), {}).get('status')
+        return status == 'approved' or (stage == 2 and status == 'continued')
 
     @staticmethod
     def available_stages(state):
-        available = [1]
+        available = [0, 1]
         for stage in range(1, 6):
-            if state.get('stages', {}).get(str(stage), {}).get('status') != 'approved':
+            if not Preparation.stage_complete(state, stage):
                 break
             available.append(stage + 1)
         if 6 in available and ((state.get('prototype') or {}).get('status') == 'approved' or
@@ -518,37 +524,70 @@ class Preparation:
     def poll(self):
         with self.lock:
             pending = next((int(k) for k, value in self.state['stages'].items()
-                            if (value.get('status') in ('running', 'unconfirmed', 'stopping') or
+                            if (value.get('status') in ('running', 'unconfirmed', 'stopping', 'awaiting_idea') or
                                 (value.get('status') == 'failed' and value.get('agentStatus') == 'failed'))
                             and value.get('sessionId')), None)
         return self.refresh(pending, recheck=True) if pending else self.snapshot()
 
     def context(self, before):
         return {name: text for key, value in self.state['stages'].items()
-                if int(key) < before and value.get('status') == 'approved'
+                if 1 <= int(key) < before and self.stage_complete(self.state, int(key))
                 for name, text in value.get('files', {}).items()}
 
     def start(self, stage, payload):
         with self.lock:
             if stage not in STAGES:
                 raise AgentRuntimeError('INVALID_STAGE', 'Неизвестный этап.')
+            user_idea = stage == 3 and payload.get('userIdea') is True
+            existing = self.state['stages'].get('3', {})
+            if (user_idea and existing.get('interactionMode') == 'user_idea'
+                    and existing.get('status') not in ('stale', 'cancelled')
+                    and (existing.get('threadId') or existing.get('status') != 'failed')):
+                return self.snapshot()
             if any(s.get('status') in ('launching', 'running', 'unconfirmed', 'stopping') for s in self.state['stages'].values()):
                 raise AgentRuntimeError('PREPARATION_BUSY', 'Предыдущая операция ещё выполняется или её доставка не подтверждена.', 409)
-            if any(self.state['stages'].get(str(previous), {}).get('status') != 'approved' for previous in range(1, stage)):
+            continuing = user_idea and payload.get('continueAnalogs') is True
+            required = range(1, 2) if continuing else range(1, stage)
+            if any(not self.stage_complete(self.state, previous) for previous in required):
                 raise AgentRuntimeError('PREVIOUS_STAGE_REQUIRED', 'Сначала утверди предыдущий этап.', 409)
+            analogs = self.state['stages'].get('2', {})
+            if continuing and analogs.get('status') not in ('failed', 'review', 'approved', 'continued'):
+                raise AgentRuntimeError('STAGE_NOT_READY', 'Дождитесь результата разбора аналогов.', 409)
             brief = payload.get('brief', self.state['brief'])
             if not isinstance(brief, str) or not 10 <= len(brief.strip()) <= 100000:
                 raise AgentRuntimeError('BRIEF_REQUIRED', 'Передай текст задания длиной от 10 до 100000 символов.')
+            if stage == 0 and self.state['brief'] and self.state['brief'] != brief:
+                raise AgentRuntimeError('BRIEF_MISMATCH', 'Пояснение создаётся по сохранённому заданию проекта.', 409)
             ensure_started = getattr(self.runtime.provider, 'ensure_started', None)
             if ensure_started:
                 ensure_started()  # Failure here proves no prompt was dispatched and leaves prior state intact.
-            if stage == 1:
+            if continuing and not self.stage_complete(self.state, 2):
+                analogs.update(status='continued', approvalNote='Пользователь решил перейти к своей идее с текущими результатами разбора аналогов.')
+            if continuing:
+                try:
+                    research = json.loads(analogs.get('files', {}).get('02_competitors.json', '{}'))
+                    known = {item['id'] for item in research.get('competitors', []) if isinstance(item, dict) and isinstance(item.get('id'), str)}
+                except (ValueError, TypeError, AttributeError):
+                    known = set()
+                submitted = payload.get('decisions', {})
+                if isinstance(submitted, dict):
+                    decisions = {
+                        key: {'action': value['action'], 'comment': str(value.get('comment', ''))[:2000]}
+                        for key, value in submitted.items()
+                        if key in known and isinstance(value, dict) and value.get('action') in ('borrow', 'adapt', 'avoid', 'research')
+                    }
+                    self.state['competitorDecisions'] = {**self.state.get('competitorDecisions', {}), **decisions}
+                note = str(payload.get('note', '')).strip()
+                if note:
+                    self.state['competitorPreferences'] = note[:20000]
+            if stage in (0, 1):
                 if self.state['brief'] and self.state['brief'] != brief:
                     history = self.root / 'history'
                     history.mkdir(exist_ok=True)
                     (history / (uuid.uuid4().hex + '.json')).write_text(json.dumps(self.state, ensure_ascii=False), 'utf-8')
                     self.state['projectId'] = uuid.uuid4().hex
                     self.state.pop('competitorPreferences', None)
+                    self.state['stages'].pop('0', None)
                 self.state['brief'] = brief
             if self.state.get('storageRoot'):
                 self._storage_write('input/brief.txt', self.state['brief'].encode('utf-8'))
@@ -558,7 +597,7 @@ class Preparation:
             folder = session_root / uuid.uuid4().hex
             folder.mkdir()
             context = self.context(stage)
-            decisions = {k: v.get('approvalNote', '') for k, v in self.state['stages'].items() if int(k)<stage and v.get('status')=='approved'}
+            decisions = {k: v.get('approvalNote', '') for k, v in self.state['stages'].items() if 1 <= int(k) < stage and self.stage_complete(self.state, int(k))}
             (folder / 'INPUT.json').write_text(json.dumps({'brief': self.state['brief'], 'artifacts': context, 'decisions': decisions, 'previousChecks': self.state['stages'].get(str(stage), {}).get('checks', []), 'previousError': self.state['stages'].get(str(stage), {}).get('error'), 'previousResult': self.state['stages'].get(str(stage), {}).get('files', {}), 'feedback': payload.get('feedback', ''), 'competitorPreferences': self.state.get('competitorPreferences', ''), 'competitorDecisions': self.state.get('competitorDecisions', {}), 'artifactDecisions': self.state.get('artifactDecisions', [])}, ensure_ascii=False), 'utf-8')
             skills_root = Path(__file__).resolve().parent.parent / 'skills'
             task = {
@@ -569,6 +608,14 @@ class Preparation:
                 'skills': [str(skills_root / name / 'SKILL.md') for name in STAGES[stage][1]],
                 'protocol': str(skills_root / 'preparation-session' / 'SKILL.md'),
             }
+            if stage >= 3:
+                inputs = json.loads((folder / 'INPUT.json').read_text('utf-8'))
+                inputs['analogReview'] = {key: analogs.get(key) for key in ('status', 'checks', 'limitations', 'error')}
+                inputs['analogReview']['unverified'] = analogs.get('status') == 'continued' or any(
+                    check.get('status') != 'passed' for check in analogs.get('checks', []))
+                (folder / 'INPUT.json').write_text(json.dumps(inputs, ensure_ascii=False), 'utf-8')
+            if user_idea:
+                task['interactionMode'] = 'user_idea'
             from .skill_manifest import snapshot_skill
             skill_snapshots = self.root / 'skill-snapshots'
             bindings = [snapshot_skill(path, skill_snapshots) for path in [task['protocol'], *task['skills']]]
@@ -576,12 +623,27 @@ class Preparation:
             task['skills'] = [binding['path'] for binding in bindings[1:]]
             task['skillManifest'] = bindings
             (folder / 'TASK.json').write_text(json.dumps(task, ensure_ascii=False, indent=2), 'utf-8')
-            prompt = (f'Этап {stage}: {STAGES[stage][0]}. Примени навык '
+            prompt = (f'{STAGES[stage][0]} (этап {stage + 1} на доске). Примени навык '
                       f'{task["protocol"]}. Задание и пути: {folder / "TASK.json"}. '
                       'Прочитай только навыки и материалы этого этапа. Сохрани результат по указанному пути.')
+            if user_idea:
+                prompt = (f'Этап 04 — Разработка идеи вместе с пользователем. Прочитай {folder / "TASK.json"} '
+                          f'и примени навык {task["protocol"]}. Сначала коротко попроси пользователя рассказать свою идею, '
+                          'для кого она и что он хочет показать в демо. Выслушай ответ в этом чате, задай нужные уточнения. '
+                          'Когда пользователь согласует идею и попросит оформить результат, создай документы и result.json '
+                          'по TASK.json. До этого оставь результат незаполненным. Учитывай требования и аналогов из INPUT.json. '
+                          'Неподтверждённые источники аналогов считай гипотезами.')
             chat = self.state.setdefault('preparationChats', {}).get(group_key)
+            config = self._agent_config('preparation')
+            settings_changed = chat and any(chat.get(key) != value for key, value in config.items())
+            if settings_changed and chat.get('transport') == 'desktop':
+                chat = None
             previous_competitors = self.state['stages'].get(str(stage), {}).get('files', {}).get('02_competitors.json', '{}')
-            record = {'filesystemIsolation': 'windows-compatible-read' if os.name == 'nt' else 'restricted-root', 'previousCompetitorResult': previous_competitors, 'groupKey': group_key, 'skillManifest': bindings, 'skillBindingMode': 'native', 'nativeSkillStatus':'requested', 'methodologyStatus': 'not_verified', 'status': 'launching', 'folder': str(folder), 'files': {}, 'checks': [], **self._agent_config('preparation')}
+            record = {'filesystemIsolation': 'windows-compatible-read' if os.name == 'nt' else 'restricted-root', 'previousCompetitorResult': previous_competitors, 'groupKey': group_key, 'skillManifest': bindings, 'skillBindingMode': 'native', 'nativeSkillStatus':'requested', 'methodologyStatus': 'not_verified', 'status': 'launching', 'folder': str(folder), 'files': {}, 'checks': [], **config}
+            if user_idea:
+                record['interactionMode'] = 'user_idea'
+                chat = None
+                settings_changed = False
             previous = self.state['stages'].get(str(stage))
             if previous:
                 entry = {'stage':stage, 'folder':previous.get('folder'), 'status':previous.get('status'),
@@ -591,29 +653,36 @@ class Preparation:
                 with (self.root/'execution-history.jsonl').open('a', encoding='utf-8') as history:
                     history.write(json.dumps(entry, ensure_ascii=False)+'\n')
             self.state['stages'][str(stage)] = record
-            for key in list(self.state['stages']):
-                if int(key) > stage:
-                    self.state['stages'][key]['status'] = 'stale'
-            if self.state.get('prototype'):
-                self.state['prototype']['status'] = 'stale'
-            if self.state.get('returnedProject'):
-                self.state['returnedProject']['status'] = 'stale'
+            if stage != 0:
+                for key in self.state['stages']:
+                    if int(key) > stage:
+                        self.state['stages'][key]['status'] = 'stale'
+                for key in ('prototype', 'returnedProject'):
+                    if self.state.get(key):
+                        self.state[key]['status'] = 'stale'
             self.save()  # Save uncertain delivery before contacting Codex; never resend automatically.
             try:
                 if chat:
                     options = {'desktop': True} if chat.get('transport') == 'desktop' else {}
+                    if settings_changed:
+                        options.update(model=config['model'], reasoning_effort=config['reasoningEffort'])
                     self.lock.release()
                     try:
                         sent = self.runtime.provider.send(chat['threadId'], prompt, skills=bindings, **options)
                     finally:
                         self.lock.acquire()
-                    created = {**sent, 'id': chat['threadId'], 'model': chat['model'],
-                               'reasoningEffort': chat.get('reasoningEffort'), 'transport': chat.get('transport', 'app-server')}
+                    created = {**sent, 'id': chat['threadId'], **config,
+                               'transport': chat.get('transport', 'app-server')}
                 else:
-                    title = 'Макора — конкуренты' if stage == 2 else 'Макора — анализ, идея и план' if stage <= 4 else 'Макора — мок-данные'
+                    title = f'Макора · {stage + 1:02d} — {STAGES[stage][0]}'
                     self.lock.release()
                     try:
-                        created = self._create_agent('preparation', cwd=session_root, name=title, prompt=prompt, desktop=False, skills=bindings, read_roots=[str(skill_snapshots)], network_access=stage == 2)
+                        project_root = Path(self.state['storageRoot']) if self.state.get('storageRoot') else session_root
+                        created = self._create_agent(
+                            'preparation', cwd=project_root, execution_root=session_root,
+                            name=title, prompt=prompt, desktop=False, skills=bindings,
+                            read_roots=[str(skill_snapshots)], network_access=stage == 2,
+                        )
                     finally:
                         self.lock.acquire()
                     if created.get('id'):
@@ -623,6 +692,8 @@ class Preparation:
                 operation = created.get('operation') or {}
                 if not created.get('id') or not operation.get('id') or not created.get('turnId'):
                     raise AgentRuntimeError('UNCONFIRMED_DELIVERY', 'Codex не вернул thread/turn/operation ID.', 502)
+                if chat and settings_changed:
+                    chat.update(config)
                 session_id = 'agent-' + uuid.uuid4().hex[:12]
                 session = {'id': session_id, 'role': 'preparation', 'taskId': None, 'runId': None,
                            'transport': created.get('transport', 'app-server'),
@@ -632,6 +703,8 @@ class Preparation:
                     self.runtime.state['sessions'][session_id] = session
                     self.runtime._save()
                 record.update(nativeSkillStatus=created.get('nativeSkillBinding','unconfirmed'), status='running', sessionId=session_id, threadId=created['id'], turnId=created['turnId'], model=session['model'], reasoningEffort=session.get('reasoningEffort'))
+                if user_idea:
+                    self.state['lastStage'] = 3
             except Exception as exc:
                 confirmed_rejection = isinstance(exc, AgentRuntimeError) and exc.code in (
                     'MODEL_UNAVAILABLE', 'SESSION_BUSY', 'CODEX_API_ERROR', 'SANDBOX_UNAVAILABLE', 'NATIVE_SKILLS_UNAVAILABLE')
@@ -639,7 +712,20 @@ class Preparation:
                 self.save()
                 raise
             self.save()
-            return self.snapshot()
+            snapshot = self.snapshot()
+        if payload.get('openInCodex') is True:
+            self.open_codex_thread(record['threadId'])
+        return snapshot
+
+    @staticmethod
+    def open_codex_thread(thread_id):
+        launch = getattr(os, 'startfile', None)
+        if launch is None:
+            return
+        try:
+            launch(f'codex://threads/{uuid.UUID(thread_id)}')
+        except (OSError, ValueError, TypeError, AttributeError):
+            logger.warning('Could not open preparation thread in Codex Desktop')
 
     @staticmethod
     def validate_diagrams(files):
@@ -685,6 +771,12 @@ class Preparation:
                 json.loads(text)
         if total > 8 * 1024 * 1024 or len(files) > 200:
             raise AgentRuntimeError('ARTIFACT_LIMIT', 'Пакет артефактов слишком большой.')
+        if stage == 0:
+            explanation = files.get('00_brief_explanation.md', '')
+            concise = set(files) == {'00_brief_explanation.md'} and len(explanation.split()) <= 250
+            example = re.search(r'^#{1,3}\s+Пример\b', explanation, re.MULTILINE | re.IGNORECASE)
+            checks.append({'name': 'Короткое пояснение с отдельным примером',
+                           'status': 'passed' if concise and example else 'failed'})
         if stage == 1:
             analysis = files.get('01_case_analysis.md', '')
             sections = re.findall(r'^#{1,3}\s+\S', analysis, re.MULTILINE)
@@ -896,10 +988,25 @@ class Preparation:
     def refresh(self, stage, recheck=False):
         with self.lock:
             record = self.state['stages'].get(str(stage))
-            allowed = ('running', 'unconfirmed', 'failed', 'stopping') if recheck else ('running', 'unconfirmed', 'stopping')
+            allowed = ('running', 'unconfirmed', 'failed', 'stopping', 'awaiting_idea') if recheck else ('running', 'unconfirmed', 'stopping', 'awaiting_idea')
             if not record or record['status'] not in allowed:
                 return self.snapshot()
-            if record.get('sessionId'):
+            if record['status'] == 'awaiting_idea':
+                if not (Path(record['folder']) / 'result.json').exists():
+                    return self.snapshot()
+                self.lock.release()
+                try:
+                    history = self.runtime.provider.history(record['threadId'])
+                finally:
+                    self.lock.acquire()
+                if self.state['stages'].get(str(stage)) is not record:
+                    return self.snapshot()
+                turns = history.get('turns', [])
+                if not turns or turns[-1].get('status') != 'completed':
+                    return self.snapshot()
+                record['resultTurnId'] = turns[-1].get('id')
+                session = {'status': 'completed'}
+            elif record.get('sessionId'):
                 self.lock.release()
                 try:
                     session = self.runtime.refresh_session(record['sessionId'])
@@ -932,6 +1039,11 @@ class Preparation:
                     return self.snapshot()
             record['agentStatus'] = session['status']
             if session['status'] == 'completed':
+                if record.get('interactionMode') == 'user_idea' and not (Path(record['folder']) / 'result.json').exists():
+                    record.update(status='awaiting_idea')
+                    record.pop('error', None)
+                    self.save()
+                    return self.snapshot()
                 try:
                     path = Path(record['folder']) / 'result.json'
                     if path.is_symlink() or path.stat().st_size > 10 * 1024 * 1024:
@@ -993,7 +1105,7 @@ class Preparation:
             record = self.state['stages'].get(str(stage), {})
             if record.get('status') != 'review':
                 raise AgentRuntimeError('STAGE_NOT_READY', 'Этап ещё не прошёл проверки.', 409)
-            if any(self.state['stages'].get(str(previous), {}).get('status') != 'approved' for previous in range(1, stage)):
+            if any(not self.stage_complete(self.state, previous) for previous in range(1, stage)):
                 raise AgentRuntimeError('PREVIOUS_STAGE_REQUIRED', 'Сначала утвердите предыдущие этапы.', 409)
             if stage == 2:
                 note = str((payload or {}).get('note', '')).strip()
@@ -1053,11 +1165,11 @@ class Preparation:
     def archive(self):
         with self.lock:
             files = self.context(6)
-            if any(self.state['stages'].get(str(stage), {}).get('status') != 'approved' for stage in range(1,6)):
+            if any(not self.stage_complete(self.state, stage) for stage in range(1,6)):
                 raise AgentRuntimeError('PREPARATION_NOT_APPROVED', 'Сначала утвердите все документы подготовки.', 409)
             files['artifact-change-decisions.json'] = json.dumps(self.state.get('artifactDecisions', []), ensure_ascii=False, indent=2)
             files['input/brief.txt'] = self.state['brief']
-            files['project-decisions.json'] = json.dumps({k:v.get('approvalNote', '') for k,v in self.state['stages'].items() if v.get('status')=='approved'}, ensure_ascii=False, indent=2)
+            files['project-decisions.json'] = json.dumps({k:v.get('approvalNote', '') for k,v in self.state['stages'].items() if self.stage_complete(self.state, int(k))}, ensure_ascii=False, indent=2)
             probe = self.state.setdefault('environmentProbe', uuid.uuid4().hex)
             files['PREFLIGHT.json'] = json.dumps({'nonce':probe, 'instruction':'Проверь чтение файлов и создание скачиваемого ZIP до большой генерации. Сохрани nonce в environment-proof.json финального ZIP.'}, ensure_ascii=False)
             files['ENVIRONMENT_CHECK.md'] = ('Сначала прочитай PREFLIGHT.json реальным инструментом. Создай маленький ZIP с environment-proof.json и точным nonce. '
@@ -1189,7 +1301,7 @@ class Preparation:
             if stage == 7 and not imported and (not project.exists() or self.runtime._run_git(project, 'rev-parse', 'HEAD').strip() != self.state['prototype'].get('commit')):
                 raise AgentRuntimeError('PROJECT_CHANGED', 'Git-проект изменился после утверждения прототипа. Повтори проверку.', 409)
             files = self.context(6)
-            files['project-decisions.json'] = json.dumps({k:v.get('approvalNote', '') for k,v in self.state['stages'].items() if v.get('status')=='approved'}, ensure_ascii=False, indent=2)
+            files['project-decisions.json'] = json.dumps({k:v.get('approvalNote', '') for k,v in self.state['stages'].items() if self.stage_complete(self.state, int(k))}, ensure_ascii=False, indent=2)
             digest = hashlib.sha256((json.dumps(files, sort_keys=True) + (self.state['returnedProject']['sha256'] if imported else '')).encode()).hexdigest()
             if not project.exists():
                 project.mkdir(parents=True)
