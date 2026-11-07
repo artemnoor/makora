@@ -270,7 +270,7 @@ class CodexLocalApi:
             raise AgentRuntimeError('NATIVE_SKILLS_UNAVAILABLE','Нативное подключение навыков не поддерживается этим мостом.',503)
         return capabilities
 
-    def create_thread(self, *, cwd: Path, name: str, prompt: str, sandbox: str = "workspaceWrite", denied_paths: list[str] | None = None, model: str = MODEL_ID, reasoning_effort: str | None = None, user_chat: bool = False, desktop: bool = False, network_access: bool = False, skills: list[dict] | None = None, read_roots: list[str] | None = None) -> dict:
+    def create_thread(self, *, cwd: Path, name: str, prompt: str, sandbox: str = "workspaceWrite", denied_paths: list[str] | None = None, model: str = MODEL_ID, reasoning_effort: str | None = None, user_chat: bool = False, desktop: bool = False, network_access: bool = False, skills: list[dict] | None = None, read_roots: list[str] | None = None, execution_root: Path | None = None) -> dict:
         if skills:
             self.ensure_started()
             self.require_native_skills()
@@ -284,7 +284,8 @@ class CodexLocalApi:
         sandbox_mode = {"workspaceWrite": "workspace-write", "readOnly": "read-only"}.get(sandbox)
         if sandbox_mode is None:
             raise AgentRuntimeError("INVALID_SANDBOX", "Unsupported Codex sandbox mode")
-        root = str(cwd.resolve())
+        execution_root = (execution_root or cwd).resolve()
+        root = str(execution_root)
         filesystem = {":root": "deny", str(self.workspace / 'agents' / 'local-api-token'): "deny"}
         if os.name == 'nt':
             # Native Windows sandbox requires root read; this is an explicit
@@ -292,13 +293,13 @@ class CodexLocalApi:
             filesystem[':root'] = 'read'
         for run_folder in (self.workspace / 'agents' / 'worktrees').glob('*'):
             for sibling in run_folder.iterdir():
-                if sibling.resolve() != cwd.resolve():
+                if sibling.resolve() != execution_root:
                     filesystem[str(sibling.resolve())] = "deny"
         if cwd.parent.parent.name == 'worktrees':
             for sibling_run in cwd.parent.parent.iterdir():
                 if sibling_run.is_dir():
                     for sibling in sibling_run.iterdir():
-                        if sibling.resolve() != cwd.resolve():
+                        if sibling.resolve() != execution_root:
                             filesystem[str(sibling.resolve())] = "deny"
         filesystem.update({str(Path(p).resolve()): "deny" for p in (denied_paths or [])})
         filesystem.update({str(Path(path).resolve()): "read" for path in (read_roots or [])})

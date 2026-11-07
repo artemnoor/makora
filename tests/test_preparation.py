@@ -93,7 +93,7 @@ class PreparationTests(unittest.TestCase):
         self.assertEqual('idea', old['stages']['3']['files']['02_solution_concept.md'])
         self.assertEqual('stale', old['stages']['3']['status'])
         self.assertEqual('[]', old['stages']['5']['files']['mocks/fixtures/data.json'])
-        self.assertEqual([1,2], Preparation.available_stages(old))
+        self.assertEqual([0,1,2], Preparation.available_stages(old))
         self.assertEqual(2, old['lastStage'])
         self.pipeline.index.write_text(json.dumps({'brief':'Legacy','stages':{'2':{'status':'review'}}}), 'utf-8')
         restored = Preparation(Path(self.tmp.name), self.runtime)
@@ -110,18 +110,37 @@ class PreparationTests(unittest.TestCase):
             Preparation.validate(files,2)
 
     def test_native_skill_manifest_is_frozen_and_repeat_folders_share_write_root(self):
+        project_root = self.select_folder()
         self.pipeline.start(1,{'brief':'Проверка реального подключения методических навыков'})
         first=self.pipeline.state['stages']['1']
         self.assertEqual('native',first['skillBindingMode'])
         self.assertTrue(all('packageSha256' in binding for binding in first['skillManifest']))
         self.assertTrue(all(Path(binding['path']).is_file() for binding in first['skillManifest']))
-        write_root=self.calls[-1]['cwd']
+        self.assertEqual(project_root, self.calls[-1]['cwd'])
+        write_root = self.calls[-1]['execution_root']
+        self.assertNotEqual(project_root, write_root)
         self.assertTrue(Path(first['folder']).is_relative_to(write_root))
         self.pipeline.state['stages']['1']['status']='review'
         self.pipeline.start(1,{'feedback':'Уточни анализ'})
         second=self.pipeline.state['stages']['1']
         self.assertTrue(Path(second['folder']).is_relative_to(write_root))
         self.assertEqual(first['skillManifest'],second['skillManifest'])
+
+    def test_explanation_uses_its_own_skill_without_invalidating_analysis(self):
+        self.generate_analysis()
+        self.pipeline.approve(1)
+        result = self.pipeline.start(0, {})
+        stage = result['stages']['0']
+        self.assertEqual('approved', result['stages']['1']['status'])
+        self.assertEqual(['preparation-session', 'brief-explanation'],
+                         [skill['name'] for skill in stage['skillManifest']])
+        self.assertIn(':explanation', stage['groupKey'])
+        text = '## Что сделать\nСделайте каталог.\n\n## Пример\nДопустим, студент ищет кружок.'
+        files = {'00_brief_explanation.md': text}
+        (Path(stage['folder']) / 'result.json').write_text(json.dumps({'files': files}), 'utf-8')
+        self.assertEqual('review', self.pipeline.refresh(0)['stages']['0']['status'])
+        self.pipeline.approve(0)
+        self.assertNotIn('00_brief_explanation.md', self.pipeline.context(2))
 
     def test_stage_cancellation_waits_for_terminal_confirmation_and_is_idempotent(self):
         self.pipeline.start(1,{'brief':'Проверка остановки подготовки проекта'})

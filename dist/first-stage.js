@@ -2,31 +2,38 @@
   const root = document.createElement('section');
   root.id = 'first-stage';
   root.setAttribute('aria-label', 'Анализ задания');
-  root.innerHTML = `<div class="first-top"><a class="first-logo" href="/" aria-label="Макора — главная">✳ <span>макора</span></a><div class="first-header-project"><span data-header-project>Новый проект</span><small data-header-stage>Этап 1 из 6</small></div><nav class="first-top-actions" aria-label="Действия проекта"></nav></div>
-  <div class="first-intro"><div class="mascot-area" tabindex="0" role="button" aria-label="Макора. Нажмите, чтобы подпрыгнуть; перетащите мышью или перемещайте стрелками." title="Нажмите для прыжка или перетащите Макору"><iframe class="mascot-frame" src="mascot.html" title="Персонаж Макоры" tabindex="-1"></iframe></div>
-  <form class="first-form"><div class="speech-label">ПЕРВЫЙ ШАГ <span>01 / 06</span></div><h1>Привет!<br>Разберём задание?</h1><p>Пришли условие хакатона — соберём всё важное в одном месте.</p>
+  root.innerHTML = `<div class="first-top"><a class="first-logo" href="/" aria-label="Макора — главная">✳ <span>макора</span></a><div class="first-header-project"><span data-header-project>Новый проект</span><small data-header-stage>8 этапов</small></div><nav class="first-top-actions" aria-label="Действия проекта"></nav></div>
+  <div class="first-intro"><div class="mascot-area" tabindex="0" role="button" aria-label="Макора. Нажмите, чтобы подпрыгнуть; перетащите мышью или перемещайте стрелками." title="Нажмите для прыжка или перетащите Макору"><span class="mascot-fallback" aria-hidden="true">✳</span><iframe class="mascot-frame" src="mascot.html?v=stage-board-2" title="Персонаж Макоры" tabindex="-1"></iframe></div>
+  <form class="first-form"><div class="speech-label">ПЕРВЫЙ ШАГ <span>01 / 08</span></div><h1>Привет!<br>Объяснить задание?</h1><p>Пришли условие хакатона — соберём всё важное в одном месте.</p>
   <label class="pixel-drop"><input type="file" accept=".pdf,.docx,.txt,.md" class="sr-only"><span class="pixel-plus" aria-hidden="true"><svg viewBox="0 0 24 24" width="28" height="28" shape-rendering="crispEdges"><path fill="currentColor" d="M2 5h8v2h12v14H2zm2 4v10h16V9z"/><path fill="currentColor" d="M11 11h2v2h2v2h-2v2h-2v-2H9v-2h2z"/></svg></span><strong class="file-label">Выбрать файл</strong><small>или перетащить сюда<br>PDF, DOCX, TXT, MD · до 20 МБ</small></label><div class="or-line"><span>ИЛИ ВСТАВЬ ТЕКСТ</span></div><label class="sr-only" for="first-text">Текст задания</label><textarea id="first-text" placeholder="Вставь условие задания сюда…"></textarea><div class="first-project-folder"><button type="button" data-choose-project-folder>▱ Выбрать папку проекта</button><small data-project-folder-label>Здесь будут условие, документы и код</small></div><p class="first-error" role="alert" hidden></p><button class="pixel-start" type="submit" disabled>Начать анализ <span aria-hidden="true">▶</span></button><p class="first-disclaimer">Модели агентов настраиваются для проекта. Результаты сохраняются локально и требуют утверждения.</p></form></div>
-  <div class="board-scene" hidden><div class="board-heading"><span>01 / АНАЛИЗ ЗАДАНИЯ</span><span>01_CASE_ANALYSIS.MD</span></div><div class="board-stage"><div class="board-mascot" aria-hidden="true"></div><div class="board" aria-label="Доска рабочего пространства"><nav class="board-stages" aria-label="Этапы проекта"><button type="button" data-board-stage="1">01 <span>Анализ</span></button><button type="button" data-board-stage="2">02 <span>Идея</span></button><button type="button" data-board-stage="3">03 <span>План</span></button><button type="button" data-board-stage="4">04 <span>Мок-данные</span></button></nav><div class="board-stage-message" role="status" hidden></div><div class="board-sprite"><img class="board-shadow-art" src="analysis-board.png" alt="" draggable="false"><img class="board-art" src="analysis-board.png" alt="" draggable="false"></div><div class="board-inner"><div class="board-bar"><div><span class="board-kicker">ДЕМО-КЕЙС / ТИХИЙ КАМПУС</span><h2>Анализ задания<span>.</span></h2></div><button type="button" class="board-expand" aria-label="Развернуть доску" title="Развернуть доску">⛶</button></div><div class="board-content"></div><div class="board-footer"><span>ТЯНИ ЗА РАМКУ · ДВОЙНОЙ КЛИК — НА ВЕСЬ ЭКРАН</span><span>01 / 06</span></div></div></div></div><div class="scene-bottom"><p>Демо-анализ: показан пример, файл не анализируется.</p><button type="button" class="board-next">Далее <span>→</span></button></div></div>`;
+  <div class="board-scene" hidden>
+    <div class="board-stage">
+      <section class="board rp-board stage-board" aria-label="Доска проекта">
+        <nav class="stage-grid" aria-label="Этапы проекта"></nav>
+        <div class="board-inner" hidden>
+          <header class="board-bar">
+            <div><span class="board-kicker"></span><h2 id="stage-title" tabindex="-1"></h2></div>
+            <button type="button" class="stage-board-back">← К доске</button>
+          </header>
+          <div class="board-content"></div>
+        </div>
+      </section>
+    </div>
+  </div>`;
   document.body.append(root);
-  const newTask = new URLSearchParams(location.search).has('new');
-  const newLink = document.createElement('a');
-  newLink.href='?new=1';newLink.textContent='Новый проект';newLink.className='first-new-task';
-  root.querySelector('.first-top-actions').append(newLink);
   document.body.classList.add('first-stage-active');
-  const underneath = document.querySelectorAll('body > header, body > main');
-  underneath.forEach(el => el.inert = true);
   const form = root.querySelector('form'), input = root.querySelector('input[type=file]'), textarea = root.querySelector('textarea');
   const drop = root.querySelector('.pixel-drop'), error = root.querySelector('.first-error'), start = root.querySelector('.pixel-start');
   let selectedFile = null, selectedFolder = '';
   const chooseFolder=root.querySelector('[data-choose-project-folder]'),folderLabel=root.querySelector('[data-project-folder-label]');
   const folderOpen=document.createElement('button');folderOpen.className='first-open-folder';folderOpen.type='button';folderOpen.disabled=true;folderOpen.title='Сначала выберите папку проекта';folderOpen.setAttribute('aria-label','Открыть папку проекта в Проводнике');folderOpen.innerHTML='<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" aria-hidden="true"><path d="M3 7V4h6l3 3h9v13H3z"/><path d="M3 9h18"/></svg>';
   root.querySelector('.first-top-actions').append(folderOpen);
-  function applyFolder(path,forNew=true){if(!path)return;if(forNew||!newTask){const projectName=root.querySelector('[data-header-project]');projectName.textContent=path.split(/[\\/]/).filter(Boolean).at(-1)||'Проект';projectName.title=path;}folderOpen.disabled=false;folderOpen.title='Открыть папку проекта: '+path;if(forNew){error.hidden=true;selectedFolder=path;chooseFolder.dataset.folderSelected='true';chooseFolder.textContent='▱ Изменить папку проекта';folderLabel.textContent=path;folderLabel.title=path;update()}}
+  function applyFolder(path){if(!path)return;const projectName=root.querySelector('[data-header-project]');projectName.textContent=path.split(/[\\/]/).filter(Boolean).at(-1)||'Проект';projectName.title=path;folderOpen.disabled=false;folderOpen.title='Открыть папку проекта: '+path;error.hidden=true;selectedFolder=path;chooseFolder.dataset.folderSelected='true';chooseFolder.textContent='▱ Изменить папку проекта';folderLabel.textContent=path;folderLabel.title=path;update()}
   window.addEventListener('makora:project-folder',e=>applyFolder(e.detail.path));
   chooseFolder.onclick=async()=>{chooseFolder.disabled=true;chooseFolder.textContent='Выберите папку в открывшемся окне…';try{const result=await window.makoraPreparation.chooseFolder();if(result.cancelled)chooseFolder.textContent=selectedFolder?'▱ Изменить папку проекта':'▱ Выбрать папку проекта'}catch(e){error.textContent=e.message;error.hidden=false;chooseFolder.textContent='▱ Выбрать папку проекта'}finally{chooseFolder.disabled=false}};
   folderOpen.onclick=async()=>{try{await window.makoraPreparation.openFolder()}catch(e){folderOpen.title=e.message;error.textContent=e.message;error.hidden=false}};
 
-  function update() { start.disabled = (!selectedFile && !textarea.value.trim()) || (!!window.makoraPreparation&&!selectedFolder); }
+  function update() { start.disabled = (!selectedFile && !textarea.value.trim()) || !selectedFolder; }
 
   function setFile(file) {
     if (!file) return;
@@ -40,17 +47,12 @@
   drop.addEventListener('drop', e => setFile(e.dataTransfer.files[0]));
   const frame = root.querySelector('iframe');
   function animate(mode) { try { frame.contentDocument.querySelector(`[data-mode="${mode}"]`)?.click(); } catch (_) {} }
-  function spinWheel(duration = 2200) {
-    try {
-      const wheel = frame.contentDocument.querySelector('[data-action="wheel"]');
-      if (!wheel || wheel.classList.contains('active')) return;
-      wheel.click();
-      setTimeout(() => { if (wheel.isConnected && wheel.classList.contains('active')) wheel.click(); }, duration);
-    } catch (_) {}
-  }
-  frame.addEventListener('load', () => animate('idle'));
   const mascotArea = root.querySelector('.mascot-area');
-  const prototypeHandoff = window.createPrototypeHandoff(root, mascotArea, () => textarea.value.trim() ? null : selectedFile);
+  const syncMascot = () => {
+    mascotArea.classList.toggle('mascot-ready', frame.contentDocument?.querySelector('#sprite')?.dataset.ready === 'true');
+  };
+  frame.addEventListener('makora-mascot-render', syncMascot);
+  frame.addEventListener('load', () => { syncMascot(); animate('idle'); });
   let mascotDrag = null;
   function jumpMascot(){try{frame.contentDocument.querySelector('[data-action="jump"]')?.click()}catch{}}
   function notifyMascot(phase, x, y) {
@@ -71,11 +73,11 @@
   function moveMascot(left, top) {
     mascotArea.style.left = Math.max(0, Math.min(left, window.innerWidth - mascotArea.offsetWidth)) + 'px';
     mascotArea.style.top = Math.max(0, Math.min(top, window.innerHeight - mascotArea.offsetHeight)) + 'px';
-    prototypeHandoff.updatePosition();
     window.dispatchEvent(new Event('makora:mascot-move'));
   }
   mascotArea.addEventListener('pointerdown', e => {
     if (e.button !== 0) return;
+    if(root.classList.contains('stage-open')){jumpMascot();return}
     const rect = fixMascot();
     mascotDrag = {id:e.pointerId, x:e.clientX, y:e.clientY, left:rect.left, top:rect.top,moved:false};
     mascotArea.classList.add('carried');
@@ -102,334 +104,21 @@
   mascotArea.addEventListener('keydown', e => {
     if(e.key==='Enter'||e.key===' '){e.preventDefault();if(!e.repeat)jumpMascot();return}
     const delta = {ArrowLeft:[-1,0], ArrowRight:[1,0], ArrowUp:[0,-1], ArrowDown:[0,1]}[e.key];
-    if (!delta) return;
+    if (!delta||root.classList.contains('stage-open')) return;
     e.preventDefault();
     const rect = fixMascot(), step = e.shiftKey ? 40 : 12;
     moveMascot(rect.left + delta[0] * step, rect.top + delta[1] * step);
   });
 
   const board = root.querySelector('.board'), content = root.querySelector('.board-content');
-  const workspace = document.querySelector('body > main .layout');
-  const workspaceHome = workspace.parentElement;
-  const stageDownloads = {main:document.querySelector('#download').onclick, concept:document.querySelector('#download-concept').onclick};
-  const boardTitles = ['Анализ задания','Разработка идеи','Планирование разработки','Подготовка мок-данных','Разработка'];
-  const stageMessage = root.querySelector('.board-stage-message');
-  const workspaceViewKey='makora.workspace-view.v1';
-  let savedWorkspaceView={};try{savedWorkspaceView=JSON.parse(localStorage.getItem(workspaceViewKey))||{};}catch(_){}
-  let boardStage = 1, stageSwitchInProgress = false, stage3DetailOpen = false, stage4DetailOpen = false;
-  const boardBar=root.querySelector('.board-bar'),expandButton=boardBar.querySelector('.board-expand');
-  const boardActions=document.createElement('div');boardActions.className='board-actions';
-  const versionButton=document.createElement('button');versionButton.type='button';versionButton.className='board-version';versionButton.textContent='Файлы версии';
-  expandButton.replaceWith(boardActions);boardActions.append(versionButton,expandButton);
-  let versionDocuments=null;
-  function showVersionFiles(){
-    const data=versionDocuments;if(!data)return;
-    content.innerHTML=`<div class="revision-nav"><button type="button" data-version-exit>← К этапу</button><span>${esc(data.revision_id)}</span></div><div class="revision-list">${data.documents.length?data.documents.map((file,i)=>`<button type="button" data-version-file="${i}"><span>${esc(file.path)}${file.is_demo?' · демо':''}</span><span>↗</span></button>`).join(''):'<p>Для этого этапа в текущей версии нет текстовых файлов.</p>'}</div>${data.omitted.length?`<p class="revision-note">Часть файлов не показана из-за размера или формата: ${esc(data.omitted.join(', '))}</p>`:''}`;
-    content.scrollTop=0;
-  }
-  versionButton.onclick=async()=>{
-    const requestedStage=stage;
-    try{
-      const data=await prototypeHandoff.currentDocuments(requestedStage);
-      if(stage!==requestedStage)return;
-      versionDocuments=data;stageMessage.hidden=true;
-      if(workspace.parentElement===content)workspaceHome.append(workspace);
-      board.classList.remove('workspace-board','plan-index-board','idea-board');board.classList.add('revision-view');
-      showVersionFiles();
-    }catch(error){stageMessage.textContent=error.message||'Не удалось открыть файлы версии.';stageMessage.hidden=false;}
-  };
-  content.addEventListener('click',event=>{
-    if(!board.classList.contains('revision-view'))return;
-    const fileButton=event.target.closest('[data-version-file]');
-    if(fileButton){const file=versionDocuments?.documents[Number(fileButton.dataset.versionFile)];if(!file)return;const body=/\.md$/i.test(file.path)?render(file.content):`<pre class="case-source">${esc(file.content)}</pre>`;content.innerHTML=`<div class="revision-nav"><button type="button" data-version-list>← Все файлы</button><span>${esc(versionDocuments.revision_id)}</span></div><div class="board-document"><div class="board-doc-number">${esc(file.path)}</div>${body}</div>`;content.scrollTop=0;return;}
-    if(event.target.closest('[data-version-list]'))showVersionFiles();
-    if(event.target.closest('[data-version-exit]')){board.classList.remove('revision-view');openBoardStage(boardStage);}
-  });
-  function syncBoardStage() {
-    board.classList.remove('revision-view');
-    root.querySelector('.board-kicker').textContent='ДЕМО-КЕЙС / ТИХИЙ КАМПУС';
-    if (stage === 4 && boardStage !== 4) { stage4DetailOpen = false; stage3DetailOpen = false; }
-    boardStage = stage;
-    savedWorkspaceView={...savedWorkspaceView,stage};
-    try{localStorage.setItem(workspaceViewKey,JSON.stringify(savedWorkspaceView));}catch(_){}
-    const working = stage > 4 || (stage === 4 && stage4DetailOpen) || (stage === 3 && stage3DetailOpen);
-    board.classList.toggle('plan-index-board', (stage === 3 && !stage3DetailOpen) || (stage === 4 && !stage4DetailOpen));
-    board.classList.toggle('idea-board', stage === 2);
-    root.querySelector('.board-footer span:last-child').textContent = String(stage).padStart(2,'0') + ' / 06';
-    board.classList.toggle('workspace-board', working);
-    const stageStatuses=window.makoraDemoWorkflow.getStageStatuses();
-    root.querySelectorAll('[data-board-stage]').forEach(button => {
-      const number=Number(button.dataset.boardStage),status=stageStatuses[number]||'locked',locked=status==='locked';
-      const active = Number(button.dataset.boardStage) === stage;
-      button.classList.toggle('active', active);
-      button.classList.toggle('locked',locked);
-      button.dataset.status=status;
-      button.setAttribute('aria-disabled','false');
-      button.title=locked?window.makoraDemoWorkflow.getGateMessage(number):`Этап ${String(number).padStart(2,'0')} · ${status==='approved'?'утверждён':'доступен'}`;
-      if (active) button.setAttribute('aria-current','step'); else button.removeAttribute('aria-current');
-    });
-    root.querySelector('.board-bar h2').textContent = boardTitles[stage-1] || 'Рабочее пространство';
-    if (stage === 2 && workspace.parentElement === content) { workspaceHome.append(workspace); showIdeaHome(); }
-    if (stage === 3 && !stage3DetailOpen && workspace.parentElement === content) { workspaceHome.append(workspace); showPlanningIndex(); }
-    if (stage === 4 && !stage4DetailOpen && workspace.parentElement === content) { workspaceHome.append(workspace); showMockIndex(); }
-    root.querySelector('.board-heading span:first-child').textContent = String(stage).padStart(2,'0') + ' / ' + (boardTitles[stage-1] || 'РАЗРАБОТКА').toUpperCase();
-    root.querySelector('.board-heading span:last-child').textContent = stage === 1 ? '01_CASE_ANALYSIS.MD' : 'РАБОЧЕЕ ПРОСТРАНСТВО';
-    root.querySelector('.scene-bottom > p').textContent = stage >= 3 ? window.makoraDemo.notice : stage === 1 ? 'Демо-анализ: показан пример, файл не анализируется.' : 'Учебный кейс «Тихий кампус» · исследование и идея — демонстрационные материалы.';
-    const next = root.querySelector('.board-next');
-    next.hidden = stage === 2 || stage >= 4;
-    next.innerHTML = (stage === 1 ? 'Далее' : 'К мок-данным') + ' <span>→</span>';
-  }
-  async function openBoardStage(number) {
-    if(window.makoraPreparation)return window.makoraPreparation.open(number);
-    if (stageSwitchInProgress) return;
-    if(!window.makoraDemoWorkflow.canOpenStage(number)){
-      stageMessage.textContent=window.makoraDemoWorkflow.getGateMessage(number);
-      stageMessage.hidden=false;
-      return;
-    }
-    stageMessage.hidden = true;
-    stageSwitchInProgress = true;
-    try {
-      if (number === 1) {
-        workspaceHome.append(workspace);
-        stage = 1;
-        showIndex();
-      } else {
-        content.replaceChildren(workspace);
-        document.querySelector('#empty').hidden = true;
-        if (number < 4) document.querySelector('#stage4-files')?.remove();
-        if (number === 2) {
-          document.querySelector('#next-stage').click();
-          document.querySelector('#download').onclick = stageDownloads.main;
-          document.querySelector('#download-concept').onclick = stageDownloads.concept;
-        } else if (number === 3) { stage3DetailOpen = false; document.querySelector('#next-stage-3').click(); }
-        else if (number === 4) { stage4DetailOpen = false; await window.openMockStage({preview:true}); }
-        content.scrollTop = 0;
-      }
-      window.makoraDemoWorkflow.setActiveStage(number);
-      syncBoardStage();
-    } finally { stageSwitchInProgress = false; }
-  }
-  root.querySelector('.board-stages').addEventListener('click', e => {
-    const button = e.target.closest('[data-board-stage]');
-    if (button) openBoardStage(Number(button.dataset.boardStage));
-  });
-  new MutationObserver(() => { if (root.isConnected && root.classList.contains('departing')) syncBoardStage(); }).observe(document.querySelector('.page-heading'), {childList:true,subtree:true});
-
-  const mockItems = ['Потребности в данных','Наборы данных','Тестовые сценарии','API-заглушки','Валидация'];
-  function showMockIndex() {
-    stage4DetailOpen = false;
-    workspaceHome.append(workspace);
-    board.classList.remove('workspace-board');
-    board.classList.add('plan-index-board');
-    content.innerHTML = '<div class="plan-board-list">' + mockItems.map((title,i)=>`<button type="button" data-mock-item="${i}" title="${esc(title)}"><span>${String(i+1).padStart(2,'0')}</span><strong>${esc(title)}</strong><span>↗</span></button>`).join('') + '</div>';
-    content.scrollTop = 0;
-  }
-  function showMockStep(index) {
-    stage4DetailOpen = true;
-    board.classList.add('workspace-board');
-    board.classList.remove('plan-index-board');
-    const back = document.createElement('button');
-    back.type = 'button';
-    back.className = 'board-back plan-workspace-back';
-    back.dataset.mockHome = '';
-    back.textContent = '← Все разделы мок-данных';
-    content.replaceChildren(back, workspace);
-    document.querySelectorAll('#doc-content .doc-row')[index]?.click();
-    content.scrollTop = 0;
-  }
-  content.addEventListener('click', e => {
-    if (stage !== 4) return;
-    const item = e.target.closest('[data-mock-item]');
-    if (item) showMockStep(Number(item.dataset.mockItem));
-    else if (e.target.closest('[data-mock-home]')) showMockIndex();
-  });
-
-  const planItems = ['Диаграмма C1','Диаграмма C2','Диаграмма C3','Модель данных · ER','Контракты','План тестирования','Декомпозиция','Валидация','Диаграмма C4 · при необходимости'];
-  const diagrams = [
-    {title:'Модель данных · ER', note:'Логическая модель демонстрационных данных. Диаграмма при необходимости; наличие базы данных не предполагается.', nodes:[['Space','id · name · building','capacity · availableSeats','status · updatedAt · source'],['SpacesResponse','items: Space[]'],['Фикстура','JSON · 0..* Space'],['Error','code · message']], edges:[[1,0,'1 → 0..*'],[2,0,'1 → 0..*']]},
-    {title:'C1 · Контекст', note:'Граница системы и внешние участники. Источник актуальной занятости не подтверждён.', nodes:[['Студент','ищет свободное место'],['Тихий кампус','сервис поиска мест'],['Источник занятости','внешний API · не подтверждён'],['Демо-данные','резервный источник']], edges:[[0,1],[1,2],[1,3]]},
-    {title:'C2 · Контейнеры', note:'Предварительная структура приложения; выбранный стек и источник необходимо согласовать.', nodes:[['Веб-интерфейс','каталог · фильтры · карточка'],['API пространств','HTTP · модель Space'],['Источник занятости','данные извне · не подтверждён'],['Каталог и фикстуры','локальные CSV / JSON']], edges:[[0,1],[1,2],[1,3]]},
-    {title:'C3 · Компоненты', note:'Планируемые компоненты API; границы модулей уточняются при разработке.', nodes:[['API маршруты','список · карточка'],['Сервис каталога','нормализация · фильтрация'],['Адаптер занятости','статусы · время обновления'],['Адаптер фикстур','резерв · source=demo']], edges:[[0,1],[1,2],[1,3]]},
-    {title:'C4 · Код (при необходимости)', note:'Необязательная иллюстрация планируемого кода; уточняется во время разработки.', nodes:[['spaces route','GET список / карточка'],['SpaceService','фильтрация · получение'],['OccupancyAdapter','загрузка статуса'],['Space / Error','модели контракта']], edges:[[0,1],[1,2],[1,3]]}
-  ];
-  function diagramSvg(d) {
-    const locations = [[20,50],[345,50],[670,50],[345,240]], w=210, h=90;
-    const rects = locations.map(([x,y])=>({x,y,cx:x+w/2,cy:y+h/2}));
-    const links=d.edges.map(([a,b,label])=>{
-      const p=rects[a], q=rects[b], dx=q.cx-p.cx, dy=q.cy-p.cy;
-      const from=Math.min(dx ? (w/2)/Math.abs(dx) : Infinity,dy ? (h/2)/Math.abs(dy) : Infinity);
-      const to=Math.min(dx ? (w/2+5)/Math.abs(dx) : Infinity,dy ? (h/2+5)/Math.abs(dy) : Infinity);
-      return `<line x1="${p.cx+dx*from}" y1="${p.cy+dy*from}" x2="${q.cx-dx*to}" y2="${q.cy-dy*to}" stroke="#bcbcbc" stroke-width="2" marker-end="url(#board-diagram-arrow)"/>${label?`<text x="${(p.cx+q.cx)/2}" y="${(p.cy+q.cy)/2-8}" text-anchor="middle" fill="#fff" font-size="12">${esc(label)}</text>`:''}`;
-    }).join('');
-    const nodes=d.nodes.map((lines,i)=>{const {x,y}=rects[i];return `<g><rect x="${x}" y="${y}" width="${w}" height="${h}" rx="3" fill="#1d1d24" stroke="#a59caf" stroke-width="2"/><text x="${x+w/2}" y="${y+29}" text-anchor="middle" fill="#fff" font-size="16" font-weight="700">${esc(lines[0])}</text>${lines.slice(1).map((line,j)=>`<text x="${x+w/2}" y="${y+51+j*16}" text-anchor="middle" fill="#ddd" font-size="12">${esc(line)}</text>`).join('')}</g>`}).join('');
-    return `<svg viewBox="0 0 900 380" role="img" aria-label="${esc(d.title)}"><defs><marker id="board-diagram-arrow" markerWidth="8" markerHeight="8" refX="7" refY="4" orient="auto"><path d="M0 0 L8 4 L0 8Z" fill="#bcbcbc"/></marker></defs>${links}${nodes}</svg>`;
-  }
-  function showPlanningIndex() {
-    stage3DetailOpen = false;
-    workspaceHome.append(workspace);
-    board.classList.remove('workspace-board');
-    board.classList.add('plan-index-board');
-    content.innerHTML = '<div class="plan-board-list">'+planItems.map((title,i)=>`<button type="button" data-plan-item="${i}" title="${esc(title)}"><span>${String(i+1).padStart(2,'0')}</span><strong>${esc(title)}</strong><span>↗</span></button>`).join('')+'</div>';
-    content.scrollTop = 0;
-  }
-  function showPlanningDiagram(index) {
-    const d=diagrams[index];
-    content.innerHTML = `<div class="plan-board-detail"><button type="button" class="board-back plan-board-back" data-plan-home>← Все разделы</button>${window.makoraDemo.markup()}<div class="plan-board-heading"><h3>${esc(d.title)}</h3><button type="button" class="plan-diagram-expand" aria-label="Открыть схему на весь экран">⛶</button></div><p>${esc(d.note)}</p><div class="diagram-shell"><div id="plan-board-diagram" class="mermaid-diagram">${diagramSvg(d)}</div></div><button type="button" class="plan-secondary" data-plan-approval>Согласовать архитектуру →</button></div>`;
-    content.querySelector('.plan-diagram-expand').onclick=e=>window.makoraStage3.openDiagram(content.querySelector('#plan-board-diagram'),e.currentTarget);
-    content.scrollTop = 0;
-  }
-  function showPlanningStep(index) {
-    stage3DetailOpen = true;
-    board.classList.add('workspace-board');
-    board.classList.remove('plan-index-board');
-    const back=document.createElement('button');
-    back.type='button';back.className='board-back plan-workspace-back';back.dataset.planHome='';back.textContent='← Все разделы планирования';
-    content.replaceChildren(back,workspace);
-    document.querySelectorAll('#doc-content .doc-row')[index]?.click();
-    content.scrollTop=0;
-  }
-  content.addEventListener('click', e => {
-    if (stage !== 3) return;
-    const item=e.target.closest('[data-plan-item]');
-    if (item) {const i=Number(item.dataset.planItem);if(i<4)showPlanningDiagram([1,2,3,0][i]);else if(i===8)showPlanningDiagram(4);else showPlanningStep(i-3);}
-    else if(e.target.closest('[data-plan-home]')) showPlanningIndex();
-    else if(e.target.closest('[data-plan-approval]')) showPlanningStep(0);
-  });
-
-  let ideaGroup = null;
-  const ideaGroups = {
-    research:{title:'Исследование', file:'02_research.md', docs:researchBlocks},
-    solution:{title:'Решение', file:'02_solution_concept.md', docs:conceptBlocks}
-  };
-  function showIdeaHome() {
-    ideaGroup = null;
-    content.innerHTML = `<div class="idea-groups"><button type="button" data-idea-group="research"><span class="idea-card-number">01 / 02</span><strong>Исследование</strong><span class="idea-card-caption">5 разделов</span><span class="idea-card-arrow">↗</span></button><button type="button" data-idea-group="solution"><span class="idea-card-number">02 / 02</span><strong>Решение</strong><span class="idea-card-caption">9 разделов</span><span class="idea-card-arrow">↗</span></button></div>`;
-    content.scrollTop = 0;
-  }
-  function showIdeaGroup(group) {
-    ideaGroup = group;
-    const item = ideaGroups[group];
-    content.innerHTML = `<div class="idea-breadcrumb"><button type="button" class="board-back" data-idea-home>← ${item.title}</button><button type="button" class="idea-export" data-idea-export title="Скачать ${item.file}">Скачать ↓</button></div><h3 class="idea-group-title">${item.title}</h3><div class="idea-sections">${item.docs.map((doc,i)=>`<button type="button" data-idea-item="${i}" title="${esc(doc.title)}"><span>${String(i+1).padStart(2,'0')}</span><strong>${esc(doc.title)}</strong><span>↗</span></button>`).join('')}</div>`;
-    content.scrollTop = 0;
-  }
-  function showIdeaDocument(index) {
-    const item = ideaGroups[ideaGroup], doc = item?.docs[index];
-    if (!doc) return;
-    const approval=ideaGroup==='solution'&&doc.title==='Финальная идея' ? `<div class="idea-approval"><p>${window.makoraProject.isApproved()?'Идея утверждена. Изменение исходных материалов или идеи потребует перепроверки плана.':'Идея не утверждена. План и данные ниже пока являются примером для «Тихого кампуса».'}</p><button type="button" class="plan-primary" data-idea-approve>Утвердить идею</button></div>` : '';
-    content.innerHTML = `<div class="idea-breadcrumb"><button type="button" class="board-back" data-idea-back>← ${item.title}</button><button type="button" class="board-back" data-idea-home>Все части</button></div><div class="board-document"><div class="board-doc-number">${String(index+1).padStart(2,'0')} / ${String(item.docs.length).padStart(2,'0')} · ${item.file}</div>${render(doc.md)}<button type="button" class="plan-secondary" data-idea-edit="${index}">Изменить Markdown</button>${approval}</div>`;
-    content.scrollTop = 0;
-  }
-  content.addEventListener('click', e => {
-    if (stage !== 2) return;
-    const group = e.target.closest('[data-idea-group]'), item = e.target.closest('[data-idea-item]');
-    if (group) showIdeaGroup(group.dataset.ideaGroup);
-    else if (item) showIdeaDocument(Number(item.dataset.ideaItem));
-    else if (e.target.closest('[data-idea-home]')) showIdeaHome();
-    else if (e.target.closest('[data-idea-back]')) showIdeaGroup(ideaGroup);
-    else if (e.target.closest('[data-idea-export]')) exportMarkdown(ideaGroups[ideaGroup].file, ideaGroups[ideaGroup].docs);
-    else if (e.target.closest('[data-idea-approve]')) { if(!window.makoraProject.approve()){stageMessage.textContent='Не удалось сохранить утверждение на устройстве.';stageMessage.hidden=false;} showIdeaDocument(ideaGroups.solution.docs.findIndex(x=>x.title==='Финальная идея')); }
-    else if (e.target.closest('[data-idea-edit]')) {const i=Number(e.target.closest('[data-idea-edit]').dataset.ideaEdit),doc=ideaGroups[ideaGroup].docs[i];content.innerHTML=`<div class="idea-breadcrumb"><button type="button" class="board-back" data-idea-back>← ${ideaGroups[ideaGroup].title}</button></div><label class="idea-editor-label" for="idea-editor">${esc(doc.title)} · Markdown</label><textarea id="idea-editor" class="idea-editor"></textarea><button type="button" class="plan-primary" data-idea-save="${i}">Сохранить</button><p class="idea-editor-status" role="status"></p>`;content.querySelector('#idea-editor').value=doc.md;content.querySelector('#idea-editor').focus();}
-    else if (e.target.closest('[data-idea-save]')) {const i=Number(e.target.closest('[data-idea-save]').dataset.ideaSave),value=content.querySelector('#idea-editor').value.trim();if(!value){content.querySelector('.idea-editor-status').textContent='Введите текст раздела.';return;}if(!window.makoraProject.saveDocument(ideaGroups[ideaGroup].docs[i],value)){content.querySelector('.idea-editor-status').textContent='Не удалось сохранить данные на устройстве.';return;}showIdeaDocument(i);}
-  });
-  function showIndex() {
-    content.innerHTML = '<div class="board-intro">ВЫБЕРИ РАЗДЕЛ, ЧТОБЫ ОТКРЫТЬ ЕГО</div><div class="board-list">' + oneTitles.map((title,i) => `<button type="button" data-section="${i}" title="${esc(title)}"><span class="board-number">${String(i+1).padStart(2,'0')}</span><span>${title}</span><span class="board-arrow">↗</span></button>`).join('') + '</div>';
-  }
-  function showSection(i) {
-    const source=window.makoraProject.source();
-    const original=i===0&&source?`<h2>Ваше исходное условие</h2><p>${esc(source.name)}. ${source.text?'Текст сохранён на этом устройстве и передаётся в контекст задания агенту.':'Файл выбран, но извлечение текста этого формата не подключено.'}</p>${source.text?`<pre class="case-source">${esc(source.text)}</pre>`:''}<p>Ниже показан учебный пример: автоматический анализ вашего условия пока не подключён.</p>`:'';
-    content.innerHTML = `<button type="button" class="board-back">← Все разделы</button><div class="board-document"><div class="board-doc-number">${String(i+1).padStart(2,'0')} / 10</div>${original}${render(one[i])}</div>`;
-    content.scrollTop = 0;
-  }
-  content.addEventListener('click', e => { const section=e.target.closest('[data-section]'); if(section) showSection(Number(section.dataset.section)); if(stage===1 && e.target.closest('.board-back')) showIndex(); });
-  // The board keeps its navigation, while approved revision files supply its content.
-  let artifactRequest=0, currentFixtureFiles=[], noRevisionUntil=0;
-  window.addEventListener('makora-revision-updated',()=>{noRevisionUntil=0;});
-  function currentFallback(s,index,group){
-    board.classList.remove('revision-view');root.querySelector('.board-kicker').textContent='ДЕМО-КЕЙС / ТИХИЙ КАМПУС';
-    root.querySelector('.scene-bottom > p').textContent=(s>=3?window.makoraDemo.notice:'Демо-анализ: показан пример, файл не анализируется.')+' Этап 06 находится в разработке.';
-    if(s===1)showSection(index);
-    else if(s===2){ideaGroup=group;showIdeaDocument(index);}
-    else if(s===3){if(index<4)showPlanningDiagram([1,2,3,0][index]);else if(index===8)showPlanningDiagram(4);else showPlanningStep(index-3);}
-    else if(s===4)showMockStep(index);
-  }
-  function sectionFromMarkdown(text,title){
-    const normalize=value=>value.toLowerCase().replace(/ё/g,'е').replace(/[^a-zа-я0-9]+/g,' ').trim().replace(/^\d+\s*/, '');
-    const wanted=normalize(title),lines=text.split('\n');let start=-1,level=0;
-    for(let i=0;i<lines.length;i++){const m=lines[i].match(/^(#{1,3})\s+(.+)$/);if(!m)continue;const heading=normalize(m[2]);if(heading===wanted||heading.startsWith(wanted+' ')||wanted.startsWith(heading+' ')){start=i;level=m[1].length;break;}}
-    if(start<0)return {text,whole:true};
-    let end=lines.length;for(let i=start+1;i<lines.length;i++){const m=lines[i].match(/^(#{1,3})\s+/);if(m&&m[1].length<=level){end=i;break;}}
-    return {text:lines.slice(start,end).join('\n').trim(),whole:false};
-  }
-  function artifactCandidates(s,index,group,files){
-    const find=pattern=>files.find(f=>pattern.test(f.path));
-    if(s===1){const specific=[/problem.statement/i,/requirements/i,/desired/i,/opportunities/i,/constraints/i,/evaluation/i,/submission/i,/resources/i,/open.questions/i,/risk/i][index];return find(specific)||find(/01.*case.analysis/i);}
-    if(s===2){const title=ideaGroups[group]?.docs[index]?.title||'';if(/user flow/i.test(title)){const f=find(/user[_-]?flow/i);if(f)return f;}if(/task flow/i.test(title)){const f=find(/task[_-]?flows?/i);if(f)return f;}return find(group==='research'?/02.*research/i:/02.*(solution|concept)/i);}
-    if(s===3){const patterns=[/c1[-_].*(context|контекст)/i,/c2[-_].*(container|контейнер)/i,/c3[-_].*(component|компонент)/i,/(data.model|er.diagram)/i,/openapi\.(yaml|yml|json)$/i,/(test.plan|test_plan)/i,/(03_tasks|tasks)\.(json|ya?ml)$/i,/(03_validation|validation.report)/i,/c4[-_].*(code|код)/i];return find(patterns[index])||(index<4||index===8?find(/03.*architecture/i):null);}
-    if(s===4){const patterns=[/(04_mock_data|data.requirements|data.needs)/i,/\/(?:fixtures)\//i,/scenarios\.json$/i,/mock.api.*readme\.md$/i,/(04_validation|mock.validation)/i];return find(patterns[index]);}
-    return null;
-  }
-  async function showRevisionArtifact(s,index,group,request){
-    if(Date.now()<noRevisionUntil)return false;
-    let data;
-    try{data=await prototypeHandoff.currentDocuments(s);}catch(error){
-      if(localStorage.getItem('makora.current-revision.v1')){stageMessage.textContent='Не удалось загрузить текущую ревизию. Проверь локальный сервер.';stageMessage.hidden=false;content.innerHTML='<button type="button" data-current-back>← К разделам</button><p>Текущая версия недоступна.</p>';return true;}
-      noRevisionUntil=Date.now()+5000;return false;
-    }
-    if(request!==artifactRequest||stage!==s)return true;
-    if(data.reason==='initial'){noRevisionUntil=Date.now()+5000;return false;}
-    try{localStorage.setItem('makora.current-revision.v1',data.revision_id);}catch{}
-    const files=(data.documents||[]).filter(f=>!f.is_demo),file=artifactCandidates(s,index,group,files);
-    if(!file){const omitted=artifactCandidates(s,index,group,(data.omitted||[]).map(path=>({path})));if(omitted){content.innerHTML=`<button type="button" data-current-back>← К разделам</button><p>Файл ${esc(omitted.path)} не показан из-за размера или формата.</p>`;return true;}return false;}
-    if(workspace.parentElement===content)workspaceHome.append(workspace);
-    board.classList.remove('workspace-board','plan-index-board','idea-board');board.classList.add('revision-view');
-    root.querySelector('.board-kicker').textContent='ТЕКУЩАЯ РЕВИЗИЯ';
-    root.querySelector('.scene-bottom > p').textContent='Показаны файлы согласованной версии '+data.revision_id+'.';
-    const title=s===1?oneTitles[index]:s===2?ideaGroups[group].docs[index].title:s===3?planItems[index]:mockItems[index];
-    const nav=`<div class="revision-nav"><button type="button" data-current-back>← К разделам</button><span>${esc(data.revision_id)}</span></div>`;
-    if(s===4&&index===1){
-      currentFixtureFiles=files.filter(f=>/\/(?:fixtures)\//i.test(f.path));
-      content.innerHTML=nav+`<div class="board-document"><h2>${esc(title)}</h2><div class="revision-list">${currentFixtureFiles.map((f,i)=>`<button type="button" data-current-fixture="${i}">${esc(f.path)} ↗</button>`).join('')}</div><pre class="case-source" data-current-preview>${esc(currentFixtureFiles[0]?.content||'')}</pre></div>`;
-    }else{
-      const selected=/\.md$/i.test(file.path)?sectionFromMarkdown(file.content,title):{text:file.content,whole:false};
-      const body=/\.md$/i.test(file.path)?render(selected.text):`<pre class="case-source">${esc(selected.text)}</pre>`;
-      content.innerHTML=nav+`<div class="board-document"><div class="board-doc-number">${esc(file.path)} · СОГЛАСОВАННАЯ ВЕРСИЯ</div>${selected.whole?'<p>Отдельный заголовок не найден — показан документ целиком.</p>':''}${body}</div>`;
-    }
-    content.scrollTop=0;return true;
-  }
-  content.addEventListener('click',event=>{
-    const back=event.target.closest('[data-current-back]');if(back){event.stopImmediatePropagation();board.classList.remove('revision-view');if(stage===1)showIndex();else if(stage===2)showIdeaGroup(ideaGroup);else if(stage===3)showPlanningIndex();else if(stage===4)showMockIndex();return;}
-    const fixture=event.target.closest('[data-current-fixture]');if(fixture){event.stopImmediatePropagation();const preview=content.querySelector('[data-current-preview]');if(preview)preview.textContent=currentFixtureFiles[Number(fixture.dataset.currentFixture)]?.content||'';return;}
-    const targets={1:'[data-section]',2:'[data-idea-item]',3:'[data-plan-item]',4:'[data-mock-item]'},target=event.target.closest(targets[stage]||'[data-never]');
-    if(!target)return;
-    event.stopImmediatePropagation();const s=stage,group=ideaGroup,index=Number(target.dataset.section??target.dataset.ideaItem??target.dataset.planItem??target.dataset.mockItem),request=++artifactRequest;
-    content.innerHTML='<p class="revision-note" role="status">Открываю документ…</p>';
-    showRevisionArtifact(s,index,group,request).then(shown=>{if(!shown&&request===artifactRequest&&stage===s)currentFallback(s,index,group);});
-  },true);
-  function updateFullscreen(expanded) {
-    if (expanded) settleBoard();
-    board.classList.add('board-settled');
-    board.classList.toggle('expanded', expanded);
-    window.dispatchEvent(new CustomEvent('makora:board-fullscreen',{detail:{expanded}}));
-    const button = root.querySelector('.board-expand');
-    button.textContent = expanded ? '×' : '⛶';
-    button.setAttribute('aria-label', expanded ? 'Свернуть доску' : 'Развернуть доску');
-    button.setAttribute('aria-pressed', String(expanded));
-  }
-  async function toggleBoard() {
-    const expanded = !board.classList.contains('expanded');
-    updateFullscreen(expanded);
-    if (expanded && board.requestFullscreen) await board.requestFullscreen().catch(() => {});
-    else if (!expanded && document.fullscreenElement === board) await document.exitFullscreen().catch(() => {});
-  }
-  document.addEventListener('fullscreenchange', () => { if (!document.fullscreenElement) updateFullscreen(false); });
   let dragging = null;
   const reduceMotion = window.matchMedia('(prefers-reduced-motion: reduce)');
   const motion = {x:0, y:0, targetX:0, targetY:0, velocityX:0, rotation:0, last:0, frame:0};
   const limit = (n, min, max) => Math.max(min, Math.min(n, Math.max(min, max)));
   function boardTarget(left, top) {
+    const topLimit=Number(board.dataset.topLimit)||88;
     return {x:limit(left, 8, window.innerWidth - board.offsetWidth - 8),
-      y:limit(top, board.classList.contains('rp-board')?88:8, window.innerHeight - Math.min(board.offsetHeight, window.innerHeight - 16) - 8)};
+      y:limit(top, topLimit, window.innerHeight - board.offsetHeight - 12)};
   }
   function paintBoard() {
     board.style.left = motion.x + 'px';
@@ -474,50 +163,44 @@
     motion.targetY = target.y;
     settleBoard();
   }
-  function placeBoard(mascotRect) {
-    if (board.classList.contains('rp-board')) {
-      const compact = window.innerWidth < 900;
-      const width = compact ? window.innerWidth - 24 : Math.min(board.classList.contains('rp-large')?900:660, Math.floor(window.innerWidth * .64));
-      board.style.setProperty('--board-width', width + 'px');
-      if(!mascotArea.dataset.workspacePlaced){
-        mascotArea.dataset.workspacePlaced='1';
-        moveMascot(compact?(window.innerWidth-mascotArea.offsetWidth)/2:Math.max(16,(window.innerWidth-width-24-mascotArea.offsetWidth)/2),compact?65:window.innerHeight/2-100);
-      }
-      moveBoard(compact ? 12 : window.innerWidth - width - 24, compact ? 238 : Math.max(160,(window.innerHeight-460)/2));
-      return;
+  function placeBoard() {
+    const compact = window.innerWidth < 900;
+    const headerBottom=root.querySelector('.first-top').getBoundingClientRect().bottom;
+    const width=compact?window.innerWidth-24:Math.min(920,Math.floor(window.innerWidth*.72));
+    const topLimit=Math.round(headerBottom)+(compact?86:20);
+    const placement=compact?'compact':'wide';
+    board.style.setProperty('--board-width',width+'px');
+    board.style.setProperty('--board-offset',topLimit+'px');
+    board.dataset.topLimit=topLimit;
+    if(mascotArea.dataset.workspacePlaced!==placement){
+      mascotArea.dataset.workspacePlaced=placement;
+      mascotArea.style.width=compact?'116px':'220px';
+      mascotArea.style.height=compact?'72px':'186px';
+      moveMascot(compact?(window.innerWidth-mascotArea.offsetWidth)/2:Math.max(16,(window.innerWidth-width-28-mascotArea.offsetWidth)/2),
+        compact?headerBottom+5:window.innerHeight/2-93);
+    }else{
+      moveMascot(parseFloat(mascotArea.style.left),parseFloat(mascotArea.style.top));
     }
-    const narrow = window.innerWidth < 900;
-    const width = narrow ? Math.min(620, window.innerWidth - 24) : Math.min(620, window.innerWidth - mascotRect.right - 26);
-    board.style.setProperty('--board-width', width + 'px');
-    moveBoard(narrow ? (window.innerWidth - width) / 2 : mascotRect.right + 18,
-      narrow ? mascotRect.bottom + 12 : mascotRect.top + mascotRect.height / 2 - width / 4);
+    const left=compact?12:window.innerWidth-width-28;
+    moveBoard(left,compact?topLimit:Math.max(topLimit,(window.innerHeight-board.offsetHeight)/2));
   }
-  function revealWorkspace(mascotRect,{restore=false}={}) {
-    const mascot=root.querySelector('.mascot-area'),formRect=form.getBoundingClientRect();
+  function revealWorkspace(snapshot,{restore=false}={}) {
+    fixMascot();
+    if(restore)root.classList.add('restoring');
+    root.classList.add('departing');
+    root.querySelector('.board-scene').hidden=false;
+    window.makoraPreparation.mount(snapshot);
+    placeBoard();
     if(restore){
-      fixMascot();
-      root.classList.add('restoring');
+      root.classList.add('board-visible');
       form.hidden=true;
     }else{
-      Object.assign(form.style,{position:'fixed',left:formRect.left+'px',top:formRect.top+'px',width:formRect.width+'px'});
-      Object.assign(mascot.style,{position:'fixed',left:mascotRect.left+'px',top:mascotRect.top+'px',width:mascotRect.width+'px',height:mascotRect.height+'px',minHeight:'0',maxWidth:'none',margin:'0'});
-      if(!window.makoraPreparation)spinWheel();
+      requestAnimationFrame(()=>requestAnimationFrame(()=>root.classList.add('board-visible')));
+      setTimeout(()=>{form.hidden=true},650);
     }
-    root.classList.add('departing');
-    if(!window.makoraPreparation)prototypeHandoff.show();
-    root.querySelector('.board-scene').hidden=false;
-    showIndex();
-    syncBoardStage();
-    if(window.makoraPreparation)content.innerHTML='<div class="board-document">Загружаем реальные артефакты проекта…</div>';
-    window.makoraPreparation?.mount().catch(e=>{content.innerHTML='<div class="board-document" role="alert">'+esc(e.message)+'</div>';error.textContent=e.message;error.hidden=false});
-    placeBoard(mascotRect);
-    if(restore)setTimeout(()=>{if(frame.isConnected)frame.contentWindow.location.reload()},100);
-    if(restore)root.classList.add('board-visible');
-    else requestAnimationFrame(()=>requestAnimationFrame(()=>root.classList.add('board-visible')));
-    if(!restore)setTimeout(()=>{form.hidden=true;},650);
   }
   board.addEventListener('pointerdown', e => {
-    if (e.button !== 0 || board.classList.contains('expanded') || e.target.closest('button,.board-content')) return;
+    if (e.button !== 0 || board.classList.contains('expanded') || e.target.closest('button,a,.board-content')) return;
     dragging = {id:e.pointerId, x:e.clientX, y:e.clientY, left:motion.targetX, top:motion.targetY, previousX:e.clientX, last:performance.now()};
     board.classList.add('dragging');
     board.setPointerCapture(e.pointerId);
@@ -544,36 +227,35 @@
   }
   ['pointerup','pointercancel','lostpointercapture'].forEach(type => board.addEventListener(type, stopDrag));
   window.addEventListener('resize', () => {
-    if (root.isConnected && root.classList.contains('departing') && !board.classList.contains('expanded')) placeBoard(root.querySelector('.mascot-area').getBoundingClientRect());
+    if (root.isConnected && root.classList.contains('departing') && !board.classList.contains('expanded')) placeBoard();
   });
-  root.querySelector('.board-expand').addEventListener('click',toggleBoard);
-  board.addEventListener('dblclick',e => { if(!e.target.closest('button')) toggleBoard(); });
-  document.addEventListener('keydown',e => { if(e.key==='Escape' && board.classList.contains('expanded')) toggleBoard(); });
+  root.addEventListener('makora:stage-close',placeBoard);
   form.addEventListener('submit', async e => {
     e.preventDefault();
     if (start.disabled || root.classList.contains('departing')) return;
-    let sourceText=textarea.value.trim() || (selectedFile && /\.(txt|md)$/i.test(selectedFile.name) ? await selectedFile.text() : '');
-    if(window.makoraPreparation){
-      if(!sourceText&&selectedFile){start.disabled=true;start.textContent='Читаем файл…';window.dispatchEvent(new CustomEvent('makora:activity',{detail:{active:true,text:'Извлекаем текст из файла…'}}));try{sourceText=await window.makoraPreparation.extract(selectedFile)}catch(e){error.textContent=e.message;error.hidden=false;start.disabled=false;start.textContent='Начать анализ';return}finally{window.dispatchEvent(new CustomEvent('makora:activity',{detail:{active:false}}))}}
-      if(!sourceText){error.textContent='Вставь текст задания или загрузи TXT/MD: извлечение этого формата ещё не подключено.';error.hidden=false;return}
-      start.disabled=true;start.textContent='Создаём сессию Codex…';
-      try{await window.makoraPreparation.start(sourceText,selectedFile);localStorage.setItem('makora.real-project','1')}catch(e){error.textContent=e.message;error.hidden=false;start.disabled=false;start.textContent='Начать анализ';return}
+    start.disabled=true;
+    error.hidden=true;
+    try{
+      let sourceText=textarea.value.trim();
+      if(!sourceText&&selectedFile){
+        start.textContent='Читаем файл…';
+        sourceText=/\.(txt|md)$/i.test(selectedFile.name)
+          ? await selectedFile.text()
+          : await window.makoraPreparation.extract(selectedFile);
+      }
+      if(!sourceText)throw Error('Вставьте текст задания или прикрепите файл с условием.');
+      start.textContent='Создаём сессию Codex…';
+      const snapshot=await window.makoraPreparation.start(sourceText,selectedFile);
+      revealWorkspace(snapshot);
+    }catch(e){
+      error.textContent=e.message;
+      error.hidden=false;
+      start.textContent='Начать анализ';
+      update();
     }
-    if(!window.makoraProject.setSource({name:textarea.value.trim()?'Вставленный текст':selectedFile?.name||'Условие',text:sourceText})){error.textContent='Не удалось сохранить условие на устройстве. Попробуй более короткий текст.';error.hidden=false;return;}
-    revealWorkspace(root.querySelector('.mascot-area').getBoundingClientRect());
-  });
-  root.querySelector('.board-next').addEventListener('click', () => {
-    const next=Math.min(boardStage+1,4);
-    if(boardStage===1){const result=window.makoraDemoWorkflow.approveAnalysis();if(!result.ok){stageMessage.textContent=result.error;stageMessage.hidden=false;return;}}
-    openBoardStage(next);
   });
   window.addEventListener('makora:resume-project',event=>{
     const snapshot=event.detail;
-    if(!snapshot?.brief)return;
-    selectedFile=null;input.value='';textarea.value=snapshot.brief;
-    applyFolder(snapshot.storageRoot);
-    window.makoraProject.setSource({name:snapshot.name||'Сохранённый проект',text:snapshot.brief});
-    localStorage.setItem('makora.real-project','1');localStorage.setItem('makora.real-stage',String(snapshot.lastStage||1));
-    revealWorkspace(mascotArea.getBoundingClientRect(),{restore:true});
+    if(snapshot?.brief)revealWorkspace(snapshot,{restore:true});
   });
 })();

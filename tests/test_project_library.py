@@ -40,7 +40,7 @@ class ProjectLibraryTests(unittest.TestCase):
         self.assertEqual('Existing requirements', snapshot['brief'])
         self.assertEqual(2, snapshot['lastStage'])
         self.assertEqual('# Analysis', snapshot['stages']['1']['files']['analysis.md'])
-        self.assertEqual([1, 2], self.pipeline.available_stages(snapshot))
+        self.assertEqual([0, 1, 2], self.pipeline.available_stages(snapshot))
         restored = Preparation(self.base / 'workspace', self.runtime)
         self.assertEqual(2, restored.state['lastStage'])
 
