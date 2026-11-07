@@ -279,7 +279,8 @@ class CodexLocalApi:
     def create_thread(self, *, cwd: Path, name: str, prompt: str, sandbox: str = "workspaceWrite", denied_paths: list[str] | None = None, model: str = MODEL_ID, reasoning_effort: str | None = None, user_chat: bool = False, desktop: bool = False, network_access: bool = False, skills: list[dict] | None = None, read_roots: list[str] | None = None, execution_root: Path | None = None) -> dict:
         if skills:
             self.ensure_started()
-            self.require_native_skills()
+            if not desktop:
+                self.require_native_skills()
         catalog = self.model_catalog()
         selected = next((item for item in catalog if model in (item.get('id'), item.get('model'))), None)
         if not selected:
@@ -330,7 +331,7 @@ class CodexLocalApi:
     def send(self, thread_id: str, text: str, *, desktop: bool = False, skills: list[dict] | None = None,
              model: str | None = None, reasoning_effort: str | None = None) -> dict:
         self.ensure_started()
-        if skills:
+        if skills and not desktop:
             self.require_native_skills()
         payload = {"transport": "desktop" if desktop else "app-server", "text": text}
         if skills:

@@ -51,7 +51,7 @@ class PreparationTests(unittest.TestCase):
         self.pipeline.start(2, {})
         record = self.pipeline.state['stages']['2']
         self.assertTrue(self.calls[-1]['network_access'])
-        self.assertFalse(self.calls[-1]['desktop'])
+        self.assertTrue(self.calls[-1]['desktop'])
         self.assertNotEqual(self.pipeline.state['stages']['1']['threadId'], record['threadId'])
         files = self.competitor_files()
         (Path(record['folder'])/'result.json').write_text(json.dumps({'files': files}), 'utf-8')
@@ -109,11 +109,11 @@ class PreparationTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError,'ISO'):
             Preparation.validate(files,2)
 
-    def test_native_skill_manifest_is_frozen_and_repeat_folders_share_write_root(self):
+    def test_desktop_skill_manifest_is_frozen_and_stage_paths_remain_available(self):
         project_root = self.select_folder()
         self.pipeline.start(1,{'brief':'Проверка реального подключения методических навыков'})
         first=self.pipeline.state['stages']['1']
-        self.assertEqual('native',first['skillBindingMode'])
+        self.assertEqual('prompt-referenced',first['skillBindingMode'])
         self.assertTrue(all('packageSha256' in binding for binding in first['skillManifest']))
         self.assertTrue(all(Path(binding['path']).is_file() for binding in first['skillManifest']))
         self.assertEqual(project_root, self.calls[-1]['cwd'])
@@ -144,6 +144,8 @@ class PreparationTests(unittest.TestCase):
 
     def test_stage_cancellation_waits_for_terminal_confirmation_and_is_idempotent(self):
         self.pipeline.start(1,{'brief':'Проверка остановки подготовки проекта'})
+        session_id=self.pipeline.state['stages']['1']['sessionId']
+        self.runtime.state['sessions'][session_id]['transport']='app-server'
         calls=[]
         self.runtime.provider.interrupt=lambda thread,turn:calls.append((thread,turn))
         first=self.pipeline.cancel(1)
@@ -558,6 +560,27 @@ class PreparationTests(unittest.TestCase):
         self.assertEqual([], self.sends)
         self.assertTrue(result['stages']['0']['desktopOpened'])
         self.assertIsNone(result['stages']['0']['desktopOpenError'])
+
+    def test_legacy_result_gets_one_desktop_chat_without_repeating_analysis(self):
+        project_root = self.select_folder()
+        self.generate_analysis()
+        record = self.pipeline.state['stages']['1']
+        record['transport'] = 'app-server'
+        original_id, files = record['threadId'], dict(record['files'])
+        before = len(self.calls)
+        create = self.runtime.provider.create_thread
+        self.runtime.provider.create_thread = lambda **kwargs: {**create(**kwargs), 'id': 'desktop-discussion'}
+        self.runtime.provider.open_desktop = Mock(return_value={'navigated': True})
+        self.pipeline.open_codex_chat(1)
+        self.pipeline.open_codex_chat(1)
+        self.assertEqual(before + 1, len(self.calls))
+        self.assertTrue(self.calls[-1]['desktop'])
+        self.assertEqual(project_root, self.calls[-1]['cwd'])
+        self.assertIn('Не запускай этап повторно', self.calls[-1]['prompt'])
+        self.assertEqual(original_id, record['threadId'])
+        self.assertEqual('desktop-discussion', record['discussionThreadId'])
+        self.assertEqual(files, record['files'])
+        self.assertEqual('review', record['status'])
 
     def test_continue_from_failed_analogs_starts_one_idea_chat_and_waits_for_user(self):
         self.generate_analysis()
