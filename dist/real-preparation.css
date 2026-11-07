@@ -656,7 +656,7 @@
 .competitor-card label{display:block;margin-block:12px}.competitor-card select,.competitor-card textarea{display:block;width:100%;box-sizing:border-box;margin-top:6px;padding:10px;background:#151515;color:#eee;border:1px solid #777;font:inherit;font-size:16px}.competitor-card textarea{resize:vertical}
 
 /* The original pixel frame surrounds the stage index. */
-#first-stage .stage-board:not(.expanded) {
+#first-stage .board.stage-board:not(.expanded) {
   --frame-top:clamp(44px, 7vw, 82px);
   --frame-side:clamp(26px, 8vw, 86px);
   --frame-foot:clamp(54px, 8vw, 98px);
@@ -712,10 +712,10 @@
 #first-stage .stage-grid button:is(:hover,:focus-visible) {background:#fff1;color:#fff}
 #first-stage .stage-grid button:focus-visible {outline-offset:-2px}
 @media (max-height:650px), (max-width:640px) {
-  #first-stage .stage-board:not(.expanded) {--frame-top:32px;--frame-foot:42px}
+  #first-stage .board.stage-board:not(.expanded) {--frame-top:32px;--frame-foot:42px}
 }
 @media (max-width:640px) {
-  #first-stage .stage-board:not(.expanded) {--frame-side:21px}
+  #first-stage .board.stage-board:not(.expanded) {--frame-side:21px}
   #first-stage .stage-grid {inset-inline:25px;column-gap:8px}
   #first-stage .stage-grid button {grid-template-columns:1.65em minmax(0, 1fr)}
   #first-stage .stage-tile-mark {display:none}
