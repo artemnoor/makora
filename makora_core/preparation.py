@@ -155,9 +155,7 @@ class Preparation:
 
     @staticmethod
     def stage_group(stage):
-        if stage == 0:
-            return ':explanation'
-        return ':competitors' if stage == 2 else ':planning' if stage <= 4 else ':mocks'
+        return {0: ':explanation', 2: ':competitors', 5: ':mocks'}.get(stage, f':stage-{stage}')
 
     @staticmethod
     def available_stages(state):
@@ -616,8 +614,7 @@ class Preparation:
                     created = {**sent, 'id': chat['threadId'], 'model': chat['model'],
                                'reasoningEffort': chat.get('reasoningEffort'), 'transport': chat.get('transport', 'app-server')}
                 else:
-                    titles = {0: 'Макора — простое объяснение', 2: 'Макора — конкуренты', 5: 'Макора — мок-данные'}
-                    title = titles.get(stage, 'Макора — анализ, идея и план')
+                    title = f'Макора · {stage + 1:02d} — {STAGES[stage][0]}'
                     self.lock.release()
                     try:
                         project_root = Path(self.state['storageRoot']) if self.state.get('storageRoot') else session_root
@@ -651,7 +648,20 @@ class Preparation:
                 self.save()
                 raise
             self.save()
-            return self.snapshot()
+            snapshot = self.snapshot()
+        if payload.get('openInCodex') is True:
+            self.open_codex_thread(record['threadId'])
+        return snapshot
+
+    @staticmethod
+    def open_codex_thread(thread_id):
+        launch = getattr(os, 'startfile', None)
+        if launch is None:
+            return
+        try:
+            launch(f'codex://threads/{uuid.UUID(thread_id)}')
+        except (OSError, ValueError, TypeError, AttributeError):
+            logger.warning('Could not open preparation thread in Codex Desktop')
 
     @staticmethod
     def validate_diagrams(files):

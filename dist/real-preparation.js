@@ -38,7 +38,7 @@
   async function uploadSource(file){const auth=await(await fetch('/api/agents/token',{headers:{'X-Makora-Request':'token'}})).json();const response=await fetch('/api/preparation/source?name='+encodeURIComponent(file.name),{method:'POST',headers:{'X-Makora-Token':auth.result.token},body:file});const data=await response.json();if(!response.ok)throw Error(data.error?.message||'Не удалось сохранить исходный файл');return data.result}
   async function start(brief,sourceFile){
     if(sourceFile)await uploadSource(sourceFile);
-    return api('/api/preparation/0/start',{brief});
+    return api('/api/preparation/0/start',{brief,openInCodex:true});
   }
   const stageStatusNames={complete:'Готово',running:'В работе',available:'Доступно',locked:'Закрыто'};
   const pendingStatuses=['running','unconfirmed','stopping'];
@@ -187,7 +187,7 @@
     content.querySelector('[data-real-file]')?.addEventListener('click',()=>{show(main)});
     if(file&&files[file])show(file);
     content.querySelector('[data-analysis-edit]')?.addEventListener('click',()=>{
-      const regenerate=feedback=>action(async()=>{window.makoraModelStatus?.preparation({status:'dispatching'});artifactView(scene,board,content,record,{},'launching',true,projectKey);try{state=await api(`/api/preparation/${step}/start`,{feedback});file=null;root()?.querySelector('.analysis-chat')?.remove();paint()}catch(e){try{state=await api('/api/preparation')}catch{}paint();throw e}});
+      const regenerate=feedback=>action(async()=>{window.makoraModelStatus?.preparation({status:'dispatching'});artifactView(scene,board,content,record,{},'launching',true,projectKey);try{state=await api(`/api/preparation/${step}/start`,{feedback,openInCodex:true});file=null;root()?.querySelector('.analysis-chat')?.remove();paint()}catch(e){try{state=await api('/api/preparation')}catch{}paint();throw e}});
       if(!record){regenerate(feedbacks[step]||'');return}
       openRefinementChat({key:projectKey,step,title:step===2?'Каких конкурентов искать?':'Какие правки внесём?',description:`Расскажи, что поправить: ${names[step].toLowerCase()}. Я обновлю материалы этапа.`,submit:step===2?'Обновить поиск →':'Пересоздать материалы →',onSubmit:regenerate});
     });

@@ -496,14 +496,14 @@ class PreparationTests(unittest.TestCase):
         inputs = json.loads((Path(restored.state['stages']['3']['folder']) / 'INPUT.json').read_text('utf-8'))
         self.assertIn('01_case_analysis.md', inputs['artifacts'])
 
-    def test_preparation_groups_survive_restart_and_stage_four_is_separate(self):
+    def test_preparation_chats_are_per_stage_and_reused_after_restart(self):
         created = []
         def create(**kwargs):
             created.append(kwargs)
             return {'id': 'desktop-' + str(len(created)), 'turnId': 'turn-' + str(len(created)),
                     'transport': 'desktop', 'operation': {'id': 'op-' + str(len(created)), 'state': 'accepted'}}
         self.runtime.provider.create_thread = create
-        self.pipeline.start(1, {'brief': 'Проверка общего чата анализа, идеи и плана.'})
+        self.pipeline.start(1, {'brief': 'Проверка отдельных чатов подготовки проекта.'})
         first = self.pipeline.state['stages']['1']
         task = json.loads((Path(first['folder']) / 'TASK.json').read_text('utf-8'))
         self.assertEqual(['01_case_analysis.md'], task['requiredFiles'])
@@ -516,17 +516,30 @@ class PreparationTests(unittest.TestCase):
         restored.state['stages']['2'] = {'status': 'approved', 'files': {}}
         restored.start(3, {})
         second = restored.state['stages']['3']
-        self.assertEqual(first['threadId'], second['threadId'])
+        self.assertNotEqual(first['threadId'], second['threadId'])
         self.assertNotEqual(first['turnId'], second['turnId'])
         restored.state['stages']['3'].update(status='approved', files={})
         restored.start(4, {})
-        self.assertEqual(first['threadId'], restored.state['stages']['4']['threadId'])
+        self.assertNotEqual(second['threadId'], restored.state['stages']['4']['threadId'])
         restored.state['stages']['4'].update(status='approved', files={})
         restored.start(5, {})
-        self.assertNotEqual(first['threadId'], restored.state['stages']['5']['threadId'])
-        self.assertEqual(2, len(created))
-        self.assertEqual(2, len(self.sends))
-        self.assertTrue(all(options.get('desktop') for _, _, options in self.sends))
+        self.assertEqual(4, len({restored.state['stages'][str(i)]['threadId'] for i in (1, 3, 4, 5)}))
+        self.assertEqual('Макора · 02 — Анализ задания', created[0]['name'])
+        restored.state['stages']['5']['status'] = 'review'
+        restored.start(5, {'feedback': 'Уточни набор тестовых данных'})
+        self.assertEqual(4, len(created))
+        self.assertEqual(1, len(self.sends))
+        self.assertEqual('desktop-4', self.sends[0][0])
+        self.assertTrue(self.sends[0][2]['desktop'])
+
+    def test_board_start_opens_the_accepted_thread_in_desktop(self):
+        thread_id = '01a1b6b4-a4f1-7893-8945-c4076fe43907'
+        create = self.runtime.provider.create_thread
+        self.runtime.provider.create_thread = lambda **kwargs: {**create(**kwargs), 'id': thread_id}
+        with patch('makora_core.preparation.os.startfile', create=True) as launch:
+            state = self.pipeline.start(0, {'brief': 'Сделать доступный каталог мероприятий.', 'openInCodex': True})
+            launch.assert_called_once_with(f'codex://threads/{thread_id}')
+        self.assertEqual(thread_id, state['stages']['0']['threadId'])
 
     def test_changed_brief_starts_a_new_preparation_chat(self):
         self.pipeline.start(1, {'brief': 'Исходное условие проекта заметок.'})

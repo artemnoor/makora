@@ -8,6 +8,7 @@ async page => {
     const request=route.request();if(request.method()==='GET')await new Promise(resolve=>setTimeout(resolve,100));const url=new URL(request.url()),match=url.pathname.match(/\/([0-5])\/(start|refresh|approve)$/);
     if(match){const stage=Number(match[1]),action=match[2],body=request.postDataJSON();
       if(action==='start'){lastFeedback=body.feedback||'';
+        assert(body.openInCodex===true,'Доска не запросила открытие чата в Codex');
         if(stage===0&&body.brief){state.brief=body.brief;submitted=body.brief}
         state.stages[stage]={status:'running',threadId:'test-thread-'+stage,turnId:'test-turn-'+stage,files:{}};
         for(const key of Object.keys(state.stages))if(Number(key)>stage)state.stages[key].status='stale';
