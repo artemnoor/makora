@@ -1027,7 +1027,6 @@ const server = createServer(async (request, response) => {
     if (request.method === 'POST' && url.pathname === '/api/threads') {
       const input = await body(request);
       if (typeof input.prompt !== 'string' || !input.prompt.trim()) return json(response, 400, { error: 'Initial prompt is required' });
-      if (input.skills?.length && input.transport !== 'app-server') return json(response, 400, {error:'Native skills require App Server transport'});
       if (input.transport && !['desktop', 'app-server'].includes(input.transport)) return json(response, 400, { error: 'Invalid transport' });
       const nativeInput = await buildTurnInput(input.prompt.trim(), input.skills);
       if (input.transport !== 'app-server') {
@@ -1036,7 +1035,7 @@ const server = createServer(async (request, response) => {
         try {
           const thread = await createDesktopThread(input);
           const operation = startDeliveryTracking(thread.id, String(input.prompt).trim(), null, thread.turnId, 'desktop');
-          return json(response, 201, { ...thread, transport: 'desktop', initialPromptSubmitted: true, operation });
+          return json(response, 201, { ...thread, transport: 'desktop', nativeSkillBinding: input.skills?.length ? 'prompt-referenced' : null, initialPromptSubmitted: true, operation });
         } catch (error) {
           if (/timed out/i.test(error.message)) return json(response, 504, { error: error.message, deliveryUnknown: true });
           throw error;
@@ -1131,7 +1130,9 @@ const server = createServer(async (request, response) => {
       const threadId = decodeURIComponent(messageMatch[1]);
       const input = await body(request);
       if (typeof input.text !== 'string' || !input.text.trim()) return json(response, 400, { error: 'Message is empty' });
-      if (input.skills?.length && input.transport !== 'app-server') return json(response, 400, {error:'Native skills require App Server transport'});
+      // Desktop owns this chat. Skill files are referenced by the prompt rather
+      // than attaching a second App Server writer. Validate the manifest first.
+      if (input.skills?.length) await buildTurnInput(input.text.trim(), input.skills);
       if (input.transport && !['desktop', 'app-server'].includes(input.transport)) return json(response, 400, { error: 'Invalid transport' });
       const prompt = String(input.text).trim();
       const activeOperationId = activeThreadOperations.get(threadId);
@@ -1158,7 +1159,7 @@ const server = createServer(async (request, response) => {
             else await new Promise(resolve => setTimeout(resolve, 200));
           }
           const operation = startDeliveryTracking(threadId, prompt, baselineTurnId, turnId, 'desktop');
-          return json(response, 202, { threadId: data.threadId || threadId, turnId, status: 'accepted', transport: 'desktop', operation });
+          return json(response, 202, { threadId: data.threadId || threadId, turnId, status: 'accepted', transport: 'desktop', nativeSkillBinding: input.skills?.length ? 'prompt-referenced' : null, operation });
         } catch (error) {
           if (sending && /timed out/i.test(error.message)) return json(response, 504, { error: error.message, deliveryUnknown: true });
           throw error;

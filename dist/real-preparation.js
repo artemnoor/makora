@@ -171,7 +171,7 @@
       file=null;
       if(step===2)await beginIdea();else await open(step+1);
     });
-    const threadId=record?.threadId;
+    const threadId=record?.discussionThreadId||record?.threadId;
     const chatLink=threadId&&/^[0-9a-f-]{36}$/i.test(threadId)
       ? `<button class="rp-thread-link" data-open-codex>Чат в Codex ↗</button>`
       : '';
@@ -181,13 +181,13 @@
     const wheelDelay=working?-((performance.now()-analysisMotion.started)/1000):0;
     const go=()=>step===2?action(beginIdea):open(step+1);
     content.innerHTML=`<div class="board-document rp-workspace analysis-summary" data-phase="${esc(status)}">
-      ${step!==0&&step!==2&&(record?.filesystemIsolation==='windows-compatible-read'||/Win/i.test(navigator.platform))?'<p role="note">Windows: запись ограничена рабочей областью; полная изоляция чтения вне проекта не гарантируется.</p>':''}
+      ${step!==0&&step!==2&&record?.filesystemIsolation==='windows-compatible-read'?'<p role="note">Windows: запись ограничена рабочей областью; полная изоляция чтения вне проекта не гарантируется.</p>':''}
       ${working?`<div class="analysis-thinking" role="status"><img src="analysis-wheel.png" alt="" class="analysis-wheel" style="animation-delay:${wheelDelay}s"><p>${status==='stopping'?'Останавливаем сессию…':step===2?'Ищем аналоги и проверяем источники…':'Составляются материалы этапа'}</p><small>${esc(expected)}${record?.lastCheckedAt?' · проверено '+esc(new Date(record.lastCheckedAt).toLocaleTimeString()):''}</small>${record?.sessionId||chatLink?`<div class="analysis-actions">${record?.sessionId?`<button class="rp-secondary" data-real-cancel ${status==='stopping'?'disabled':''}>Остановить</button>`:''}${chatLink}</div>`:''}</div>`:`${!hasComparison&&(step!==0||!ready)?`<p class="analysis-purpose">${ready?'Материалы подготовлены. ':''}${esc(purposes[step])}</p>`:''}
       ${main&&step!==0?`<button class="analysis-file" data-real-file="${esc(main)}"><span class="analysis-file-mark">${paths.length===1?'MD':'▤'}</span><span><strong>${paths.length===1?esc(fileTitle(main)):'Материалы этапа'}</strong><small>${paths.length===1?esc(main):paths.length+' файлов · документы, схемы и данные'}</small></span><span aria-hidden="true">↗</span></button>`:''}
       ${step===0&&ready&&main?`<section class="brief-explanation">${markdown(files[main].replace(/^#[ \t]+Простое объяснение[^\S\n]*\n+/i,''))}</section>`:''}
       ${status==='unconfirmed'?`<p role="status">Ответ агента пока не подтверждён. Проверьте состояние; повторная отправка не выполняется.</p>${record?.sessionId?'<button class="rp-secondary" data-real-cancel>Остановить сессию</button>':''}`:''}
 
-      ${record?.skillManifest?.length?`<details><summary>Навыки и проверки выполнения</summary><ul>${record.skillManifest.map(skill=>`<li>${esc(skill.name)} · версия ${esc((skill.packageSha256||skill.sha256||'').slice(0,12))}</li>`).join('')}</ul><p>${record.nativeSkillStatus==='accepted'?'API подтвердил приём навыков.':'Подключение навыков ещё не подтверждено.'} ${record.methodologyStatus==='structure_checked'?'Структурные проверки выполнены; это не доказательство полноты методики.':'Результат методических проверок ещё не получен.'}</p></details>`:''}
+      ${record?.skillManifest?.length?`<details><summary>Навыки и проверки выполнения</summary><ul>${record.skillManifest.map(skill=>`<li>${esc(skill.name)} · версия ${esc((skill.packageSha256||skill.sha256||'').slice(0,12))}</li>`).join('')}</ul><p>${record.skillBindingMode==='prompt-referenced'?'Инструкции по применению навыков переданы в чат Codex.':record.nativeSkillStatus==='accepted'?'API подтвердил приём навыков.':'Подключение навыков ещё не подтверждено.'} ${record.methodologyStatus==='structure_checked'?'Структурные проверки выполнены; это не доказательство полноты методики.':'Результат методических проверок ещё не получен.'}</p></details>`:''}
       ${record?.error&&hasComparison?`<details class="competitor-checks"><summary>Что не прошло проверку</summary><p>${esc(record.error)}</p></details>`:record?.error?`<p data-real-error role="alert">${esc(typeof record.error==='string'?record.error:'Не удалось выполнить запрос агента. Проверьте состояние.')}</p>`:''}
       <div class="analysis-actions"><button class="rp-secondary" data-analysis-edit ${status==='unconfirmed'?'disabled':''} ${!record?'data-real-run':''}>${record?'Пересоздать с уточнениями':step===0?'Объяснить задание →':'Начать анализ →'}</button>${ready?`<button class="rp-primary" ${step===0||status==='approved'?'data-real-next':'data-real-approve'}>${step===4?(status==='approved'?'К мок-данным →':'Утвердить весь план →'):step===0?'К анализу задания →':step===2?'Перейти к идее →':'Продолжить →'}</button>`:''}${['failed','unconfirmed'].includes(status)?'<button class="rp-text-button" data-real-refresh>Проверить состояние ↻</button>':''}${chatLink}</div>`}
       <div data-real-approvals></div></div><article class="analysis-reader" data-real-document data-phase="${esc(status)}" hidden></article>`;
@@ -222,8 +222,12 @@
     content.querySelector('[data-real-next]')?.addEventListener('click',go);
     content.querySelector('[data-real-refresh]')?.addEventListener('click',()=>action(async()=>{state=await api(`/api/preparation/${step}/refresh`,{});paint()}));
     if(step===2&&!working)competitorView(content,record,competitors,projectKey);
-    content.querySelector('[data-real-cancel]')?.addEventListener('click',()=>action(async()=>{state=await api(`/api/preparation/${step}/cancel`,{});paint()}));
+    content.querySelector('[data-real-cancel]')?.addEventListener('click',()=>action(async()=>{state=await api(`/api/preparation/${step}/${record?.transport==='desktop'?'open-codex':'cancel'}`,{});paint()}));
     bindCodexChat(content,record,step);
+    if(record?.transport==='desktop'){
+      const stop=content.querySelector('[data-real-cancel]');
+      if(stop)stop.textContent='Остановить в Codex';
+    }
     approvals(content);schedule();
   }
   function bindCodexChat(content,record,stage){
@@ -245,7 +249,7 @@
     await open(3);
   }
   function ideaView(content,record){
-    const threadId=record?.threadId;
+    const threadId=record?.discussionThreadId||record?.threadId;
     const linked=threadId&&/^[0-9a-f-]{36}$/i.test(threadId);
     content.innerHTML=`<section class="idea-handoff">
       <span class="idea-handoff-mark" aria-hidden="true">✳</span>

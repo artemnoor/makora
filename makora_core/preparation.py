@@ -634,12 +634,14 @@ class Preparation:
                           'по TASK.json. До этого оставь результат незаполненным. Учитывай требования и аналогов из INPUT.json. '
                           'Неподтверждённые источники аналогов считай гипотезами.')
             chat = self.state.setdefault('preparationChats', {}).get(group_key)
+            if chat and chat.get('transport') != 'desktop':
+                chat = None
             config = self._agent_config('preparation')
             settings_changed = chat and any(chat.get(key) != value for key, value in config.items())
             if settings_changed and chat.get('transport') == 'desktop':
                 chat = None
             previous_competitors = self.state['stages'].get(str(stage), {}).get('files', {}).get('02_competitors.json', '{}')
-            record = {'filesystemIsolation': 'windows-compatible-read' if os.name == 'nt' else 'restricted-root', 'previousCompetitorResult': previous_competitors, 'groupKey': group_key, 'skillManifest': bindings, 'skillBindingMode': 'native', 'nativeSkillStatus':'requested', 'methodologyStatus': 'not_verified', 'status': 'launching', 'folder': str(folder), 'files': {}, 'checks': [], **config}
+            record = {'filesystemIsolation': 'desktop-project', 'previousCompetitorResult': previous_competitors, 'groupKey': group_key, 'skillManifest': bindings, 'skillBindingMode': 'prompt-referenced', 'nativeSkillStatus':'not_requested', 'methodologyStatus': 'not_verified', 'status': 'launching', 'folder': str(folder), 'files': {}, 'checks': [], **config}
             if user_idea:
                 record['interactionMode'] = 'user_idea'
                 chat = None
@@ -680,7 +682,7 @@ class Preparation:
                         project_root = Path(self.state['storageRoot']) if self.state.get('storageRoot') else session_root
                         created = self._create_agent(
                             'preparation', cwd=project_root, execution_root=session_root,
-                            name=title, prompt=prompt, desktop=False, skills=bindings,
+                            name=title, prompt=prompt, desktop=True, skills=bindings,
                             read_roots=[str(skill_snapshots)], network_access=stage == 2,
                         )
                     finally:
@@ -688,7 +690,7 @@ class Preparation:
                     if created.get('id'):
                         self.state['preparationChats'][group_key] = {
                             'threadId': created['id'], 'model': created.get('model', record['model']),
-                            'reasoningEffort': created.get('reasoningEffort'), 'transport': created.get('transport', 'app-server')}
+                            'reasoningEffort': created.get('reasoningEffort'), 'transport': created.get('transport', 'desktop')}
                 operation = created.get('operation') or {}
                 if not created.get('id') or not operation.get('id') or not created.get('turnId'):
                     raise AgentRuntimeError('UNCONFIRMED_DELIVERY', 'Codex не вернул thread/turn/operation ID.', 502)
@@ -696,13 +698,13 @@ class Preparation:
                     chat.update(config)
                 session_id = 'agent-' + uuid.uuid4().hex[:12]
                 session = {'id': session_id, 'role': 'preparation', 'taskId': None, 'runId': None,
-                           'transport': created.get('transport', 'app-server'),
+                           'transport': created.get('transport', 'desktop'),
                            'threadId': created['id'], 'turnId': created['turnId'], 'operationId': operation['id'],
                            'model': created['model'], 'reasoningEffort': created.get('reasoningEffort'), 'cwd': str(folder), 'status': operation.get('state', 'accepted'), 'result': None}
                 with self.runtime._lock:
                     self.runtime.state['sessions'][session_id] = session
                     self.runtime._save()
-                record.update(nativeSkillStatus=created.get('nativeSkillBinding','unconfirmed'), status='running', sessionId=session_id, threadId=created['id'], turnId=created['turnId'], model=session['model'], reasoningEffort=session.get('reasoningEffort'))
+                record.update(nativeSkillStatus=created.get('nativeSkillBinding','unconfirmed'), transport=created.get('transport', 'desktop'), status='running', sessionId=session_id, threadId=created['id'], turnId=created['turnId'], model=session['model'], reasoningEffort=session.get('reasoningEffort'))
                 if user_idea:
                     self.state['lastStage'] = 3
             except Exception as exc:
@@ -719,7 +721,40 @@ class Preparation:
 
     def open_codex_chat(self, stage):
         record = self.state['stages'].get(str(stage), {})
-        thread_id = record.get('threadId')
+        chat = self.state.get('preparationChats', {}).get(record.get('groupKey'), {})
+        if not record.get('discussionThreadId') and (record.get('transport') == 'app-server' or chat.get('transport') == 'app-server'):
+            with self.lock:
+                if record.get('status') in ('launching', 'running', 'stopping'):
+                    raise AgentRuntimeError('SESSION_BUSY', 'Дождитесь завершения этапа перед переносом чата в Codex.', 409)
+                if record.get('discussionChatStatus') in ('creating', 'unconfirmed'):
+                    raise AgentRuntimeError('UNCONFIRMED_DELIVERY', 'Создание чата уже запрошено. Проверьте проект в Codex; повторная отправка не выполнена.', 409)
+                record['discussionChatStatus'] = 'creating'
+                self.save()
+            try:
+                created = self._create_agent(
+                    'preparation', cwd=Path(self.state['storageRoot']),
+                    name=f'Макора · {stage + 1:02d} — {STAGES[stage][0]}', desktop=True,
+                    prompt=(f'Этап «{STAGES[stage][0]}» уже выполнен. Материалы и инструкции: '
+                            f'{Path(record["folder"]) / "TASK.json"}; сохранённый результат: '
+                            f'{Path(record["folder"]) / "result.json"}. '
+                            'Прочитай их и указанные навыки. Не запускай этап повторно и не перезаписывай документы. '
+                            'Коротко сообщи, что готов обсудить результат с пользователем в этом чате.'),
+                    skills=record.get('skillManifest'),
+                )
+                if not created.get('id'):
+                    raise AgentRuntimeError('UNCONFIRMED_DELIVERY', 'Codex не вернул ID чата.', 502)
+                with self.lock:
+                    record.update(discussionThreadId=created['id'], discussionChatStatus='created')
+                    if record.get('groupKey'):
+                        self.state['preparationChats'][record['groupKey']] = {
+                            'threadId': created['id'], 'transport': 'desktop', **self._agent_config('preparation')}
+                    self.save()
+            except Exception:
+                with self.lock:
+                    record['discussionChatStatus'] = 'unconfirmed'
+                    self.save()
+                raise
+        thread_id = record.get('discussionThreadId') or record.get('threadId')
         if not thread_id:
             raise AgentRuntimeError('CHAT_NOT_CREATED', 'Чат этого этапа ещё не создан.', 409)
         try:

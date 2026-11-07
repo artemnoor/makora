@@ -135,7 +135,7 @@ class AgentSettingsTests(unittest.TestCase):
         self.assertIn('Первый вопрос', self.provider.create_thread.call_args.kwargs['prompt'])
         self.assertEqual(MODEL_ID, self.runtime.state['sessions'][first_id]['model'])
 
-    def test_preparation_uses_updated_settings_in_the_existing_stage_chat(self):
+    def test_preparation_creates_desktop_chat_with_updated_role_settings(self):
         pipeline = Preparation(self.base / 'prep-state', self.runtime)
         pipeline.state['storageRoot'] = str(self.project)
         pipeline.start(0, {'brief': 'Сделать каталог заметок с поиском.'})
@@ -145,8 +145,9 @@ class AgentSettingsTests(unittest.TestCase):
         })
         self.provider.send.return_value = {'turnId': 'turn2', 'operation': {'id': 'o2', 'state': 'accepted'}}
         result = pipeline.start(0, {'feedback': 'Объясни короче.'})
-        self.assertEqual(1, self.provider.create_thread.call_count)
-        self.assertEqual('t1', self.provider.send.call_args.args[0])
-        self.assertEqual('other-model', self.provider.send.call_args.kwargs['model'])
-        self.assertEqual('high', self.provider.send.call_args.kwargs['reasoning_effort'])
+        self.assertEqual(2, self.provider.create_thread.call_count)
+        self.provider.send.assert_not_called()
+        self.assertTrue(self.provider.create_thread.call_args.kwargs['desktop'])
+        self.assertEqual('other-model', self.provider.create_thread.call_args.kwargs['model'])
+        self.assertEqual('high', self.provider.create_thread.call_args.kwargs['reasoning_effort'])
         self.assertEqual('other-model', result['stages']['0']['model'])
