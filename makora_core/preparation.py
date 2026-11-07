@@ -255,7 +255,6 @@ class Preparation:
             self.save()
             self.state = state
             self.root = folder / '.makora/preparation'
-            self.index = self.root / 'state.json'
             from .artifact_changes import ArtifactChanges
             try:
                 ArtifactChanges(self).recover()

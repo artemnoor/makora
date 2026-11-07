@@ -96,7 +96,7 @@ def run_bridge(model, timeout):
                 time.sleep(1)
             evidence=root/'task/evidence.txt'
             if not evidence.is_file() or evidence.read_text('utf-8').strip()!=marker:
-                raise RuntimeError('Macora bridge did not produce native skill evidence')
+                raise RuntimeError('Macora bridge did not produce native skill evidence: '+json.dumps({'operation':operation,'history':api.history(created['id'])},ensure_ascii=False)[-6000:])
             return {'status':'passed','binding':'macora-bridge-native-skill','markerMatched':True,'model':model}
         finally:
             if os.name=='nt':subprocess.run(['taskkill','/PID',str(bridge.pid),'/T','/F'],stdout=subprocess.DEVNULL,stderr=subprocess.DEVNULL)
