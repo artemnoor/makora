@@ -87,6 +87,13 @@
   'use strict';
   const canvas = document.getElementById('sprite');
   const ctx = canvas.getContext('2d', { alpha: true });
+  if (!ctx) return;
+  function signalRender(ready) {
+    if ((canvas.dataset.ready === 'true') === ready) return;
+    canvas.dataset.ready = String(ready);
+    window.frameElement?.dispatchEvent(new Event('makora-mascot-render'));
+  }
+  canvas.addEventListener('contextlost', () => signalRender(false));
   const mascot = document.getElementById('mascot');
   const stage = document.getElementById('stage');
   // Paint directly at the screen's physical resolution. Previously a 445x485
@@ -686,6 +693,7 @@ function beginCoderSpawn() {
       ctx.restore();
     }
     ctx.restore();
+    if (imgs.body.naturalWidth && !ctx.isContextLost?.()) signalRender(true);
     requestAnimationFrame(render);
   }
   if (character === 'coder') beginCoderSpawn();

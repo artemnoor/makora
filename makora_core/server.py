@@ -59,6 +59,8 @@ class MakoraHandler(SimpleHTTPRequestHandler):
         if self._local_origin(origin):
             self.send_header('Access-Control-Allow-Origin', origin)
             self.send_header('Vary', 'Origin')
+        if urlparse(self.path).path in ('/', '/index.html'):
+            self.send_header('Cache-Control', 'no-cache')
         self.send_header('X-Content-Type-Options', 'nosniff')
         super().end_headers()
 
@@ -272,7 +274,7 @@ class MakoraHandler(SimpleHTTPRequestHandler):
             if path == '/api/preparation/extract':
                 name=parse_qs(urlparse(self.path).query).get('name',['brief.txt'])[0]
                 self._agent_json(lambda:self.server.preparation.extract(name,self._body(20*1024*1024)));return
-            match=re.fullmatch(r'/api/preparation/([1-5])/(start|refresh|approve|cancel)',path)
+            match=re.fullmatch(r'/api/preparation/([0-5])/(start|refresh|approve|cancel)',path)
             if match:
                 stage, action = int(match.group(1)), match.group(2)
                 payload = self._read_json()

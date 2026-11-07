@@ -23,6 +23,7 @@ from .agents.runtime import AgentRuntime, AgentRuntimeError, MODEL_ID
 logger = logging.getLogger(__name__)
 
 STAGES = {
+    0: ('Простое объяснение', ['brief-explanation'], ['00_brief_explanation.md']),
     1: ('Анализ задания', ['requirements-analysis'], ['01_case_analysis.md']),
     2: ('Анализ конкурентов', ['product-research'], ['02_competitors.md', '02_competitors.json']),
     3: ('Разработка идеи', ['solution-design'], ['02_research.md', '02_solution_concept.md', '02_user_flow.mmd', '02_task_flow.mmd']),
@@ -154,11 +155,11 @@ class Preparation:
 
     @staticmethod
     def stage_group(stage):
-        return ':competitors' if stage == 2 else ':planning' if stage <= 4 else ':mocks'
+        return {0: ':explanation', 2: ':competitors', 5: ':mocks'}.get(stage, f':stage-{stage}')
 
     @staticmethod
     def available_stages(state):
-        available = [1]
+        available = [0, 1]
         for stage in range(1, 6):
             if state.get('stages', {}).get(str(stage), {}).get('status') != 'approved':
                 break
@@ -525,7 +526,7 @@ class Preparation:
 
     def context(self, before):
         return {name: text for key, value in self.state['stages'].items()
-                if int(key) < before and value.get('status') == 'approved'
+                if 1 <= int(key) < before and value.get('status') == 'approved'
                 for name, text in value.get('files', {}).items()}
 
     def start(self, stage, payload):
@@ -539,16 +540,19 @@ class Preparation:
             brief = payload.get('brief', self.state['brief'])
             if not isinstance(brief, str) or not 10 <= len(brief.strip()) <= 100000:
                 raise AgentRuntimeError('BRIEF_REQUIRED', 'Передай текст задания длиной от 10 до 100000 символов.')
+            if stage == 0 and self.state['brief'] and self.state['brief'] != brief:
+                raise AgentRuntimeError('BRIEF_MISMATCH', 'Пояснение создаётся по сохранённому заданию проекта.', 409)
             ensure_started = getattr(self.runtime.provider, 'ensure_started', None)
             if ensure_started:
                 ensure_started()  # Failure here proves no prompt was dispatched and leaves prior state intact.
-            if stage == 1:
+            if stage in (0, 1):
                 if self.state['brief'] and self.state['brief'] != brief:
                     history = self.root / 'history'
                     history.mkdir(exist_ok=True)
                     (history / (uuid.uuid4().hex + '.json')).write_text(json.dumps(self.state, ensure_ascii=False), 'utf-8')
                     self.state['projectId'] = uuid.uuid4().hex
                     self.state.pop('competitorPreferences', None)
+                    self.state['stages'].pop('0', None)
                 self.state['brief'] = brief
             if self.state.get('storageRoot'):
                 self._storage_write('input/brief.txt', self.state['brief'].encode('utf-8'))
@@ -558,7 +562,7 @@ class Preparation:
             folder = session_root / uuid.uuid4().hex
             folder.mkdir()
             context = self.context(stage)
-            decisions = {k: v.get('approvalNote', '') for k, v in self.state['stages'].items() if int(k)<stage and v.get('status')=='approved'}
+            decisions = {k: v.get('approvalNote', '') for k, v in self.state['stages'].items() if 1 <= int(k) < stage and v.get('status') == 'approved'}
             (folder / 'INPUT.json').write_text(json.dumps({'brief': self.state['brief'], 'artifacts': context, 'decisions': decisions, 'previousChecks': self.state['stages'].get(str(stage), {}).get('checks', []), 'previousError': self.state['stages'].get(str(stage), {}).get('error'), 'previousResult': self.state['stages'].get(str(stage), {}).get('files', {}), 'feedback': payload.get('feedback', ''), 'competitorPreferences': self.state.get('competitorPreferences', ''), 'competitorDecisions': self.state.get('competitorDecisions', {}), 'artifactDecisions': self.state.get('artifactDecisions', [])}, ensure_ascii=False), 'utf-8')
             skills_root = Path(__file__).resolve().parent.parent / 'skills'
             task = {
@@ -576,7 +580,7 @@ class Preparation:
             task['skills'] = [binding['path'] for binding in bindings[1:]]
             task['skillManifest'] = bindings
             (folder / 'TASK.json').write_text(json.dumps(task, ensure_ascii=False, indent=2), 'utf-8')
-            prompt = (f'Этап {stage}: {STAGES[stage][0]}. Примени навык '
+            prompt = (f'{STAGES[stage][0]} (этап {stage + 1} на доске). Примени навык '
                       f'{task["protocol"]}. Задание и пути: {folder / "TASK.json"}. '
                       'Прочитай только навыки и материалы этого этапа. Сохрани результат по указанному пути.')
             chat = self.state.setdefault('preparationChats', {}).get(group_key)
@@ -591,13 +595,13 @@ class Preparation:
                 with (self.root/'execution-history.jsonl').open('a', encoding='utf-8') as history:
                     history.write(json.dumps(entry, ensure_ascii=False)+'\n')
             self.state['stages'][str(stage)] = record
-            for key in list(self.state['stages']):
-                if int(key) > stage:
-                    self.state['stages'][key]['status'] = 'stale'
-            if self.state.get('prototype'):
-                self.state['prototype']['status'] = 'stale'
-            if self.state.get('returnedProject'):
-                self.state['returnedProject']['status'] = 'stale'
+            if stage != 0:
+                for key in self.state['stages']:
+                    if int(key) > stage:
+                        self.state['stages'][key]['status'] = 'stale'
+                for key in ('prototype', 'returnedProject'):
+                    if self.state.get(key):
+                        self.state[key]['status'] = 'stale'
             self.save()  # Save uncertain delivery before contacting Codex; never resend automatically.
             try:
                 if chat:
@@ -610,10 +614,15 @@ class Preparation:
                     created = {**sent, 'id': chat['threadId'], 'model': chat['model'],
                                'reasoningEffort': chat.get('reasoningEffort'), 'transport': chat.get('transport', 'app-server')}
                 else:
-                    title = 'Макора — конкуренты' if stage == 2 else 'Макора — анализ, идея и план' if stage <= 4 else 'Макора — мок-данные'
+                    title = f'Макора · {stage + 1:02d} — {STAGES[stage][0]}'
                     self.lock.release()
                     try:
-                        created = self._create_agent('preparation', cwd=session_root, name=title, prompt=prompt, desktop=False, skills=bindings, read_roots=[str(skill_snapshots)], network_access=stage == 2)
+                        project_root = Path(self.state['storageRoot']) if self.state.get('storageRoot') else session_root
+                        created = self._create_agent(
+                            'preparation', cwd=project_root, execution_root=session_root,
+                            name=title, prompt=prompt, desktop=False, skills=bindings,
+                            read_roots=[str(skill_snapshots)], network_access=stage == 2,
+                        )
                     finally:
                         self.lock.acquire()
                     if created.get('id'):
@@ -639,7 +648,20 @@ class Preparation:
                 self.save()
                 raise
             self.save()
-            return self.snapshot()
+            snapshot = self.snapshot()
+        if payload.get('openInCodex') is True:
+            self.open_codex_thread(record['threadId'])
+        return snapshot
+
+    @staticmethod
+    def open_codex_thread(thread_id):
+        launch = getattr(os, 'startfile', None)
+        if launch is None:
+            return
+        try:
+            launch(f'codex://threads/{uuid.UUID(thread_id)}')
+        except (OSError, ValueError, TypeError, AttributeError):
+            logger.warning('Could not open preparation thread in Codex Desktop')
 
     @staticmethod
     def validate_diagrams(files):
@@ -685,6 +707,12 @@ class Preparation:
                 json.loads(text)
         if total > 8 * 1024 * 1024 or len(files) > 200:
             raise AgentRuntimeError('ARTIFACT_LIMIT', 'Пакет артефактов слишком большой.')
+        if stage == 0:
+            explanation = files.get('00_brief_explanation.md', '')
+            concise = set(files) == {'00_brief_explanation.md'} and len(explanation.split()) <= 250
+            example = re.search(r'^#{1,3}\s+Пример\b', explanation, re.MULTILINE | re.IGNORECASE)
+            checks.append({'name': 'Короткое пояснение с отдельным примером',
+                           'status': 'passed' if concise and example else 'failed'})
         if stage == 1:
             analysis = files.get('01_case_analysis.md', '')
             sections = re.findall(r'^#{1,3}\s+\S', analysis, re.MULTILINE)
