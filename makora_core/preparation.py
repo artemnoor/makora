@@ -15,6 +15,7 @@ import zipfile
 import xml.etree.ElementTree as ET
 from pathlib import Path, PurePosixPath
 
+from .workspace import atomic
 from .agents.errors import agent_error_message
 from .agents.runtime import AgentRuntime, AgentRuntimeError, MODEL_ID
 
@@ -99,12 +100,13 @@ class Preparation:
                 self.save()
 
     def save(self):
-        temporary = self.index.with_suffix('.tmp')
-        temporary.write_text(json.dumps(self.state, ensure_ascii=False, indent=2), 'utf-8')
-        temporary.replace(self.index)
-        self._register_current_project()
+        serialized = json.dumps(self.state, ensure_ascii=False, indent=2)
+        changed = not self.index.is_file() or self.index.read_text('utf-8') != serialized
+        if changed:
+            atomic(self.index, serialized.encode('utf-8'))
+            self._register_current_project()
         if self.state.get('storageRoot'):
-            self._storage_write('.makora/preparation/state.json', self.index.read_bytes())
+            self._storage_write('.makora/preparation/state.json', serialized.encode('utf-8'))
             if self.state.get('chat'):
                 self._storage_write('reports/chat.json',json.dumps(self.state['chat'],ensure_ascii=False,indent=2).encode('utf-8'))
                 transcript='\n\n'.join(('## Вы' if m['role']=='user' else '## Макора')+'\n\n'+m['text'] for m in self.state['chat']['messages'])
@@ -196,7 +198,7 @@ class Preparation:
             return {'directory': str(directory), 'projects': projects}
 
     def _check_project_idle(self):
-        stage_busy = any(value.get('status') in ('launching', 'running', 'unconfirmed') for value in self.state['stages'].values())
+        stage_busy = any(value.get('status') in ('launching', 'running', 'unconfirmed', 'stopping') for value in self.state['stages'].values())
         sessions_busy = any(value.get('status') in ('accepted', 'delivered', 'running', 'unconfirmed') for value in self.runtime.state.get('sessions', {}).values()
                             if value.get('status') != 'unconfirmed' or value.get('projectRoot') == str(self.project_directory()))
         autopilot_busy = any(run.get('mahoragaAutopilot', {}).get('enabled') for run in self.runtime.state.get('runs', {}).values())
@@ -253,6 +255,14 @@ class Preparation:
             self.save()
             self.state = state
             self.root = folder / '.makora/preparation'
+            self.index = self.root / 'state.json'
+            from .artifact_changes import ArtifactChanges
+            try:
+                ArtifactChanges(self).recover()
+                self.change_recovery_required = False
+            except AgentRuntimeError:
+                self.change_recovery_required = True
+                raise
             self.state['storageRoot'] = str(folder)
             self.state['lastStage'] = stage
             for root in (folder / 'app', self.project_directory()):
@@ -278,7 +288,8 @@ class Preparation:
         if not target.resolve().is_relative_to(root) or any(p.is_symlink() for p in [target, *target.parents] if p.is_relative_to(root)):
             raise AgentRuntimeError('UNSAFE_STORAGE_PATH', 'Путь хранения пересекает символическую ссылку.', 409)
         target.parent.mkdir(parents=True, exist_ok=True)
-        target.write_bytes(data)
+        if not target.is_file() or target.read_bytes() != data:
+            atomic(target, data)
         return target
 
     @staticmethod
@@ -299,7 +310,7 @@ class Preparation:
         if not selected:
             return {'cancelled': True}
         with self.lock:
-            if any(v.get('status') in ('launching', 'running', 'unconfirmed') for v in self.state['stages'].values()):
+            if any(v.get('status') in ('launching', 'running', 'unconfirmed', 'stopping') for v in self.state['stages'].values()):
                 raise AgentRuntimeError('PROJECT_BUSY', 'Дождитесь завершения текущего анализа перед созданием нового проекта.', 409)
             folder = Path(selected)
             if folder.is_symlink() or not folder.is_dir() or any(folder.iterdir()):
@@ -495,7 +506,12 @@ class Preparation:
     def snapshot(self):
         with self.lock:
             snapshot = json.loads(json.dumps(self.state))
+            snapshot['changeRecoveryRequired'] = bool(getattr(self,'change_recovery_required',False))
+            snapshot['legacyChoiceAvailable'] = bool(snapshot.get('workflowNotice') and (self.root/'state-before-competitors.json').is_file() and not snapshot['stages'].get('2',{}).get('files') and not any(record.get('status') in ('running','launching','unconfirmed','stopping') for record in snapshot['stages'].values()))
             for record in list(snapshot.get('stages', {}).values()) + [snapshot.get('chat', {})]:
+                session = self.runtime.state.get('sessions', {}).get(record.get('sessionId'), {})
+                if session.get('lastCheckedAt'):
+                    record['lastCheckedAt'] = session['lastCheckedAt']
                 if record.get('error'):
                     record['error'] = agent_error_message(record['error'])
             return snapshot
@@ -503,7 +519,7 @@ class Preparation:
     def poll(self):
         with self.lock:
             pending = next((int(k) for k, value in self.state['stages'].items()
-                            if (value.get('status') in ('running', 'unconfirmed') or
+                            if (value.get('status') in ('running', 'unconfirmed', 'stopping') or
                                 (value.get('status') == 'failed' and value.get('agentStatus') == 'failed'))
                             and value.get('sessionId')), None)
         return self.refresh(pending, recheck=True) if pending else self.snapshot()
@@ -517,7 +533,7 @@ class Preparation:
         with self.lock:
             if stage not in STAGES:
                 raise AgentRuntimeError('INVALID_STAGE', 'Неизвестный этап.')
-            if any(s.get('status') in ('launching', 'running', 'unconfirmed') for s in self.state['stages'].values()):
+            if any(s.get('status') in ('launching', 'running', 'unconfirmed', 'stopping') for s in self.state['stages'].values()):
                 raise AgentRuntimeError('PREPARATION_BUSY', 'Предыдущая операция ещё выполняется или её доставка не подтверждена.', 409)
             if any(self.state['stages'].get(str(previous), {}).get('status') != 'approved' for previous in range(1, stage)):
                 raise AgentRuntimeError('PREVIOUS_STAGE_REQUIRED', 'Сначала утверди предыдущий этап.', 409)
@@ -537,11 +553,14 @@ class Preparation:
                 self.state['brief'] = brief
             if self.state.get('storageRoot'):
                 self._storage_write('input/brief.txt', self.state['brief'].encode('utf-8'))
-            folder = self.root / uuid.uuid4().hex
+            group_key = self.state['projectId'] + ':native-v1' + self.stage_group(stage)
+            session_root = self.root / ('session-' + hashlib.sha256(group_key.encode()).hexdigest()[:20])
+            session_root.mkdir(exist_ok=True)
+            folder = session_root / uuid.uuid4().hex
             folder.mkdir()
             context = self.context(stage)
             decisions = {k: v.get('approvalNote', '') for k, v in self.state['stages'].items() if int(k)<stage and v.get('status')=='approved'}
-            (folder / 'INPUT.json').write_text(json.dumps({'brief': self.state['brief'], 'artifacts': context, 'decisions': decisions, 'previousChecks': self.state['stages'].get(str(stage), {}).get('checks', []), 'previousError': self.state['stages'].get(str(stage), {}).get('error'), 'previousResult': self.state['stages'].get(str(stage), {}).get('files', {}), 'feedback': payload.get('feedback', ''), 'competitorPreferences': self.state.get('competitorPreferences', '')}, ensure_ascii=False), 'utf-8')
+            (folder / 'INPUT.json').write_text(json.dumps({'brief': self.state['brief'], 'artifacts': context, 'decisions': decisions, 'previousChecks': self.state['stages'].get(str(stage), {}).get('checks', []), 'previousError': self.state['stages'].get(str(stage), {}).get('error'), 'previousResult': self.state['stages'].get(str(stage), {}).get('files', {}), 'feedback': payload.get('feedback', ''), 'competitorPreferences': self.state.get('competitorPreferences', ''), 'competitorDecisions': self.state.get('competitorDecisions', {}), 'artifactDecisions': self.state.get('artifactDecisions', [])}, ensure_ascii=False), 'utf-8')
             skills_root = Path(__file__).resolve().parent.parent / 'skills'
             task = {
                 'stage': stage, 'title': STAGES[stage][0],
@@ -551,13 +570,27 @@ class Preparation:
                 'skills': [str(skills_root / name / 'SKILL.md') for name in STAGES[stage][1]],
                 'protocol': str(skills_root / 'preparation-session' / 'SKILL.md'),
             }
+            from .skill_manifest import snapshot_skill
+            skill_snapshots = self.root / 'skill-snapshots'
+            bindings = [snapshot_skill(path, skill_snapshots) for path in [task['protocol'], *task['skills']]]
+            task['protocol'] = bindings[0]['path']
+            task['skills'] = [binding['path'] for binding in bindings[1:]]
+            task['skillManifest'] = bindings
             (folder / 'TASK.json').write_text(json.dumps(task, ensure_ascii=False, indent=2), 'utf-8')
             prompt = (f'Этап {stage}: {STAGES[stage][0]}. Примени навык '
                       f'{task["protocol"]}. Задание и пути: {folder / "TASK.json"}. '
                       'Прочитай только навыки и материалы этого этапа. Сохрани результат по указанному пути.')
-            group_key = self.state['projectId'] + self.stage_group(stage)
             chat = self.state.setdefault('preparationChats', {}).get(group_key)
-            record = {'status': 'launching', 'folder': str(folder), 'files': {}, 'checks': [], **self._agent_config('preparation')}
+            previous_competitors = self.state['stages'].get(str(stage), {}).get('files', {}).get('02_competitors.json', '{}')
+            record = {'filesystemIsolation': 'windows-compatible-read' if os.name == 'nt' else 'restricted-root', 'previousCompetitorResult': previous_competitors, 'groupKey': group_key, 'skillManifest': bindings, 'skillBindingMode': 'native', 'nativeSkillStatus':'requested', 'methodologyStatus': 'not_verified', 'status': 'launching', 'folder': str(folder), 'files': {}, 'checks': [], **self._agent_config('preparation')}
+            previous = self.state['stages'].get(str(stage))
+            if previous:
+                entry = {'stage':stage, 'folder':previous.get('folder'), 'status':previous.get('status'),
+                         'skillManifest':previous.get('skillManifest', []), 'model':previous.get('model')}
+                self.state.setdefault('preparationHistory', []).append(entry)
+                self.state['preparationHistory'] = self.state['preparationHistory'][-20:]
+                with (self.root/'execution-history.jsonl').open('a', encoding='utf-8') as history:
+                    history.write(json.dumps(entry, ensure_ascii=False)+'\n')
             self.state['stages'][str(stage)] = record
             for key in list(self.state['stages']):
                 if int(key) > stage:
@@ -570,12 +603,20 @@ class Preparation:
             try:
                 if chat:
                     options = {'desktop': True} if chat.get('transport') == 'desktop' else {}
-                    sent = self.runtime.provider.send(chat['threadId'], prompt, **options)
+                    self.lock.release()
+                    try:
+                        sent = self.runtime.provider.send(chat['threadId'], prompt, skills=bindings, **options)
+                    finally:
+                        self.lock.acquire()
                     created = {**sent, 'id': chat['threadId'], 'model': chat['model'],
                                'reasoningEffort': chat.get('reasoningEffort'), 'transport': chat.get('transport', 'app-server')}
                 else:
                     title = 'Макора — конкуренты' if stage == 2 else 'Макора — анализ, идея и план' if stage <= 4 else 'Макора — мок-данные'
-                    created = self._create_agent('preparation', cwd=folder, name=title, prompt=prompt, **({'desktop': False, 'network_access': True} if stage == 2 else {}))
+                    self.lock.release()
+                    try:
+                        created = self._create_agent('preparation', cwd=session_root, name=title, prompt=prompt, desktop=False, skills=bindings, read_roots=[str(skill_snapshots)], network_access=stage == 2)
+                    finally:
+                        self.lock.acquire()
                     if created.get('id'):
                         self.state['preparationChats'][group_key] = {
                             'threadId': created['id'], 'model': created.get('model', record['model']),
@@ -591,10 +632,10 @@ class Preparation:
                 with self.runtime._lock:
                     self.runtime.state['sessions'][session_id] = session
                     self.runtime._save()
-                record.update(status='running', sessionId=session_id, threadId=created['id'], turnId=created['turnId'], model=session['model'], reasoningEffort=session.get('reasoningEffort'))
+                record.update(nativeSkillStatus=created.get('nativeSkillBinding','unconfirmed'), status='running', sessionId=session_id, threadId=created['id'], turnId=created['turnId'], model=session['model'], reasoningEffort=session.get('reasoningEffort'))
             except Exception as exc:
                 confirmed_rejection = isinstance(exc, AgentRuntimeError) and exc.code in (
-                    'MODEL_UNAVAILABLE', 'SESSION_BUSY', 'CODEX_API_ERROR', 'SANDBOX_UNAVAILABLE')
+                    'MODEL_UNAVAILABLE', 'SESSION_BUSY', 'CODEX_API_ERROR', 'SANDBOX_UNAVAILABLE', 'NATIVE_SKILLS_UNAVAILABLE')
                 record.update(status='failed' if confirmed_rejection else 'unconfirmed', error=str(exc))
                 self.save()
                 raise
@@ -645,14 +686,21 @@ class Preparation:
                 json.loads(text)
         if total > 8 * 1024 * 1024 or len(files) > 200:
             raise AgentRuntimeError('ARTIFACT_LIMIT', 'Пакет артефактов слишком большой.')
+        if stage == 1:
+            analysis = files.get('01_case_analysis.md', '')
+            sections = re.findall(r'^#{1,3}\s+\S', analysis, re.MULTILINE)
+            checks.append({'name':'Полнота структуры анализа: разделы, ID требований и источники',
+                           'status':'passed' if len(sections) >= 10 and re.search(r'REQ-\d+', analysis, re.I)
+                           and re.search(r'источник|source|S1', analysis, re.I) else 'failed'})
         if stage == 2:
+            from datetime import datetime, timezone, timedelta
             from urllib.parse import urlparse
             research = json.loads(files.get('02_competitors.json', '{}'))
             if not isinstance(research, dict) or not isinstance(research.get('competitors'), list) or not research['competitors']:
                 raise ValueError('Нужен список конкурентов с источниками в 02_competitors.json')
             def valid_url(value):
                 parsed = urlparse(value) if isinstance(value, str) else None
-                return parsed and parsed.scheme in ('http', 'https') and parsed.hostname and not parsed.username and not parsed.password
+                return parsed and parsed.scheme in ('http', 'https') and parsed.hostname and not parsed.hostname.endswith(('.invalid', '.localhost')) and parsed.hostname != 'localhost' and not parsed.username and not parsed.password
             ids = set()
             verified = 0
             for competitor in research['competitors']:
@@ -674,6 +722,13 @@ class Preparation:
                 sources = competitor.get('sources', [])
                 if not isinstance(sources, list) or any(not isinstance(source, dict) or not valid_url(source.get('url')) or not source.get('checkedAt') for source in sources):
                     raise ValueError('Укажите URL источника и дату проверки checkedAt')
+                for source in sources:
+                    try:
+                        checked = datetime.fromisoformat(source['checkedAt'].replace('Z', '+00:00'))
+                        if checked.date() > datetime.now(timezone.utc).date() + timedelta(days=1):
+                            raise ValueError('Дата проверки из будущего')
+                    except (TypeError, ValueError, AttributeError):
+                        raise ValueError('checkedAt должен быть корректной ISO датой')
                 if competitor['status'] == 'verified':
                     if not sources:
                         raise ValueError('Проверенный конкурент должен иметь источники и дату проверки')
@@ -783,16 +838,78 @@ class Preparation:
         checks.extend(Preparation.validate_diagrams(files))
         return checks
 
+    def validate_evidence(self, files, stage, result, *, brief=None, context=None):
+        """Shared evidence gates for generated results and confirmed artifact edits."""
+        brief = self.state['brief'] if brief is None else brief
+        context = self.context(stage) if context is None else context
+        checks, record = [], {}
+        if stage == 1:
+            evidence = result.get('requirementsEvidence', [])
+            ids = set(re.findall(r'REQ-\d+', files.get('01_case_analysis.md', ''), re.I))
+            grounded = set()
+            if isinstance(evidence, list):
+                original = ' '.join(brief.split())
+                for row in evidence:
+                    if isinstance(row, dict) and isinstance(row.get('quote'), str) and len(row['quote'].strip()) >= 10 and ' '.join(row['quote'].split()) in original and row.get('locator') and row.get('acceptance'):
+                        grounded.add(row.get('id'))
+            checks.append({'name':'Происхождение требований: точные цитаты и критерии', 'status':'passed' if ids and ids <= grounded else 'failed', 'missing': sorted(ids-grounded)})
+            record['requirementsEvidence'] = evidence
+        if stage == 2:
+            from .source_verifier import verify_sources
+            research = json.loads(files['02_competitors.json'])
+            evidence = verify_sources(research)
+            record['sourceEvidence'] = evidence
+            for competitor in research['competitors']:
+                if competitor['status'] != 'verified':
+                    continue
+                citations = {(source['url'], source.get('quote','')) for source in competitor.get('sources', [])}
+                verified = any(source['status'] == 'passed' and (source['url'],source.get('quote','')) in citations for source in evidence)
+                checks.append({'name': 'Подтверждение источников: ' + competitor['name'],
+                               'status': 'passed' if verified else 'not_checked'})
+        if stage >= 3:
+            expected_ids = set(re.findall(r'REQ-\d+', context.get('01_case_analysis.md', ''), re.I))
+            found_ids = set(re.findall(r'REQ-\d+', '\n'.join(files.values()), re.I))
+            if expected_ids:
+                coverage = result.get('coverage', [])
+                covered = set()
+                if isinstance(coverage, list):
+                    for row in coverage:
+                        if not isinstance(row, dict) or row.get('requirementId') not in expected_ids:
+                            continue
+                        paths = row.get('artifacts', [])
+                        if row.get('disposition') == 'covered' and isinstance(paths, list) and paths and all(path in files and row['requirementId'] in files[path] for path in paths):
+                            covered.add(row['requirementId'])
+                        elif row.get('disposition') in ('blocked','out_of_scope') and row.get('reason'):
+                            covered.add(row['requirementId'])
+                record['requirementCoverage'] = coverage
+                checks.append({'name':'Явная карта покрытия требований', 'status':'passed' if expected_ids <= covered else 'failed', 'missing':sorted(expected_ids-covered)})
+                missing = sorted(expected_ids - found_ids)
+                checks.append({'name':'Трассировка требований в результатах этапа', 'status':'failed' if missing else 'passed', 'missing':missing})
+
+        if stage == 5:
+            tasks = json.loads(context.get('03_tasks.json', '[]'))
+            tasks = tasks.get('tasks', []) if isinstance(tasks, dict) else tasks
+            for task in tasks:
+                for name in task.get('mocks', []):
+                    checks.append({'name': f'Моки задачи {task["id"]}: {name}', 'status': 'passed' if name in files else 'failed'})
+        return checks, record
+
     def refresh(self, stage, recheck=False):
         with self.lock:
             record = self.state['stages'].get(str(stage))
-            allowed = ('running', 'unconfirmed', 'failed') if recheck else ('running', 'unconfirmed')
+            allowed = ('running', 'unconfirmed', 'failed', 'stopping') if recheck else ('running', 'unconfirmed', 'stopping')
             if not record or record['status'] not in allowed:
                 return self.snapshot()
             if record.get('sessionId'):
-                session = self.runtime.refresh_session(record['sessionId'])
+                self.lock.release()
+                try:
+                    session = self.runtime.refresh_session(record['sessionId'])
+                finally:
+                    self.lock.acquire()
+                if self.state['stages'].get(str(stage)) is not record:
+                    return self.snapshot()
             else:
-                group = self.state.get('projectId', '') + self.stage_group(stage)
+                group = record.get('groupKey') or self.state.get('projectId', '') + self.stage_group(stage)
                 thread_id = record.get('threadId') or self.state.get('preparationChats', {}).get(group, {}).get('threadId')
                 if not thread_id or not record.get('folder'):
                     return self.snapshot()
@@ -828,17 +945,28 @@ class Preparation:
                         raise ValueError('Результат пытается заменить артефакт утверждённого предыдущего этапа')
                     record.update(files=files, checks=[])
                     checks = self.validate(files, stage)
-                    if stage == 5:
-                        tasks = json.loads(self.context(stage).get('03_tasks.json', '[]'))
-                        tasks = tasks.get('tasks', []) if isinstance(tasks, dict) else tasks
-                        for task in tasks:
-                            for name in task.get('mocks', []):
-                                checks.append({'name': f'Моки задачи {task["id"]}: {name}', 'status': 'passed' if name in files else 'failed'})
+                    brief, context = self.state['brief'], self.context(stage)
+                    self.lock.release()
+                    try:
+                        extra_checks, evidence = self.validate_evidence(files, stage, result, brief=brief, context=context)
+                    finally:
+                        self.lock.acquire()
+                    if self.state['stages'].get(str(stage)) is not record:
+                        return self.snapshot()
+                    checks.extend(extra_checks)
+                    record.update(evidence)
                     for key in ('questions', 'limitations'):
                         if not isinstance(result.get(key, []), list) or not all(isinstance(v, str) for v in result.get(key, [])):
                             raise ValueError(f'{key} должен быть списком строк')
+                    if stage == 2:
+                        previous = json.loads(record.get('previousCompetitorResult', '{}')).get('competitors', [])
+                        current = json.loads(files['02_competitors.json']).get('competitors', [])
+                        before = {value['id']:value for value in previous}
+                        after = {value['id']:value for value in current}
+                        record['comparisonChanges'] = {'added': sorted(after.keys()-before.keys()), 'removed':sorted(before.keys()-after.keys()),
+                            'updated':sorted(key for key in before.keys() & after.keys() if before[key] != after[key])}
                     record.update(files=files, checks=checks, questions=result.get('questions', []), limitations=result.get('limitations', []),
-                                  status='review' if all(c['status'] == 'passed' for c in checks) else 'failed')
+                                  status='review' if all(c['status'] == 'passed' for c in checks) else 'failed', methodologyStatus='structure_checked')
                     if self.state.get('storageRoot'):
                         for name, text in files.items():
                             self._storage_write('artifacts/' + name, text.encode('utf-8'))
@@ -847,8 +975,11 @@ class Preparation:
                     else:record['error']='Не пройдены проверки: '+ '; '.join(c['name'] for c in checks if c['status']!='passed')
                 except Exception as exc:
                     record.update(status='failed', error=str(exc))
+            elif session['status'] == 'failed' and record.get('cancelRequested'):
+                record.update(status='cancelled')
+                record.pop('error', None)
             elif session['status'] in ('accepted', 'delivered', 'running'):
-                record.update(status='running')
+                record.update(status='stopping' if record.get('cancelRequested') else 'running')
                 record.pop('error', None)
             elif session['status'] in ('failed', 'unconfirmed'):
                 record.update(status=session['status'])
@@ -869,6 +1000,16 @@ class Preparation:
                 note = str((payload or {}).get('note', '')).strip()
                 if not note:
                     raise AgentRuntimeError('COMPETITOR_DECISION_REQUIRED', 'Отметьте, что перенять у конкурентов или почему ничего не подходит.', 409)
+                decisions = (payload or {}).get('decisions', {})
+                competitors = json.loads(record['files']['02_competitors.json'])['competitors']
+                known = {item['id'] for item in competitors}
+                if not isinstance(decisions, dict) or any(key not in known or not isinstance(value, dict)
+                        or value.get('action') not in ('borrow','adapt','avoid','research')
+                        or not isinstance(value.get('comment',''), str) for key, value in decisions.items()):
+                    raise AgentRuntimeError('INVALID_COMPETITOR_DECISIONS', 'Решения должны ссылаться на существующих конкурентов.')
+                if record.get('skillBindingMode') == 'native' and set(decisions) != known:
+                    raise AgentRuntimeError('COMPETITOR_DECISIONS_REQUIRED', 'Выберите решение по каждому конкуренту.', 409)
+                self.state['competitorDecisions'] = decisions
                 self.state['competitorPreferences'] = note[:20000]
                 self.state.pop('workflowNotice', None)
             record['status'] = 'approved'
@@ -877,14 +1018,54 @@ class Preparation:
             self.save()
             return self.snapshot()
 
+    def cancel(self, stage):
+        with self.lock:
+            record = self.state['stages'].get(str(stage), {})
+            if record.get('status') not in ('running', 'unconfirmed', 'stopping') or not record.get('sessionId'):
+                raise AgentRuntimeError('NO_ACTIVE_STAGE', 'Нет подтверждённой активной сессии для остановки.', 409)
+            if record.get('status') == 'stopping' and record.get('cancelRequested'):
+                return self.snapshot()
+            session = self.runtime.state['sessions'].get(record['sessionId'], {})
+            if session.get('transport') == 'desktop':
+                raise AgentRuntimeError('DESKTOP_STOP_REQUIRED', 'Остановите старую Desktop-сессию в Codex и проверьте состояние.', 409)
+            self.runtime.provider.interrupt(session['threadId'], session['turnId'])
+            record.update(status='stopping', cancelRequested=True)
+            self.save()
+            return self.snapshot()
+
+    def preserve_legacy_approvals(self, payload):
+        with self.lock:
+            self._check_project_idle()
+            backup = self.root / 'state-before-competitors.json'
+            if payload.get('confirm') is not True or not self.state.get('workflowNotice') or not backup.is_file() or self.state['stages'].get('2', {}).get('files'):
+                raise AgentRuntimeError('LEGACY_CHOICE_UNAVAILABLE', 'Режим сохранения доступен только до нового исследования.', 409)
+            old = json.loads(backup.read_text('utf-8'))
+            if old.get('projectId') != self.state.get('projectId') or old['stages'].get('1', {}).get('files') != self.state['stages'].get('1', {}).get('files'):
+                raise AgentRuntimeError('STALE_CHANGE_BASE', 'Проект изменился после переноса.', 409)
+            self.state['stages'] = {str(int(key)+(int(key)>=2)):value for key,value in old['stages'].items()}
+            self.state['stages']['2'] = {'status':'approved','files':{},'checks':[], 'migrationExemption':True,
+                'approvalNote':'Пользователь сохранил согласования старого проекта без нового исследования конкурентов.'}
+            self.state['legacyResearchExemption'] = True
+            self.state.pop('workflowNotice', None)
+            self.state['lastStage'] = max(self.available_stages(self.state))
+            self.save()
+            return self.snapshot()
+
     def archive(self):
         with self.lock:
             files = self.context(6)
-            if self.state['stages'].get('5', {}).get('status') != 'approved':
-                raise AgentRuntimeError('MOCKS_NOT_APPROVED', 'Сначала утверди мок-данные.', 409)
+            if any(self.state['stages'].get(str(stage), {}).get('status') != 'approved' for stage in range(1,6)):
+                raise AgentRuntimeError('PREPARATION_NOT_APPROVED', 'Сначала утвердите все документы подготовки.', 409)
+            files['artifact-change-decisions.json'] = json.dumps(self.state.get('artifactDecisions', []), ensure_ascii=False, indent=2)
             files['input/brief.txt'] = self.state['brief']
             files['project-decisions.json'] = json.dumps({k:v.get('approvalNote', '') for k,v in self.state['stages'].items() if v.get('status')=='approved'}, ensure_ascii=False, indent=2)
-            files['PROMPT.md'] = ('Создай полноценный работающий веб-сайт по приложенным требованиям, концепции, архитектуре и контрактам. '
+            probe = self.state.setdefault('environmentProbe', uuid.uuid4().hex)
+            files['PREFLIGHT.json'] = json.dumps({'nonce':probe, 'instruction':'Проверь чтение файлов и создание скачиваемого ZIP до большой генерации. Сохрани nonce в environment-proof.json финального ZIP.'}, ensure_ascii=False)
+            files['ENVIRONMENT_CHECK.md'] = ('Сначала прочитай PREFLIGHT.json реальным инструментом. Создай маленький ZIP с environment-proof.json и точным nonce. '
+                'Убедись, что ZIP доступен для скачивания. Только после успешной проверки приступай к полной реализации. '
+                'При ошибке обязательного параметра покажи точные отправленные аргументы и ответ инструмента; не повторяй одинаковый вызов многократно и не называй сбой разовым без доказательств.')
+            self.save()
+            files['PROMPT.md'] = ('Сначала выполни ENVIRONMENT_CHECK.md из архива: проверь реальное чтение и создание скачиваемого ZIP. Затем создай полноценный работающий веб-сайт по приложенным требованиям, концепции, архитектуре и контрактам. '
                                   'Реализуй все предусмотренные требованиями страницы, переходы и функции, адаптивный интерфейс для телефона и компьютера. '
                                   'Обязательно сохрани mocks/ и используй mocks/fixtures/ как источник данных, не дублируй записи в коде. '
                                   'Изменённые моки предложи в new_mocks/. Реализуй воспроизводимое включение ошибки источника. '
@@ -938,7 +1119,14 @@ class Preparation:
                 atomic(self.root / relative, blob)
             original_mocks = {path: text.encode('utf-8') for path, text in self.context(6).items() if path.startswith('mocks/')}
             changed = sorted(path for path, data in original_mocks.items() if files.get(path) != data)
-            result = {'status': 'received', 'name': name.replace('\\', '/').split('/')[-1][:200],
+            environment_status = 'not_checked'
+            if 'environment-proof.json' in files:
+                try:
+                    proof = json.loads(files['environment-proof.json'])
+                    environment_status = 'passed' if proof.get('nonce') == self.state.get('environmentProbe') and self.state.get('environmentProbe') else 'failed'
+                except (ValueError, AttributeError, UnicodeError):
+                    environment_status = 'failed'
+            result = {'environmentCheck':environment_status, 'status': 'received', 'name': name.replace('\\', '/').split('/')[-1][:200],
                       'path': relative, 'sha256': digest, 'bytes': len(blob), 'fileCount': len(files),
                       'files': sorted(files), 'mocksStatus': 'changed' if changed else 'passed',
                       'changedMocks': changed, 'newMocks': sorted(path for path in files if path.startswith('new_mocks/')),

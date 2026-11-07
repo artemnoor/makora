@@ -52,6 +52,8 @@ async page => {
   await page.waitForFunction(()=>!document.fullscreenElement);
   await page.setViewportSize({width:1280,height:900});
   await page.locator('[data-competitor-open]').click();
+  await page.locator('[data-competitor-choice="one"]').selectOption('adapt');
+  await page.locator('[data-competitor-note="one"]').fill('Адаптировать фильтры');
   await page.locator('[data-competitor-decision]').fill('Перенять фильтры, упростить вход');
   await page.locator('[data-real-approve]').click();await page.locator('[data-real-stage="3"].active').waitFor();
   assert(state.competitorPreferences.includes('фильтры'),'Решение не передано при утверждении');

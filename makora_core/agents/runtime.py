@@ -8,6 +8,7 @@ import os
 import re
 import secrets
 import socket
+import sys
 import shutil
 import subprocess
 import threading
@@ -260,7 +261,19 @@ class CodexLocalApi:
         models = self._request('/api/models', timeout=15)
         return [item for item in models.get('data', []) if isinstance(item, dict)]
 
-    def create_thread(self, *, cwd: Path, name: str, prompt: str, sandbox: str = "workspaceWrite", denied_paths: list[str] | None = None, model: str = MODEL_ID, reasoning_effort: str | None = None, user_chat: bool = False, desktop: bool = False, network_access: bool = False) -> dict:
+    def require_native_skills(self):
+        try:
+            capabilities = self._request('/api/capabilities')
+        except AgentRuntimeError as exc:
+            raise AgentRuntimeError('NATIVE_SKILLS_UNAVAILABLE','Мост не подтвердил поддержку нативных навыков. Обновите и перезапустите его; запрос не отправлен.',503) from exc
+        if capabilities.get('nativeSkillInputs') is not True:
+            raise AgentRuntimeError('NATIVE_SKILLS_UNAVAILABLE','Нативное подключение навыков не поддерживается этим мостом.',503)
+        return capabilities
+
+    def create_thread(self, *, cwd: Path, name: str, prompt: str, sandbox: str = "workspaceWrite", denied_paths: list[str] | None = None, model: str = MODEL_ID, reasoning_effort: str | None = None, user_chat: bool = False, desktop: bool = False, network_access: bool = False, skills: list[dict] | None = None, read_roots: list[str] | None = None) -> dict:
+        if skills:
+            self.ensure_started()
+            self.require_native_skills()
         catalog = self.model_catalog()
         selected = next((item for item in catalog if model in (item.get('id'), item.get('model'))), None)
         if not selected:
@@ -272,7 +285,11 @@ class CodexLocalApi:
         if sandbox_mode is None:
             raise AgentRuntimeError("INVALID_SANDBOX", "Unsupported Codex sandbox mode")
         root = str(cwd.resolve())
-        filesystem = {":root": "read", str(self.workspace / 'agents' / 'local-api-token'): "deny"}
+        filesystem = {":root": "deny", str(self.workspace / 'agents' / 'local-api-token'): "deny"}
+        if os.name == 'nt':
+            # Native Windows sandbox requires root read; this is an explicit
+            # compatibility mode, not a guarantee of project-only read isolation.
+            filesystem[':root'] = 'read'
         for run_folder in (self.workspace / 'agents' / 'worktrees').glob('*'):
             for sibling in run_folder.iterdir():
                 if sibling.resolve() != cwd.resolve():
@@ -284,6 +301,7 @@ class CodexLocalApi:
                         if sibling.resolve() != cwd.resolve():
                             filesystem[str(sibling.resolve())] = "deny"
         filesystem.update({str(Path(p).resolve()): "deny" for p in (denied_paths or [])})
+        filesystem.update({str(Path(path).resolve()): "read" for path in (read_roots or [])})
         filesystem[root] = "read" if sandbox == "readOnly" else "write"
         if sandbox == "readOnly":
             sandbox_policy = {"type": "readOnly", "access": {
@@ -295,15 +313,22 @@ class CodexLocalApi:
         return self._request("/api/threads", {
             "transport": "desktop" if desktop else "app-server", "cwd": str(cwd), "model": model, "reasoningEffort": reasoning_effort,
             "name": name[:100], "prompt": prompt, "sandbox": sandbox_mode,
+            **({"skills": skills} if skills else {}),
             "approvalPolicy": "never", "permissions": "makora", "threadSource": "user" if user_chat else "appServer", "desktopVisible": True,
-            "config": {"permissions.makora": {"filesystem": filesystem, "network": {"enabled": network_access}},
+            "config": {**({"windows.sandbox": os.environ["MAKORA_WINDOWS_SANDBOX"]} if os.environ.get("MAKORA_WINDOWS_SANDBOX") in ("elevated", "unelevated") else {}), "permissions.makora": {"filesystem": filesystem, "network": {"enabled": network_access}},
                        **({"web_search": "live"} if network_access else {}),
                        **({"model_reasoning_effort": reasoning_effort} if reasoning_effort else {})},
         }, timeout=200)
 
-    def send(self, thread_id: str, text: str, *, desktop: bool = False) -> dict:
+    def send(self, thread_id: str, text: str, *, desktop: bool = False, skills: list[dict] | None = None) -> dict:
         self.ensure_started()
-        return self._request(f"/api/threads/{thread_id}/messages", {"transport": "desktop" if desktop else "app-server", "text": text}, timeout=60)
+        if skills:
+            self.require_native_skills()
+        return self._request(f"/api/threads/{thread_id}/messages", {"transport": "desktop" if desktop else "app-server", "text": text, **({"skills": skills} if skills else {})}, timeout=60)
+
+    def interrupt(self, thread_id: str, turn_id: str) -> dict:
+        self.ensure_started()
+        return self._request(f'/api/threads/{thread_id}/interrupt', {'turnId': turn_id})
 
     def operation(self, operation_id: str) -> dict:
         self.ensure_started()
@@ -1973,7 +1998,8 @@ class AgentRuntime:
                                  'providerTurnTiming': session.get('providerTurnTiming', {})})
             if state == "completed":
                 session["error"] = None
-                session["result"] = detail
+                session["result"] = {'turns': [{**turn, 'items': [item for item in turn.get('items', [])
+                    if isinstance(item, dict) and (item.get('role') or item.get('type')) in ('assistant', 'agentMessage', 'assistantMessage')]}]} if turn else detail
                 current_response = detail
                 if isinstance(detail, dict) and isinstance(detail.get('turns'), list) and result.get('turnId'):
                     current_response = {**detail, 'turns': [turn for turn in detail['turns']
@@ -2083,15 +2109,18 @@ class AgentRuntime:
                         session['proposal'] = proposal
                     except AgentRuntimeError as exc:
                         session['planError'] = {'code':exc.code,'message':str(exc)}
-                self._event("agent_completed", f"{session['role']} thread {session['threadId']} завершил ответ", session.get("runId"), session.get("taskId"))
+                if result.get("status") != "completed":
+                    self._event("agent_completed", f"{session['role']} thread {session['threadId']} завершил ответ", session.get("runId"), session.get("taskId"))
             elif state == "failed":
-                session['errorDiagnostics'] = detail
+                session['errorDiagnostics'] = dict(session.get('lastRefreshEvidence') or {})
                 session["error"] = public_agent_error(detail)
                 _LOG.warning('[FIX] Agent request failed: session=%s code=%s', agent_id, session['error']['code'])
                 task = self._task_for_session(session)
                 if task and session["role"] == "builder": task["status"] = "failed"
-                self._event("agent_failed", f"{session['role']} завершился ошибкой", session.get("runId"), session.get("taskId"))
-            self._save()
+                if result.get("status") != "failed":
+                    self._event("agent_failed", f"{session['role']} завершился ошибкой", session.get("runId"), session.get("taskId"))
+            if result.get("status") != state or result.get("lastRefreshEvidence") != session.get("lastRefreshEvidence"):
+                self._save()
             return dict(session)
 
     @staticmethod

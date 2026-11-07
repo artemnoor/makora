@@ -1,3 +1,4 @@
+import {buildTurnInput} from './skill-input.mjs';
 import { spawn } from 'node:child_process';
 import { desktopProjectForDirectory } from './desktop-project.mjs';
 import { createServer } from 'node:http';
@@ -971,6 +972,10 @@ const server = createServer(async (request, response) => {
       try { return json(response, 200, listIndexedDesktopThreads(url)); }
       catch (error) { return json(response, error.status || 503, { error: error.message }); }
     }
+    if (request.method === 'GET' && url.pathname === '/api/capabilities') {
+      return json(response,200,{nativeSkillInputs:true,nativeSkillCapabilityEvidence:'bridge-declaration; runtime acceptance confirmed by turn/start',desktopNativeSkillInputs:false,exactTurnInterrupt:true,
+        projectOnlyReadIsolation:process.platform!=='win32',runtimeVersion:appServerVersion});
+    }
     if (request.method === 'GET' && url.pathname === '/api/threads') {
       const scope = url.searchParams.get('scope') || (appToolsContextThreadId ? 'desktop' : 'all');
       if (!['desktop', 'all'].includes(scope)) return json(response, 400, { error: 'scope must be desktop or all' });
@@ -1022,7 +1027,9 @@ const server = createServer(async (request, response) => {
     if (request.method === 'POST' && url.pathname === '/api/threads') {
       const input = await body(request);
       if (typeof input.prompt !== 'string' || !input.prompt.trim()) return json(response, 400, { error: 'Initial prompt is required' });
+      if (input.skills?.length && input.transport !== 'app-server') return json(response, 400, {error:'Native skills require App Server transport'});
       if (input.transport && !['desktop', 'app-server'].includes(input.transport)) return json(response, 400, { error: 'Invalid transport' });
+      const nativeInput = await buildTurnInput(input.prompt.trim(), input.skills);
       if (input.transport !== 'app-server') {
         if (!appToolsContextThreadId) return json(response, 503, { error: 'Desktop bridge is unavailable' });
         if (input.projectless && input.projectId) return json(response, 400, { error: 'Choose projectless or projectId' });
@@ -1072,16 +1079,30 @@ const server = createServer(async (request, response) => {
       try {
         const turn = await rpc('turn/start', {
           threadId,
-          input: [{ type: 'text', text: input.prompt.trim() }],
+          input: nativeInput,
           ...(typeof input.reasoningEffort === 'string' && input.reasoningEffort ? { effort: input.reasoningEffort } : {}),
           approvalPolicy: input.approvalPolicy || 'on-request',
-          ...(input.permissions ? {permissions:input.permissions} : (input.sandboxPolicy && typeof input.sandboxPolicy === 'object' ? { sandboxPolicy: input.sandboxPolicy } : {})),
+          ...(input.sandboxPolicy && typeof input.sandboxPolicy === 'object' ? {sandboxPolicy:input.sandboxPolicy} : {}),
         });
         const operation = startDeliveryTracking(threadId, input.prompt.trim(), null, turn.turn?.id);
-        return json(response, 201, { id: threadId, model: input.model || null, turnId: turn.turn?.id, initialPromptSubmitted: true, transport: 'app-server', operation });
+        return json(response, 201, { id: threadId, model: input.model || null, turnId: turn.turn?.id, initialPromptSubmitted: true, transport: 'app-server', nativeSkillBinding: input.skills?.length ? 'accepted' : null, operation });
       } catch (error) {
         return json(response, 502, { error: error.message, threadId, deliveryUnknown: /timed out/i.test(error.message) });
       }
+    }
+    const interruptMatch = url.pathname.match(/^\/api\/threads\/([^/]+)\/interrupt$/);
+    if (request.method === 'POST' && interruptMatch) {
+      const input = await body(request);
+      const threadId = decodeURIComponent(interruptMatch[1]);
+      const operation = operations.get(activeThreadOperations.get(threadId));
+      if (!operation || operation.turnId !== input.turnId) {
+        const history = await readThread(threadId,true,false,true);
+        const exact = history.turns?.find(turn=>turn.id===input.turnId);
+        if (!exact || !['inProgress','in_progress','running'].includes(exact.status)) return json(response,409,{error:'Точный активный запрос не подтверждён. Проверьте чат Codex; повторная отправка не выполнена.'});
+        await ensureThreadLoaded(threadId);
+      }
+      await rpc('turn/interrupt', {threadId, turnId:input.turnId});
+      return json(response, 202, {status:'stopping', threadId, turnId:input.turnId});
     }
     const desktopOpenMatch = url.pathname.match(/^\/api\/threads\/([^/]+)\/desktop\/open$/);
     if (request.method === 'POST' && desktopOpenMatch) {
@@ -1110,6 +1131,7 @@ const server = createServer(async (request, response) => {
       const threadId = decodeURIComponent(messageMatch[1]);
       const input = await body(request);
       if (typeof input.text !== 'string' || !input.text.trim()) return json(response, 400, { error: 'Message is empty' });
+      if (input.skills?.length && input.transport !== 'app-server') return json(response, 400, {error:'Native skills require App Server transport'});
       if (input.transport && !['desktop', 'app-server'].includes(input.transport)) return json(response, 400, { error: 'Invalid transport' });
       const prompt = String(input.text).trim();
       const activeOperationId = activeThreadOperations.get(threadId);
@@ -1144,10 +1166,10 @@ const server = createServer(async (request, response) => {
       }
       if (input.transport === 'desktop') return json(response, 503, { error: 'Desktop bridge is unavailable' });
       await ensureThreadLoaded(threadId);
-      const result = await rpc('turn/start', { threadId, input: [{ type: 'text', text: prompt }] });
+      const result = await rpc('turn/start', { threadId, input: await buildTurnInput(prompt, input.skills) });
       publish({ type: 'turn-started', threadId, turnId: result.turn?.id });
       const operation = startDeliveryTracking(threadId, prompt, baselineTurnId, result.turn?.id);
-      return json(response, 202, { threadId, turnId: result.turn?.id, status: 'accepted', transport: 'app-server', operation });
+      return json(response, 202, { threadId, turnId: result.turn?.id, status: 'accepted', transport: 'app-server', nativeSkillBinding: input.skills?.length ? 'accepted' : null, operation });
       } finally { threadSendInFlight.delete(threadId); }
     }
     if (request.method === 'GET' && url.pathname === '/api/approvals') return json(response, 200, [...approvals].map(([requestId, item]) => ({ requestId, method: item.method, params: item.params })));
