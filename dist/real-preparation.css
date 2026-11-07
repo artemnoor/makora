@@ -655,61 +655,81 @@
 
 .competitor-card label{display:block;margin-block:12px}.competitor-card select,.competitor-card textarea{display:block;width:100%;box-sizing:border-box;margin-top:6px;padding:10px;background:#151515;color:#eee;border:1px solid #777;font:inherit;font-size:16px}.competitor-card textarea{resize:vertical}
 
-/* Stage index and viewport-filling stage surface. */
+/* The original pixel frame surrounds the stage index. */
 #first-stage .stage-board:not(.expanded) {
+  --frame-top:clamp(44px, 7vw, 82px);
+  --frame-side:clamp(26px, 8vw, 86px);
+  --frame-foot:clamp(54px, 8vw, 98px);
   height:min(480px, calc(100dvh - var(--board-offset, 100px) - 12px)) !important;
-  background:#161819;
-  border:1px solid #3b3e41;
-  border-radius:18px;
-  box-shadow:0 16px 42px #0006;
   box-sizing:border-box;
+  background:none;
+}
+#first-stage .stage-board:not(.expanded)::before {
+  content:"";
+  position:absolute;
+  inset:0;
+  border-style:solid;
+  border-width:var(--frame-top) var(--frame-side) var(--frame-foot);
+  border-image:url("analysis-board.png") 184 184 200 184 fill / 1 stretch;
+  filter:grayscale(1) brightness(1.35);
+  pointer-events:none;
 }
 #first-stage .stage-board :is(.stage-grid,.board-inner)[hidden] {
   display:none !important;
 }
 #first-stage .stage-grid {
   position:absolute;
-  inset:clamp(10px, 2vw, 24px);
+  inset:calc(var(--frame-top) + 8px) calc(var(--frame-side) + 8px) calc(var(--frame-foot) + 4px);
   display:grid;
-  grid-template-columns:repeat(4, minmax(0, 1fr));
-  grid-template-rows:repeat(2, minmax(82px, 1fr));
-  gap:clamp(8px, 1.2vw, 14px);
+  grid-template-columns:repeat(2, minmax(0, 1fr));
+  grid-template-rows:repeat(4, minmax(42px, 1fr));
+  column-gap:clamp(12px, 3vw, 38px);
   overflow:auto;
-  padding:2px;
-  margin:-2px;
 }
 #first-stage .stage-grid button {
-  --tile-accent:#b5d9bc;
+  --chalk-accent:#e7d0a0;
   display:grid;
-  grid-template-rows:1fr auto auto;
-  align-items:start;
-  gap:5px;
+  grid-template-columns:2.1em minmax(0, 1fr) auto;
+  align-items:center;
+  gap:clamp(5px, 1.2vw, 13px);
   min-width:0;
-  padding:clamp(9px, 1.5vw, 19px);
-  border:1px solid #484c4b;
-  border-radius:12px;
-  background:linear-gradient(155deg, color-mix(in srgb, var(--tile-accent) 12%, #202324), #1c1e20 68%);
-  color:#f0f0ed;
+  padding:5px 4px;
+  border:0;
+  border-bottom:1px solid #ffffff24;
+  background:transparent;
+  color:#f1f0eb;
   text-align:left;
+  font-size:clamp(12px, 1.5vw, 18px);
   cursor:pointer;
 }
-#first-stage .stage-grid button:nth-child(4n+2) {--tile-accent:#e9c791}
-#first-stage .stage-grid button:nth-child(4n+3) {--tile-accent:#9fcde3}
-#first-stage .stage-grid button:nth-child(4n+4) {--tile-accent:#deb9ac}
-#first-stage .stage-grid [data-status="locked"] {border-color:#353a3c}
-#first-stage .stage-grid :is([data-status="complete"],[data-status="running"]) {
-  border-color:color-mix(in srgb, var(--tile-accent) 56%, #414543);
+#first-stage .stage-grid button:nth-last-child(-n+2) {border-bottom-color:transparent}
+#first-stage .stage-grid [data-status="locked"] {--chalk-accent:#a19e97;color:#c2bfba}
+#first-stage .stage-tile-number {color:var(--chalk-accent);font:1.65em/1 MakoraSteps, monospace}
+#first-stage .stage-tile-copy {display:grid;gap:2px;min-width:0}
+#first-stage .stage-tile-mark {color:var(--chalk-accent);font:1em/1 monospace}
+#first-stage .stage-tile-name {font:600 .95em/1.17 Manrope, Arial, sans-serif;overflow-wrap:anywhere}
+#first-stage .stage-tile-status {color:#aaa69e;font:clamp(9px, 1vw, 11px)/1.1 Manrope, Arial, sans-serif}
+#first-stage .stage-grid button:is(:hover,:focus-visible) {background:#fff1;color:#fff}
+#first-stage .stage-grid button:focus-visible {outline-offset:-2px}
+@media (max-height:650px), (max-width:640px) {
+  #first-stage .stage-board:not(.expanded) {--frame-top:32px;--frame-foot:42px}
 }
-#first-stage .stage-tile-top {display:flex;justify-content:space-between;align-items:start;gap:8px;color:var(--tile-accent)}
-#first-stage .stage-tile-number {font:clamp(27px, 4.6vw, 62px)/.9 MakoraSteps, monospace}
-#first-stage .stage-tile-mark {font:600 clamp(15px, 2vw, 25px)/1 Manrope, sans-serif}
-#first-stage .stage-tile-name {font:650 clamp(13px, 1.3vw, 17px)/1.25 Manrope, Arial, sans-serif}
-#first-stage .stage-tile-status {color:#b5b8b6;font:11px/1.2 Manrope, Arial, sans-serif}
-#first-stage .stage-grid button:is(:hover,:focus-visible) {
-  border-color:var(--tile-accent);
-  background:color-mix(in srgb, var(--tile-accent) 18%, #222526);
+@media (max-width:640px) {
+  #first-stage .stage-board:not(.expanded) {--frame-side:21px}
+  #first-stage .stage-grid {inset-inline:25px;column-gap:8px}
+  #first-stage .stage-grid button {grid-template-columns:1.65em minmax(0, 1fr)}
+  #first-stage .stage-tile-mark {display:none}
 }
-#first-stage .stage-grid button:focus-visible {outline-offset:-4px}
+@media (min-width:641px) and (max-height:460px) {
+  #first-stage .stage-grid {
+    grid-template-columns:repeat(4, minmax(0, 1fr));
+    grid-template-rows:repeat(2, minmax(42px, 1fr));
+    column-gap:10px;
+  }
+  #first-stage .stage-grid button {grid-template-columns:1.65em minmax(0, 1fr)}
+  #first-stage .stage-grid button:nth-last-child(-n+4) {border-bottom-color:transparent}
+  #first-stage .stage-tile-mark {display:none}
+}
 #first-stage .stage-board.expanded {
   width:100% !important;
   height:100dvh !important;
@@ -829,12 +849,6 @@
   font-size:inherit;
 }
 @media (max-width:640px) {
-  #first-stage .stage-grid {
-    grid-template-columns:repeat(2, minmax(0, 1fr));
-    grid-template-rows:repeat(4, minmax(68px, 1fr));
-  }
-  #first-stage .stage-grid button {gap:3px;padding:7px 9px}
-  #first-stage .stage-tile-status {font-size:10px}
   #first-stage .stage-board .artifact-approval {gap:6px}
   #first-stage .stage-board .artifact-approval p {display:none}
   #first-stage .stage-board .artifact-files details {width:auto;flex:1 1 124px}
@@ -851,7 +865,6 @@
   #first-stage .stage-board .stage-model {grid-area:3 / 1 / 4 / -1;margin:0}
 }
 @media (max-width:380px) {
-  #first-stage .stage-grid button {grid-template-rows:1fr auto}
   #first-stage .stage-tile-status {
     position:absolute;
     width:1px;

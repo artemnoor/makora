@@ -40,7 +40,6 @@
     if(sourceFile)await uploadSource(sourceFile);
     return api('/api/preparation/0/start',{brief});
   }
-  const stageMarks=['✳','≡','◎','◇','⊞','⊡','↗','✦'];
   const stageStatusNames={complete:'Готово',running:'В работе',available:'Доступно',locked:'Закрыто'};
   const pendingStatuses=['running','unconfirmed','stopping'];
   function schedule(){
@@ -80,9 +79,9 @@
         ?record?.status==='approved':index===6&&(state.prototype?.status==='approved'||state.returnedProject?.status==='prepared');
       const status=complete?'complete':pendingStatuses.includes(record?.status)?'running':isUnlocked(index)?'available':'locked';
       return `<button type="button" data-real-stage="${index}" data-status="${status}">
-        <span class="stage-tile-top"><span class="stage-tile-number">${String(index+1).padStart(2,'0')}</span><span class="stage-tile-mark" aria-hidden="true">${stageMarks[index]}</span></span>
-        <span class="stage-tile-name">${name}</span>
-        <span class="stage-tile-status">${stageStatusNames[status]}</span>
+        <span class="stage-tile-number">${String(index+1).padStart(2,'0')}</span>
+        <span class="stage-tile-copy"><span class="stage-tile-name">${name}</span><span class="stage-tile-status">${stageStatusNames[status]}</span></span>
+        <span class="stage-tile-mark" aria-hidden="true">${complete?'✓':'↗'}</span>
       </button>`;
     }).join('');
     grid.querySelectorAll('button').forEach(button=>button.onclick=()=>open(Number(button.dataset.realStage)));
