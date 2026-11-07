@@ -10,6 +10,8 @@ from makora_core.preparation import Preparation
 from makora_core.agents.runtime import AgentRuntimeError, AgentRuntime
 
 
+VALID_ANALYSIS = '# Анализ\nИсточник S1: исходное условие\nREQ-1: требования задания\n' + '\n'.join('## Раздел '+str(i)+'\nСодержание' for i in range(10))
+
 class PreparationTests(unittest.TestCase):
     def setUp(self):
         self.tmp = tempfile.TemporaryDirectory()
@@ -27,6 +29,9 @@ class PreparationTests(unittest.TestCase):
                                        state={'sessions': {}, 'runs': {}}, allowed_roots=[], _run_git=AgentRuntime._run_git,
                                        _save=lambda: None, refresh_session=lambda _: {'status': 'completed'})
         self.pipeline = Preparation(Path(self.tmp.name), self.runtime)
+        self.source_patch = patch('makora_core.source_verifier.verify_sources', return_value=[{'url':'https://example.com/features','status':'passed'}])
+        self.source_patch.start()
+        self.addCleanup(self.source_patch.stop)
 
     def competitor_files(self):
         return {'02_competitors.md': '# Сравнение', '02_competitors.json': json.dumps({
@@ -61,7 +66,7 @@ class PreparationTests(unittest.TestCase):
         record = self.pipeline.state['stages']['2']
         (Path(record['folder'])/'result.json').write_text(json.dumps({'files': files}), 'utf-8')
         self.pipeline.refresh(2)
-        self.pipeline.approve(2, {'note': 'Перенять фильтры, отказаться от регистрации'})
+        self.pipeline.approve(2, {'note': 'Перенять фильтры, отказаться от регистрации', 'decisions':{'one':{'action':'adapt','comment':'Фильтры'}}})
         self.pipeline.start(3, {})
         inputs = json.loads((Path(self.pipeline.state['stages']['3']['folder'])/'INPUT.json').read_text('utf-8'))
         self.assertIn('фильтры', inputs['competitorPreferences'])
@@ -94,6 +99,89 @@ class PreparationTests(unittest.TestCase):
         restored = Preparation(Path(self.tmp.name), self.runtime)
         self.assertEqual('review', restored.state['stages']['3']['status'])
         self.assertTrue(self.pipeline.index.with_name('state-before-competitors.json').is_file())
+
+    def test_minimal_analysis_and_fabricated_source_are_rejected(self):
+        self.assertTrue(any(check['status']=='failed' for check in Preparation.validate({'01_case_analysis.md':'# x'},1)))
+        files=self.competitor_files()
+        research=json.loads(files['02_competitors.json'])
+        research['competitors'][0]['sources'][0]['checkedAt']='not-a-date'
+        files['02_competitors.json']=json.dumps(research)
+        with self.assertRaisesRegex(ValueError,'ISO'):
+            Preparation.validate(files,2)
+
+    def test_native_skill_manifest_is_frozen_and_repeat_folders_share_write_root(self):
+        self.pipeline.start(1,{'brief':'Проверка реального подключения методических навыков'})
+        first=self.pipeline.state['stages']['1']
+        self.assertEqual('native',first['skillBindingMode'])
+        self.assertTrue(all('packageSha256' in binding for binding in first['skillManifest']))
+        self.assertTrue(all(Path(binding['path']).is_file() for binding in first['skillManifest']))
+        write_root=self.calls[-1]['cwd']
+        self.assertTrue(Path(first['folder']).is_relative_to(write_root))
+        self.pipeline.state['stages']['1']['status']='review'
+        self.pipeline.start(1,{'feedback':'Уточни анализ'})
+        second=self.pipeline.state['stages']['1']
+        self.assertTrue(Path(second['folder']).is_relative_to(write_root))
+        self.assertEqual(first['skillManifest'],second['skillManifest'])
+
+    def test_stage_cancellation_waits_for_terminal_confirmation_and_is_idempotent(self):
+        self.pipeline.start(1,{'brief':'Проверка остановки подготовки проекта'})
+        calls=[]
+        self.runtime.provider.interrupt=lambda thread,turn:calls.append((thread,turn))
+        first=self.pipeline.cancel(1)
+        self.assertEqual('stopping',first['stages']['1']['status'])
+        self.pipeline.cancel(1)
+        self.assertEqual(1,len(calls))
+        with self.assertRaises(AgentRuntimeError):self.pipeline.start(1,{'brief':'Нельзя повторить пока идёт остановка'})
+        self.runtime.refresh_session=lambda _: {'status':'failed','error':{'message':'interrupted'}}
+        record=self.pipeline.refresh(1)['stages']['1']
+        self.assertEqual('cancelled',record['status'])
+        self.assertNotIn('error',record)
+
+    def test_archive_cannot_skip_an_unapproved_earlier_change(self):
+        self.pipeline.state['stages']={'1':{'status':'review','files':{}},'5':{'status':'approved','files':{}}}
+        with self.assertRaises(AgentRuntimeError) as error:self.pipeline.archive()
+        self.assertEqual('PREPARATION_NOT_APPROVED',error.exception.code)
+
+    def test_partial_state_save_can_restore_both_copies(self):
+        self.select_folder()
+        import copy
+        before=copy.deepcopy(self.pipeline.state)
+        original=self.pipeline._storage_write
+        calls=[]
+        def fail_once(name,data):
+            if name=='.makora/preparation/state.json' and not calls:
+                calls.append(name)
+                raise OSError('simulated secondary write failure')
+            return original(name,data)
+        self.pipeline._storage_write=fail_once
+        self.pipeline.state['brief']='changed'
+        with self.assertRaises(OSError):self.pipeline.save()
+        self.pipeline.state=before
+        self.pipeline.save()
+        mirror=Path(before['storageRoot'])/'.makora/preparation/state.json'
+        self.assertEqual(before,json.loads(self.pipeline.index.read_text('utf-8')))
+        self.assertEqual(before,json.loads(mirror.read_text('utf-8')))
+
+    def test_grounding_cannot_be_claimed_without_evidence(self):
+        self.generate_analysis()
+        record=self.pipeline.state['stages']['1']
+        path=Path(record['folder'])/'result.json'
+        result=json.loads(path.read_text('utf-8'))
+        result['requirementsEvidence'][0]['quote']='Вымышленная цитата, которой нет в исходном задании'
+        path.write_text(json.dumps(result),'utf-8')
+        record['status']='failed'
+        self.assertEqual('failed',self.pipeline.refresh(1,recheck=True)['stages']['1']['status'])
+
+    def test_coverage_requires_actual_paths_or_explicit_blocker(self):
+        context={'01_case_analysis.md':'REQ-1: source requirement'}
+        files={'02_solution_concept.md':'REQ-1: catalog'}
+        for row in (None, {'requirementId':'REQ-1','disposition':'covered','artifacts':['invented.md']}):
+            checks,_=self.pipeline.validate_evidence(files,3,{'coverage':[row]},brief='source',context=context)
+            self.assertTrue(any(check['status']=='failed' for check in checks))
+        for row in ({'requirementId':'REQ-1','disposition':'covered','artifacts':['02_solution_concept.md']},
+                    {'requirementId':'REQ-1','disposition':'blocked','reason':'Waiting for API contract'}):
+            checks,_=self.pipeline.validate_evidence(files,3,{'coverage':[row]},brief='source',context=context)
+            self.assertTrue(all(check['status']=='passed' for check in checks))
 
     def test_chat_is_readonly_deduplicated_and_uses_exact_turn(self):
         folder=self.select_folder()
@@ -254,6 +342,7 @@ class PreparationTests(unittest.TestCase):
         self.pipeline.store_source('case.md',original)
         self.pipeline.state['brief']='Create local notes'
         self.pipeline.state['stages']={'1':{'status':'approved','files':{'01_case_analysis.md':'# Analysis'}},'5':{'status':'approved','files':{'mocks/fixtures/data.json':'[]'}}}
+        for stage in range(1,5): self.pipeline.state['stages'].setdefault(str(stage),{'status':'approved','files':{}})
         result=self.pipeline.handoff_package()
         self.assertIn('new_mocks/',result['prompt'])
         for required in ('полноценный работающий веб-сайт', 'страницы', 'скачиваемый ZIP-архив',
@@ -273,6 +362,7 @@ class PreparationTests(unittest.TestCase):
         folder=self.select_folder()
         self.pipeline.state['brief']='Local catalog project'
         self.pipeline.state['stages']={'1':{'status':'approved','files':{'01_case_analysis.md':'# Requirements'}},'5':{'status':'approved','files':{'mocks/fixtures/data.json':'[]'}}}
+        for stage in range(1,5): self.pipeline.state['stages'].setdefault(str(stage),{'status':'approved','files':{}})
         result=self.pipeline.development()
         self.assertEqual(Path(result['projectRoot']),folder/'app')
         self.assertTrue((folder/'exports/project-context.zip').is_file())
@@ -316,6 +406,7 @@ class PreparationTests(unittest.TestCase):
     def test_continue_imports_uploaded_site_for_stage_six_without_claiming_approval(self):
         from makora_core.iterations import zip_files
         self.pipeline.state['stages'] = {'5': {'status': 'approved', 'files': {'mocks/fixtures/data.json': '[]'}}}
+        for stage in range(1,5): self.pipeline.state['stages'].setdefault(str(stage),{'status':'approved','files':{}})
         self.pipeline.receive_project('site.zip', zip_files({'index.html': b'<h1>Uploaded</h1>', 'mocks/fixtures/data.json': b'[]'}))
         result = self.pipeline.continue_returned_project()
         project = self.pipeline.project_directory()
@@ -370,7 +461,7 @@ class PreparationTests(unittest.TestCase):
     def generate_analysis(self):
         self.pipeline.start(1, {'brief': 'Реальный проект заметок: API, поиск, локальные данные.'})
         folder = Path(self.pipeline.state['stages']['1']['folder'])
-        (folder / 'result.json').write_text(json.dumps({'files': {'01_case_analysis.md': '# Анализ\nТребования задания'}}), 'utf-8')
+        (folder / 'result.json').write_text(json.dumps({'files': {'01_case_analysis.md': VALID_ANALYSIS}, 'requirementsEvidence':[{'id':'REQ-1','quote':self.pipeline.state['brief'],'locator':'brief','acceptance':'Проверяемый результат'}]}), 'utf-8')
         return self.pipeline.refresh(1)
 
     def test_session_ids_persist_and_output_requires_explicit_approval(self):
@@ -433,7 +524,7 @@ class PreparationTests(unittest.TestCase):
             self.pipeline.start(1, {'brief': 'Проект каталога с поиском'})
         record = self.pipeline.state['stages']['1']
         folder = Path(record['folder'])
-        (folder / 'result.json').write_text(json.dumps({'files': {'01_case_analysis.md': '# Анализ'}}), 'utf-8')
+        (folder / 'result.json').write_text(json.dumps({'files': {'01_case_analysis.md': VALID_ANALYSIS}, 'requirementsEvidence':[{'id':'REQ-1','quote':self.pipeline.state['brief'],'locator':'brief','acceptance':'Проверяемый результат'}]}), 'utf-8')
         self.runtime.provider.history = lambda _: {'turns': [{'id': 'actual-turn', 'status': 'completed', 'items': [
             {'role': 'user', 'text': str(folder / 'TASK.json')},
             {'role': 'assistant', 'phase': 'final_answer', 'text': 'Готово'}]}]}
@@ -530,6 +621,7 @@ class PreparationTests(unittest.TestCase):
         self.pipeline.state['brief'] = 'Локальный каталог'
         self.pipeline.state['stages'] = {'1': {'status': 'approved', 'files': {'01_case_analysis.md': '# Пользовательский кейс'}},
                                          '5': {'status': 'approved', 'files': {'mocks/fixtures/data.json': '[\n]'}}}
+        for stage in range(1,5): self.pipeline.state['stages'].setdefault(str(stage),{'status':'approved','files':{}})
         result = self.pipeline.development()
         project = Path(result['projectRoot'])
         self.assertEqual((project / '01_case_analysis.md').read_text('utf-8'), '# Пользовательский кейс')

@@ -1,3 +1,4 @@
+import subprocess
 import tempfile
 import unittest
 from pathlib import Path
@@ -6,6 +7,10 @@ from scripts.check_skills import check_skill
 
 
 class SkillStructureTests(unittest.TestCase):
+    def test_native_skill_input_contract(self):
+        result = subprocess.run(['node', 'tests/test_native_skill_input.mjs'], cwd=Path(__file__).resolve().parents[1], capture_output=True, text=True, timeout=15)
+        self.assertEqual(0,result.returncode,result.stdout+result.stderr)
+
     def test_control_skill_does_not_require_document_templates(self):
         with tempfile.TemporaryDirectory() as temp:
             folder = Path(temp) / 'project-control'

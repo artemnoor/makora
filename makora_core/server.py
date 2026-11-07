@@ -12,6 +12,7 @@ from pathlib import Path
 from urllib.parse import parse_qs, unquote, urlparse
 
 from .iterations import IterationStore, MAX_ARCHIVE
+from .artifact_changes import ArtifactChanges
 from .workspace import MakoraError
 from .agents import AgentRuntime, AgentRuntimeError
 from .agents.runtime import configure_codex_binary
@@ -127,6 +128,15 @@ class MakoraHandler(SimpleHTTPRequestHandler):
                 if not same_origin or self.headers.get('X-Makora-Request') != 'token':
                     self._error(AgentRuntimeError('SAME_ORIGIN_REQUIRED','Token is available only to the Makora page.',403),403);return
                 self._json({'token':self.server.agent_token});return
+            if path == '/api/preparation/changes/recovery':
+                self._agent_json(ArtifactChanges(self.server.preparation).recovery_status);return
+            if path == '/api/preparation/changes/context':
+                self._agent_json(ArtifactChanges(self.server.preparation).context);return
+            if path == '/api/preparation/changes':
+                self._agent_json(ArtifactChanges(self.server.preparation).list);return
+            change_match = re.fullmatch(r'/api/preparation/changes/([a-f0-9]{32})', path)
+            if change_match:
+                self._agent_json(lambda:ArtifactChanges(self.server.preparation).get(change_match.group(1)));return
             if path == '/api/agents/status':
                 self._agent_json(self.server.agent_runtime.status);return
             if path == '/api/preparation/projects':
@@ -212,6 +222,20 @@ class MakoraHandler(SimpleHTTPRequestHandler):
         try:
             if path.startswith(('/api/agents/', '/api/preparation')) and not self._agent_auth():
                 self._error(AgentRuntimeError('AUTH_REQUIRED','Нужен действующий токен этой страницы Макоры.',401),401);return
+            if getattr(getattr(self.server,'preparation',None),'change_recovery_required',False) and not path.endswith('/recovery'):
+                self._error(AgentRuntimeError('CHANGE_RECOVERY_CONFLICT','Сначала разрешите незавершённое применение правки.',409),409);return
+            if path == '/api/preparation/workflow/preserve-legacy':
+                value=self._read_json();self._agent_json(lambda:self.server.preparation.preserve_legacy_approvals(value));return
+            recovery_match=re.fullmatch(r'/api/preparation/changes/([a-f0-9]{32})/recovery',path)
+            if recovery_match:
+                value=self._read_json();self._agent_json(lambda:ArtifactChanges(self.server.preparation).resolve_recovery(recovery_match.group(1),value));return
+            if path == '/api/preparation/changes/scan':
+                value=self._read_json();self._agent_json(lambda:ArtifactChanges(self.server.preparation).scan(value));return
+            if path == '/api/preparation/changes':
+                value=self._read_json();self._agent_json(lambda:ArtifactChanges(self.server.preparation).propose(value));return
+            change_match = re.fullmatch(r'/api/preparation/changes/([a-f0-9]{32})/apply',path)
+            if change_match:
+                value=self._read_json();self._agent_json(lambda:ArtifactChanges(self.server.preparation).apply(change_match.group(1),value));return
             if path in ('/api/preparation/projects/create', '/api/preparation/projects/open', '/api/preparation/folder/select', '/api/preparation/chat', '/api/preparation/chat/recover'):
                 self._error(AgentRuntimeError('PROJECT_FIXED', 'Макора работает с текущим проектом Codex. Общайтесь с ней в Codex Desktop.', 409),409);return
             if path in ('/api/preparation/projects/create', '/api/preparation/projects/open', '/api/preparation/projects/stage'):
@@ -248,11 +272,11 @@ class MakoraHandler(SimpleHTTPRequestHandler):
             if path == '/api/preparation/extract':
                 name=parse_qs(urlparse(self.path).query).get('name',['brief.txt'])[0]
                 self._agent_json(lambda:self.server.preparation.extract(name,self._body(20*1024*1024)));return
-            match=re.fullmatch(r'/api/preparation/([1-5])/(start|refresh|approve)',path)
+            match=re.fullmatch(r'/api/preparation/([1-5])/(start|refresh|approve|cancel)',path)
             if match:
                 stage, action = int(match.group(1)), match.group(2)
                 payload = self._read_json()
-                self._agent_json(lambda: self.server.preparation.start(stage,payload) if action=='start' else self.server.preparation.refresh(stage,recheck=True) if action=='refresh' else self.server.preparation.approve(stage,payload));return
+                self._agent_json(lambda: self.server.preparation.start(stage,payload) if action=='start' else self.server.preparation.refresh(stage,recheck=True) if action=='refresh' else self.server.preparation.cancel(stage) if action=='cancel' else self.server.preparation.approve(stage,payload));return
             match=re.fullmatch(r'/api/agents/approvals/([\w-]+)',path)
             if match:
                 value=self._read_json()
@@ -378,6 +402,11 @@ def serve(workspace, static, host='127.0.0.1', port=8765, agent_roots=None, proj
     for root in (project / 'app', server.preparation.project_directory()):
         if root.resolve() not in server.agent_runtime.allowed_roots:
             server.agent_runtime.allowed_roots.append(root.resolve())
+    try:
+        ArtifactChanges(server.preparation).recover()
+    except AgentRuntimeError as exc:
+        if exc.code != 'CHANGE_RECOVERY_CONFLICT': raise
+        server.preparation.change_recovery_required = True
     server.codex_auth=CodexAuth(server.agent_runtime.provider, lambda: server.agent_runtime.snapshot()['sessions'])
     prepared_projects=server.preparation.root/'projects'
     if prepared_projects.exists():server.agent_runtime.allowed_roots.extend(p.resolve() for p in prepared_projects.iterdir() if p.is_dir())

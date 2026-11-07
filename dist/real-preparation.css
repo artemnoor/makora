@@ -644,3 +644,5 @@
 
 /* Keep document controls above the draggable mascot on narrow screens. */
 @media(max-width:600px){#first-stage .board.rp-board:not(.expanded){z-index:4!important}}
+
+.competitor-card label{display:block;margin-block:12px}.competitor-card select,.competitor-card textarea{display:block;width:100%;box-sizing:border-box;margin-top:6px;padding:10px;background:#151515;color:#eee;border:1px solid #777;font:inherit;font-size:16px}.competitor-card textarea{resize:vertical}
