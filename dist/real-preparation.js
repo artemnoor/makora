@@ -70,18 +70,33 @@
     }
     return number<7||state.prototype?.status==='approved'||state.returnedProject?.status==='prepared';
   }
+  function stageStatus(index){
+    const record=state.stages[index];
+    const complete=index===0?['review','approved'].includes(record?.status):index<=5
+      ?record?.status==='approved':index===6&&(state.prototype?.status==='approved'||state.returnedProject?.status==='prepared');
+    if(complete)return 'complete';
+    if(pendingStatuses.includes(record?.status))return 'running';
+    return isUnlocked(index)?'available':'locked';
+  }
+  function paintStageNavigation(){
+    const navigation=root().querySelector('.stage-navigation');
+    for(const button of navigation.querySelectorAll('button')){
+      const index=Number(button.dataset.stageJump),status=stageStatus(index);
+      button.dataset.status=status;
+      button.querySelector('.stage-nav-status').textContent=stageStatusNames[status];
+      if(index===stage)button.setAttribute('aria-current','step');
+      else button.removeAttribute('aria-current');
+    }
+  }
   function paintGrid(){
     const grid=root().querySelector('.stage-grid');
     const focused=grid.contains(document.activeElement)?document.activeElement.dataset.realStage:null;
     grid.innerHTML=names.map((name,index)=>{
-      const record=state.stages[index];
-      const complete=index===0?['review','approved'].includes(record?.status):index<=5
-        ?record?.status==='approved':index===6&&(state.prototype?.status==='approved'||state.returnedProject?.status==='prepared');
-      const status=complete?'complete':pendingStatuses.includes(record?.status)?'running':isUnlocked(index)?'available':'locked';
+      const status=stageStatus(index);
       return `<button type="button" data-real-stage="${index}" data-status="${status}">
         <span class="stage-tile-number">${String(index+1).padStart(2,'0')}</span>
         <span class="stage-tile-copy"><span class="stage-tile-name">${name}</span><span class="stage-tile-status">${stageStatusNames[status]}</span></span>
-        <span class="stage-tile-mark" aria-hidden="true">${complete?'✓':'↗'}</span>
+        <span class="stage-tile-mark" aria-hidden="true">${status==='complete'?'✓':'↗'}</span>
       </button>`;
     }).join('');
     grid.querySelectorAll('button').forEach(button=>button.onclick=()=>open(Number(button.dataset.realStage)));
@@ -93,6 +108,7 @@
     window.makoraRealAgents?.cancel?.();
     if(stage!==7)window.makoraCodingAgents?.hide();
     if(stage===null){paintGrid();return}
+    paintStageNavigation();
     board.dataset.stage=stage;
     board.classList.toggle('agent-real-mode',stage>=6);
     scene.querySelector('.board-kicker').textContent=`ЭТАП ${String(stage+1).padStart(2,'0')} / 08`;
@@ -300,8 +316,13 @@
   async function open(number){
     if(!Number.isInteger(number)||!names[number])return;
     const scene=root(),board=scene.querySelector('.stage-board');
+    const keepFocus=scene.querySelector('.stage-navigation').contains(document.activeElement);
     const ticket=++generation;
+    clearTimeout(timer);
+    window.makoraRealAgents?.cancel?.();
     scene.querySelector('.analysis-chat')?.remove();
+    scene.querySelector('[data-stage-model]')?.remove();
+    scene.querySelector('[data-workflow-notice]')?.remove();
     stage=number;
     file=null;
     delete board.dataset.runtimeView;
@@ -312,10 +333,12 @@
     board.querySelector('.board-inner').hidden=false;
     board.querySelector('.stage-grid').hidden=true;
     scene.querySelector('.first-top').inert=true;
+    const title=board.querySelector('#stage-title');
+    title.textContent=names[number];
+    board.querySelector('.board-kicker').textContent=`ЭТАП ${String(number+1).padStart(2,'0')} / 08`;
+    paintStageNavigation();
+    if(!keepFocus)title.focus();
     if(isUnlocked(number)){
-      const title=board.querySelector('#stage-title');
-      title.textContent=names[number];
-      title.focus();
       board.querySelector('.board-content').innerHTML='<p role="status">Открываем этап…</p>';
       try{
         const snapshot=await api('/api/preparation/projects/stage',{stage:number});
@@ -325,7 +348,6 @@
       }
     }else{
       paint();
-      board.querySelector('#stage-title').focus();
     }
     schedule();
   }
@@ -352,6 +374,15 @@
     stage=null;
     window.makoraModelStatus?.refresh();
     root().querySelector('.stage-board-back').onclick=closeStage;
+    const navigation=root().querySelector('.stage-navigation');
+    navigation.innerHTML=names.map((name,index)=>`<button type="button" data-stage-jump="${index}" title="${name}">
+      <span class="stage-nav-number">${String(index+1).padStart(2,'0')}</span>
+      <span class="stage-nav-copy"><span>${name}</span><small class="stage-nav-status"></small></span>
+    </button>`).join('');
+    navigation.onclick=event=>{
+      const button=event.target.closest('[data-stage-jump]');
+      if(button&&Number(button.dataset.stageJump)!==stage)open(Number(button.dataset.stageJump));
+    };
     paint();
     schedule();
   }

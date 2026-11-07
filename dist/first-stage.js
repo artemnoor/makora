@@ -15,6 +15,7 @@
             <div><span class="board-kicker"></span><h2 id="stage-title" tabindex="-1"></h2></div>
             <button type="button" class="stage-board-back">← К доске</button>
           </header>
+          <nav class="stage-navigation" aria-label="Переключение этапов"></nav>
           <div class="board-content"></div>
         </div>
       </section>

@@ -34,8 +34,14 @@ async page => {
   assert(await page.locator('.board').evaluate(e=>e.classList.contains('expanded')),'Этап не открылся на весь экран');
   assert(await page.locator('#first-stage').evaluate(e=>e.classList.contains('stage-open')),'Маскот не закреплён в открытом этапе');
   await page.locator('.brief-explanation').getByRole('heading',{name:'Пример'}).waitFor();
-  await page.locator('[data-real-next]').click();
+  const navigation=page.getByRole('navigation',{name:'Переключение этапов'});
+  assert(await navigation.getByRole('button').count()===8,'В полноэкранном режиме нет всех этапов');
+  await navigation.getByRole('button',{name:/Анализ конкурентов/}).click();
+  await page.locator('.stage-locked').waitFor();
+  await navigation.getByRole('button',{name:/Анализ задания/}).click();
   await page.locator('[data-real-run]').click();
+  assert(await navigation.getByRole('button',{name:/Анализ задания/}).getAttribute('aria-current')==='step','Активный этап не отмечен');
+  assert(await page.locator('.stage-grid').isHidden(),'Переключение вернуло к доске');
   await page.locator('[data-real-file]').first().waitFor();
   await page.locator('[data-real-file]').first().click();
   assert((await page.locator('[data-real-document]').innerText()).includes('REQ-1'),'Документ API не отображён');
