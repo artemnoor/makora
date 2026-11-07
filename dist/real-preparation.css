@@ -1229,6 +1229,36 @@
 #first-stage .competitor-next strong {color:#e7d0a0}
 #first-stage .competitor-next p {margin:4px 0 0}
 #first-stage .competitor-next button {justify-self:start;max-width:100%;white-space:normal}
+#first-stage .idea-handoff {
+  display:grid;
+  gap:14px;
+  max-width:680px;
+  padding:clamp(12px, 3vw, 28px);
+}
+#first-stage .idea-handoff-mark {
+  color:#e7d0a0;
+  font:42px/1 Manrope, Arial, sans-serif;
+}
+#first-stage .idea-handoff h3 {
+  margin:0;
+  color:#f1e4cd;
+  font:650 clamp(22px, 4vw, 30px)/1.2 Manrope, Arial, sans-serif;
+}
+#first-stage .idea-handoff p {margin:0;font-size:15px;line-height:1.6}
+#first-stage .idea-handoff ol {margin:0;padding-inline-start:22px;color:#cfc6b7}
+#first-stage .idea-handoff li {margin-block:8px}
+#first-stage .idea-handoff .idea-codex-link {
+  display:inline-flex;
+  align-items:center;
+  padding:10px 14px;
+  border:1px solid #e7d0a0;
+  background:#e7d0a0;
+  color:#18140d;
+  text-decoration:none;
+  font-weight:650;
+}
+#first-stage .idea-handoff .analysis-actions {display:flex;flex-wrap:wrap}
+#first-stage .idea-handoff small {color:#bcb1a1}
 @media(max-width:600px) {
   #first-stage .stage-board .analysis-paper .md-table-wrap {overflow:auto}
   #first-stage .stage-board .analysis-paper table {min-width:600px}

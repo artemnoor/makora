@@ -2,8 +2,17 @@ async page => {
   // Fake HTTP responses verify the real UI protocol; no claim of model generation.
   const assert=(ok,message)=>{if(!ok)throw Error(message)};
   const errors=[];page.on('pageerror',e=>errors.push(e.message));
-  let state={storageRoot:'C:/test-project',brief:'',stages:{}},submitted='',lastFeedback='';
+  let state={storageRoot:'C:/test-project',brief:'',stages:{}},submitted='',lastFeedback='',ideaRequests=0;
   await page.route('**/api/preparation**',async route=>{
+    if(new URL(route.request().url()).pathname==='/api/preparation/idea/start'){
+      ideaRequests++;
+      const body=route.request().postDataJSON();
+      assert(body.openInCodex===true,'Не запрошено открытие чата идеи');
+      state.stages[2].status='continued';
+      state.competitorDecisions=body.decisions;
+      state.stages[3]={status:'awaiting_idea',interactionMode:'user_idea',threadId:'01a1b6b4-a4f1-7893-8945-c4076fe43907',files:{}};
+      return route.fulfill({json:{ok:true,result:state}});
+    }
     if(new URL(route.request().url()).pathname.endsWith('/folder/select')){state.storageRoot='C:/test-project';return route.fulfill({json:{ok:true,result:{path:'C:/test-project',cancelled:false}}})}
     const request=route.request();if(request.method()==='GET')await new Promise(resolve=>setTimeout(resolve,100));const url=new URL(request.url()),match=url.pathname.match(/\/([0-5])\/(start|refresh|approve)$/);
     if(match){const stage=Number(match[1]),action=match[2],body=request.postDataJSON();
@@ -56,15 +65,13 @@ async page => {
   await page.locator('[data-real-approve]').click();await page.waitForFunction(()=>document.querySelector('.board-bar h2')?.textContent==='Разбор аналогов');await page.locator('[data-real-run]').waitFor();
   assert(state.stages[1].status==='approved','Нет явного утверждения');
   await page.locator('[data-real-run]').click();await page.locator('.analysis-thinking').waitFor();
-  await page.locator('[data-real-approve]').waitFor();
+  await page.locator('[data-begin-idea]').waitFor();
   assert(await page.locator('.competitor-card').count()===1,'Нет карточки аналога');
   const sources=page.locator('.competitor-sources a');
   assert(await sources.isHidden(),'Технические детали открыты сразу');
   await page.getByText('Сравнение и источники',{exact:true}).click();
   assert(await sources.getAttribute('href')==='https://example.com/features','Нет ссылки на источник');
   await page.getByText('Сравнение и источники',{exact:true}).click();
-  await page.locator('[data-real-approve]').click();
-  assert(state.stages[2].status==='review','Этап утверждён без решения');
   await page.screenshot({path:'output/browser/competitors-review.png'});
   await page.setViewportSize({width:390,height:844});
   assert(await page.locator('.board-content').evaluate(e=>e.scrollWidth<=e.clientWidth+1),'Сравнение выходит за экран телефона');
@@ -72,8 +79,17 @@ async page => {
   await page.locator('[data-competitor-choice="one"]').selectOption('adapt');
   await page.getByText('Добавить комментарий',{exact:true}).click();
   await page.locator('[data-competitor-note="one"]').fill('Адаптировать фильтры');
-  await page.locator('[data-real-approve]').click();await page.getByRole('heading',{name:'Разработка идеи',exact:true}).waitFor();
-  assert(state.competitorPreferences.includes('фильтры'),'Решение не передано при утверждении');
+  // Continue even when source checks fail, without declaring those sources verified.
+  state.stages[2].status='failed';
+  await page.evaluate(()=>window.makoraPreparation.open(2));
+  await page.locator('[data-begin-idea]').click();
+  await page.getByRole('heading',{name:'Разработка идеи',exact:true}).waitFor();
+  await page.getByRole('link',{name:'Открыть чат идеи в Codex ↗'}).waitFor();
+  assert(ideaRequests===1,'Создан повторный чат идеи');
+  assert(state.stages[2].status==='continued','Переход требует успешной проверки');
+  assert(state.competitorDecisions.one.comment.includes('фильтры'),'Решение по аналогу не передано');
+  assert((await page.locator('.idea-handoff').innerText()).includes('Расскажите'),'Нет приглашения сформулировать идею');
+
   await page.locator('.stage-board-back').click();
   await page.locator('[data-real-stage="1"]').click();await page.locator('[data-analysis-edit]').click();
   await page.locator('.analysis-chat textarea').fill('Сохранить уточнение пользователя');const resend=page.waitForResponse(r=>new URL(r.url()).pathname==='/api/preparation/1/start');await page.locator('.analysis-chat [type=submit]').click();await resend;await page.locator('.analysis-thinking').waitFor();

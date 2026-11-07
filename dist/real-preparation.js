@@ -40,13 +40,13 @@
     if(sourceFile)await uploadSource(sourceFile);
     return api('/api/preparation/0/start',{brief,openInCodex:true});
   }
-  const stageStatusNames={complete:'Готово',running:'В работе',available:'Доступно',locked:'Закрыто'};
+  const stageStatusNames={complete:'Готово',continued:'Продолжили',running:'В работе',available:'Доступно',locked:'Закрыто',idea:'Ждёт вашу идею'};
   const pendingStatuses=['running','unconfirmed','stopping'];
   function schedule(){
     clearTimeout(timer);
     const pending=Object.keys(state.stages).find(key=>{
       const record=state.stages[key];
-      return pendingStatuses.includes(record.status)||(record.status==='failed'&&record.agentStatus==='failed');
+      return (pendingStatuses.includes(record.status)||record.status==='awaiting_idea')||(record.status==='failed'&&record.agentStatus==='failed');
     });
     if(pending===undefined)return;
     timer=setTimeout(async()=>{
@@ -66,7 +66,7 @@
   function isUnlocked(number){
     const checkedThrough=Math.min(number-1,5);
     for(let previous=1;previous<=checkedThrough;previous++){
-      if(state.stages[previous]?.status!=='approved')return false;
+      if(state.stages[previous]?.status!=='approved'&&!(previous===2&&state.stages[previous]?.status==='continued'))return false;
     }
     return number<7||state.prototype?.status==='approved'||state.returnedProject?.status==='prepared';
   }
@@ -74,7 +74,9 @@
     const record=state.stages[index];
     const complete=index===0?['review','approved'].includes(record?.status):index<=5
       ?record?.status==='approved':index===6&&(state.prototype?.status==='approved'||state.returnedProject?.status==='prepared');
+    if(index===2&&record?.status==='continued')return 'continued';
     if(complete)return 'complete';
+    if(record?.status==='awaiting_idea')return 'idea';
     if(pendingStatuses.includes(record?.status))return 'running';
     return isUnlocked(index)?'available':'locked';
   }
@@ -145,6 +147,12 @@
     if(stage===7){window.makoraModelStatus?.agents([]);development(content,board);return}
     const record=state.stages[stage],files=record?.files||{},status=record?.status||'not_started';
     window.makoraModelStatus?.preparation(record);
+    if(stage===3&&(!record||(record.interactionMode==='user_idea'&&['launching','running','awaiting_idea','unconfirmed'].includes(status)))){
+      ideaView(content,record);
+      schedule();
+      return;
+    }
+
     const working=['running','launching','stopping'].includes(status);
     artifactView(scene,board,content,record,files,status,working,projectKey);
   }
@@ -161,7 +169,7 @@
         state=await api(`/api/preparation/${step}/approve`,payload);
       }
       file=null;
-      await open(step+1);
+      if(step===2)await beginIdea();else await open(step+1);
     });
     const threadId=record?.threadId;
     const chatLink=threadId&&/^[0-9a-f-]{36}$/i.test(threadId)
@@ -171,7 +179,7 @@
     if(working&&analysisMotion.key!==motionKey)analysisMotion={key:motionKey,started:performance.now()};
     if(!working)analysisMotion.key=null;
     const wheelDelay=working?-((performance.now()-analysisMotion.started)/1000):0;
-    const go=()=>open(step+1);
+    const go=()=>step===2?action(beginIdea):open(step+1);
     content.innerHTML=`<div class="board-document rp-workspace analysis-summary" data-phase="${esc(status)}">
       ${step!==0&&step!==2&&(record?.filesystemIsolation==='windows-compatible-read'||/Win/i.test(navigator.platform))?'<p role="note">Windows: запись ограничена рабочей областью; полная изоляция чтения вне проекта не гарантируется.</p>':''}
       ${working?`<div class="analysis-thinking" role="status"><img src="analysis-wheel.png" alt="" class="analysis-wheel" style="animation-delay:${wheelDelay}s"><p>${status==='stopping'?'Останавливаем сессию…':step===2?'Ищем аналоги и проверяем источники…':'Составляются материалы этапа'}</p><small>${esc(expected)}${record?.lastCheckedAt?' · проверено '+esc(new Date(record.lastCheckedAt).toLocaleTimeString()):''}</small>${record?.sessionId||chatLink?`<div class="analysis-actions">${record?.sessionId?`<button class="rp-secondary" data-real-cancel ${status==='stopping'?'disabled':''}>Остановить</button>`:''}${chatLink}</div>`:''}</div>`:`${!hasComparison&&(step!==0||!ready)?`<p class="analysis-purpose">${ready?'Материалы подготовлены. ':''}${esc(purposes[step])}</p>`:''}
@@ -191,11 +199,12 @@
       if(step===2&&!ready){
         const footer=document.createElement('footer');
         footer.className='artifact-approval';
-        footer.innerHTML='<div><strong>До этапа 04 осталась проверка источников</strong><p>Вернитесь к карточкам и нажмите «Исправить проверку источников».</p></div><button type="button" data-reader-return>К карточкам аналогов →</button>';
-        footer.querySelector('button').onclick=()=>{file=null;paint()};
+        footer.innerHTML='<div><strong>Готовы обсудить свою идею?</strong><p>Можно продолжить с текущим разбором аналогов.</p></div><button type="button" data-reader-idea>Перейти к этапу 04 →</button>';
+        footer.querySelector('button').onclick=()=>action(beginIdea);
         doc.append(footer);
       }
-      doc.querySelector('[data-reader-approve]')?.addEventListener('click',approve);
+      doc.querySelector('[data-reader-approve]')?.addEventListener('click',step===2?()=>action(beginIdea):approve);
+      if(step===2&&doc.querySelector('[data-reader-approve]'))doc.querySelector('[data-reader-approve]').textContent='Перейти к этапу 04 →';
       doc.querySelector('[data-reader-edit]')?.addEventListener('click',()=>{file=null;paint();root()?.querySelector('[data-analysis-edit]')?.click()});
       if(doc.dataset.downloadUrl)URL.revokeObjectURL(doc.dataset.downloadUrl);doc.dataset.downloadUrl=URL.createObjectURL(new Blob([files[path]],{type:'text/plain;charset=utf-8'}));doc.querySelector('a[download]').href=doc.dataset.downloadUrl;
       doc.querySelectorAll('[data-real-file]').forEach(b=>b.onclick=()=>show(b.dataset.realFile));
@@ -217,6 +226,29 @@
     approvals(content);schedule();
   }
   const competitorActions={borrow:'Взять идею',adapt:'Переделать под нас',avoid:'Пропустить',research:'Изучить ещё'};
+  async function beginIdea(){
+    const decisions={...state.competitorDecisions,...feedbacks.competitorDecisions};
+    state=await api('/api/preparation/idea/start',{openInCodex:true,decisions,note:feedbacks.competitorDecision||''});
+    file=null;
+    await open(3);
+  }
+  function ideaView(content,record){
+    const threadId=record?.threadId;
+    const linked=threadId&&/^[0-9a-f-]{36}$/i.test(threadId);
+    content.innerHTML=`<section class="idea-handoff">
+      <span class="idea-handoff-mark" aria-hidden="true">✳</span>
+      <h3>${record?'Расскажите свою идею в Codex':'Сформулируем вашу идею'}</h3>
+      <p>${record?'В отдельный чат отправлено задание выслушать вашу задумку и помочь её уточнить. Перейдите туда и напишите, что хотите создать.':'Создадим чат, где ИИ сначала выслушает вашу задумку и поможет оформить её.'}</p>
+      <ol><li>Расскажите, для кого продукт и какую задачу он решает.</li><li>Опишите, что хотите показать в демоверсии.</li><li>Обсудите детали и попросите ИИ оформить согласованную идею.</li></ol>
+      <div class="analysis-actions">${linked?`<a class="rp-primary idea-codex-link" href="codex://threads/${threadId}">Открыть чат идеи в Codex ↗</a>`:record?'<p role="status">Ожидаем подтверждение чата…</p>':'<button class="rp-primary" data-create-idea>Создать чат в Codex →</button>'}
+      ${record?'<button class="rp-secondary" data-check-idea>Проверить готовность документов</button>':''}</div>
+      ${record?'<small role="status">Документы появятся здесь после оформления идеи в Codex.</small>':''}
+    </section>`;
+    content.querySelector('[data-create-idea]')?.addEventListener('click',()=>action(beginIdea));
+    content.querySelector('[data-check-idea]')?.addEventListener('click',()=>action(async()=>{
+      state=await api('/api/preparation/3/refresh',{});paint();
+    }));
+  }
   function readCompetitors(text){
     if(!text)return [];
     try{
@@ -297,22 +329,15 @@
     `;
     const next=document.createElement('section');
     next.className='competitor-next';
-    const failed=record.status==='failed';
-    next.innerHTML=`<div><strong>Следующий шаг · 04 Разработка идеи</strong><p>${failed?'Сейчас переход закрыт. Не подтверждены источники у части аналогов. Запустите исправление, затем выберите решения по карточкам.':editable?'Выберите решение для каждого аналога, затем подтвердите выбор. Макора учтёт его при разработке идеи.':'Решения сохранены. Можно перейти к разработке идеи.'}</p></div>`;
-    let actionButton=summary.querySelector(failed?'[data-analysis-edit]':editable?'[data-real-approve]':'[data-real-next]');
-    if(actionButton){
-      if(failed){const original=actionButton;actionButton=original.cloneNode(true);original.replaceWith(actionButton)}
-      actionButton.textContent=failed?'Исправить проверку источников →':editable?'Подтвердить выбор и перейти к этапу 04 →':'Открыть этап 04 →';
-      if(failed)actionButton.onclick=()=>{
-        openRefinementChat({key:projectKey,step:2,title:'Исправить проверку источников',description:'Макора повторно проверит источники и уточнит неподтверждённые сведения.',submit:'Запустить исправление →',onSubmit:feedback=>action(async()=>{
-          state=await api('/api/preparation/2/start',{feedback,openInCodex:true});
-          root()?.querySelector('.analysis-chat')?.remove();file=null;paint();
-        })});
-        const input=root()?.querySelector('.analysis-chat textarea');
-        if(input&&!input.value)input.value='Исправь ошибки подтверждения источников. Проверь официальные страницы и точные цитаты. Сохрани проверенные аналоги; замени сведения, которые подтвердить не удалось.';
-      };
-      next.append(actionButton);
+    next.innerHTML='<div><strong>Дальше · ваша идея</strong><p>Можете уточнить разбор аналогов или сразу обсудить свою идею с ИИ в Codex.</p></div><div class="analysis-actions"><button type="button" class="rp-primary" data-begin-idea>Перейти к этапу 04 →</button></div>';
+    next.querySelector('[data-begin-idea]').onclick=()=>action(beginIdea);
+    const actions=next.querySelector('.analysis-actions');
+    if(edit){
+      edit.textContent='Исправить или уточнить разбор';
+      actions.append(edit);
     }
+    summary.querySelector('[data-real-approve]')?.remove();
+    summary.querySelector('[data-real-next]')?.remove();
     panel.prepend(next);
     summary.prepend(panel);
     if(record.status==='failed'){

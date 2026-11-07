@@ -264,6 +264,12 @@ class MakoraHandler(SimpleHTTPRequestHandler):
             if path == '/api/preparation/development':
                 value=self._read_json()
                 self._agent_json(lambda:self.server.preparation.development(int(value.get('stage',6))));return
+            if path == '/api/preparation/idea/start':
+                value = self._read_json()
+                self._agent_json(lambda: self.server.preparation.start(3, {
+                    'userIdea': True, 'continueAnalogs': True, 'openInCodex': value.get('openInCodex') is True,
+                    'decisions': value.get('decisions', {}), 'note': value.get('note', ''),
+                }));return
             if path == '/api/preparation/prototype/approve':
                 self._agent_json(self.server.preparation.approve_prototype);return
             if path == '/api/preparation/result/continue':

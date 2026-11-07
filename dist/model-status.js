@@ -12,7 +12,7 @@
     if(current.type==='preparation'){
       const record=current.record||{},status=record.status;
       if(status==='dispatching'||status==='launching'){const next=record.model?record:configured?.preparation;show(next?.model?'Отправляем запрос · выбрана для запуска: '+format(next.model,next.reasoningEffort):'Отправляем запрос · параметры уточняются');return}
-      if(record.model){const label=status==='running'||status==='launching'?'Работает':status==='unconfirmed'?'Проверяется сессия':['review','approved'].includes(status)?'Материалы созданы':'Последняя сессия';show(label+' · Макора: '+format(record.model,record.reasoningEffort));return}
+      if(record.model){const label=status==='awaiting_idea'?'Обсуждение идеи':status==='running'||status==='launching'?'Работает':status==='unconfirmed'?'Проверяется сессия':['review','approved'].includes(status)?'Материалы созданы':'Последняя сессия';show(label+' · Макора: '+format(record.model,record.reasoningEffort));return}
       if(status==='running'||status==='launching'||status==='unconfirmed'){show('Сессия запущена · модель не сообщена');return}
       show(configured?.preparation?'Следующий запуск · Макора: '+format(configured.preparation.model,configured.preparation.reasoningEffort):'Этап ещё не запущен');return;
     }

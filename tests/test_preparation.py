@@ -541,6 +541,48 @@ class PreparationTests(unittest.TestCase):
             launch.assert_called_once_with(f'codex://threads/{thread_id}')
         self.assertEqual(thread_id, state['stages']['0']['threadId'])
 
+    def test_continue_from_failed_analogs_starts_one_idea_chat_and_waits_for_user(self):
+        self.generate_analysis()
+        self.pipeline.approve(1)
+        self.pipeline.state['stages']['2'] = {
+            'status': 'failed', 'files': self.competitor_files(),
+            'checks': [{'name': 'Sources', 'status': 'not_checked'}],
+            'error': 'Sources could not be confirmed',
+        }
+        created_before = len(self.calls)
+        result = self.pipeline.start(3, {'userIdea': True, 'continueAnalogs': True})
+        self.assertEqual('continued', result['stages']['2']['status'])
+        self.assertEqual('not_checked', result['stages']['2']['checks'][0]['status'])
+        self.assertEqual('user_idea', result['stages']['3']['interactionMode'])
+        self.assertIn('попроси пользователя рассказать свою идею', self.calls[-1]['prompt'])
+        folder = Path(result['stages']['3']['folder'])
+        self.assertTrue(json.loads((folder / 'INPUT.json').read_text('utf-8'))['analogReview']['unverified'])
+        self.assertIn('02_competitors.json', self.pipeline.context(3))
+        waiting = self.pipeline.refresh(3)
+        self.assertEqual('awaiting_idea', waiting['stages']['3']['status'])
+        restored = Preparation(Path(self.tmp.name), self.runtime)
+        restored.start(3, {'userIdea': True, 'continueAnalogs': True})
+        self.assertEqual(created_before + 1, len(self.calls))
+        self.assertEqual(waiting['stages']['3']['threadId'], restored.state['stages']['3']['threadId'])
+        self.assertEqual('awaiting_idea', restored.poll()['stages']['3']['status'])
+        output = {'files': {'02_solution_concept.md': '# Согласованная идея'}}
+        (folder / 'result.json').write_text(json.dumps(output), 'utf-8')
+        self.runtime.provider.history = lambda _: {'turns': [{'id': 'user-idea-turn', 'status': 'inProgress'}]}
+        self.assertEqual('awaiting_idea', restored.refresh(3)['stages']['3']['status'])
+        self.runtime.provider.history = lambda _: {'turns': [{'id': 'user-idea-turn', 'status': 'completed'}]}
+        with patch.object(Preparation, 'validate', return_value=[]), patch.object(Preparation, 'validate_evidence', return_value=([], {})):
+            self.assertEqual('review', restored.refresh(3)['stages']['3']['status'])
+        self.assertIn('02_solution_concept.md', restored.state['stages']['3']['files'])
+
+    def test_continue_to_idea_requires_completed_analysis_and_no_active_research(self):
+        with self.assertRaises(AgentRuntimeError):
+            self.pipeline.start(3, {'userIdea': True, 'continueAnalogs': True})
+        self.generate_analysis()
+        self.pipeline.approve(1)
+        self.pipeline.state['stages']['2'] = {'status': 'running', 'files': {}}
+        with self.assertRaises(AgentRuntimeError):
+            self.pipeline.start(3, {'userIdea': True, 'continueAnalogs': True})
+
     def test_changed_brief_starts_a_new_preparation_chat(self):
         self.pipeline.start(1, {'brief': 'Исходное условие проекта заметок.'})
         self.pipeline.state['stages']['1']['status'] = 'review'
