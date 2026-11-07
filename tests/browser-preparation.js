@@ -2,8 +2,14 @@ async page => {
   // Fake HTTP responses verify the real UI protocol; no claim of model generation.
   const assert=(ok,message)=>{if(!ok)throw Error(message)};
   const errors=[];page.on('pageerror',e=>errors.push(e.message));
-  let state={storageRoot:'C:/test-project',brief:'',stages:{}},submitted='',lastFeedback='',ideaRequests=0;
+  let state={storageRoot:'C:/test-project',brief:'',stages:{}},submitted='',lastFeedback='',ideaRequests=0,chatOpens=0;
   await page.route('**/api/preparation**',async route=>{
+    if(new URL(route.request().url()).pathname==='/api/preparation/3/open-codex'){
+      assert(route.request().method()==='POST','Открытие чата не использует API');
+      chatOpens++;
+      state.stages[3].desktopOpened=true;
+      return route.fulfill({json:{ok:true,result:state}});
+    }
     if(new URL(route.request().url()).pathname==='/api/preparation/idea/start'){
       ideaRequests++;
       const body=route.request().postDataJSON();
@@ -84,7 +90,13 @@ async page => {
   await page.evaluate(()=>window.makoraPreparation.open(2));
   await page.locator('[data-begin-idea]').click();
   await page.getByRole('heading',{name:'Разработка идеи',exact:true}).waitFor();
-  await page.getByRole('link',{name:'Открыть чат идеи в Codex ↗'}).waitFor();
+  const openChat=page.getByRole('button',{name:'Открыть чат идеи в Codex ↗'});
+  await openChat.waitFor();
+  await Promise.all([
+    page.waitForResponse(r=>new URL(r.url()).pathname==='/api/preparation/3/open-codex'),
+    openChat.click(),
+  ]);
+  assert(chatOpens===1,'Кнопка не открыла существующий чат через API');
   assert(ideaRequests===1,'Создан повторный чат идеи');
   assert(state.stages[2].status==='continued','Переход требует успешной проверки');
   assert(state.competitorDecisions.one.comment.includes('фильтры'),'Решение по аналогу не передано');
