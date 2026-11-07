@@ -2,8 +2,8 @@
 (() => {
   let state={brief:'',stages:{}}, stage=null, file=null, timer=0, busy=false, generation=0, feedbacks={}, feedbackProject=null;
   let analysisMotion={key:null,started:0};
-  const names=['Простое объяснение','Анализ задания','Анализ конкурентов','Разработка идеи','Планирование','Мок-данные','Пакет для агента','Разработка агентами'];
-  const purposes=['Коротко объясним, что нужно сделать и показать, на понятном примере.','Разберём условие: что сделать, какие есть ограничения и как будут оценивать.','Найдём конкурентов и альтернативы, сравним их с вашим продуктом и выберем полезные подходы.','Исследуем проблему и выберем идею, которая отвечает требованиям задания.','Определим устройство продукта, контракты, проверки и задачи для разработки.','Подготовим данные для разработки и проверим их по схемам и сценариям.','Соберём работающий прототип из согласованных материалов и моков.','Разовьём утверждённый прототип с помощью агентов и проверяемых задач.'];
+  const names=['Простое объяснение','Анализ задания','Разбор аналогов','Разработка идеи','Планирование','Мок-данные','Пакет для агента','Разработка агентами'];
+  const purposes=['Коротко объясним, что нужно сделать и показать, на понятном примере.','Разберём условие: что сделать, какие есть ограничения и как будут оценивать.','Найдём похожие продукты и покажем, какие идеи подойдут для нашего проекта.','Исследуем проблему и выберем идею, которая отвечает требованиям задания.','Определим устройство продукта, контракты, проверки и задачи для разработки.','Подготовим данные для разработки и проверим их по схемам и сценариям.','Соберём работающий прототип из согласованных материалов и моков.','Разовьём утверждённый прототип с помощью агентов и проверяемых задач.'];
   const fileNames={'00_brief_explanation.md':'Простое объяснение','02_competitors.md':'Сравнение конкурентов','02_competitors.json':'Конкуренты и источники','01_case_analysis.md':'Разбор задания','02_research.md':'Исследование проблемы','02_solution_concept.md':'Концепция решения','02_user_flow.mmd':'Путь пользователя','02_task_flow.mmd':'Сценарий действий','03_architecture.md':'Архитектура продукта','03_test_plan.md':'План тестирования','03_tasks.json':'Задачи для агентов','04_validation_report.md':'Отчёт о готовности данных'};
   const fileTitle=path=>fileNames[path]||(/openapi/i.test(path)?'Контракты API':path.split('/').pop());
   const esc=s=>String(s??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
@@ -152,6 +152,17 @@
     const step=stage,paths=Object.keys(files),main=paths.find(p=>/\.md$/.test(p))||paths[0];
     const expected=['00_brief_explanation.md','01_case_analysis.md','02_competitors.md','02_solution_concept.md','03_architecture.md','04_validation_report.md'][step];
     const ready=['review','approved'].includes(status)&&paths.length>0;
+    const competitors=step===2?readCompetitors(files['02_competitors.json']):[];
+    const hasComparison=competitors.length>0;
+    const approve=()=>action(async()=>{
+      if(status!=='approved'){
+        const payload=step===2?competitorApproval(competitors):{note:feedbacks[step]||''};
+        if(!payload)return;
+        state=await api(`/api/preparation/${step}/approve`,payload);
+      }
+      file=null;
+      await open(step+1);
+    });
     const threadId=record?.threadId;
     const chatLink=threadId&&/^[0-9a-f-]{36}$/i.test(threadId)
       ? `<a class="rp-thread-link" href="codex://threads/${threadId}">Чат в Codex ↗</a>`
@@ -162,22 +173,22 @@
     const wheelDelay=working?-((performance.now()-analysisMotion.started)/1000):0;
     const go=()=>open(step+1);
     content.innerHTML=`<div class="board-document rp-workspace analysis-summary" data-phase="${esc(status)}">
-      ${step!==0&&(record?.filesystemIsolation==='windows-compatible-read'||/Win/i.test(navigator.platform))?'<p role="note">Windows: запись ограничена рабочей областью; полная изоляция чтения вне проекта не гарантируется.</p>':''}
-      ${working?`<div class="analysis-thinking" role="status"><img src="analysis-wheel.png" alt="" class="analysis-wheel" style="animation-delay:${wheelDelay}s"><p>${status==='stopping'?'Останавливаем сессию…':'Составляются материалы этапа'}</p><small>${esc(expected)}${record?.lastCheckedAt?' · проверено '+esc(new Date(record.lastCheckedAt).toLocaleTimeString()):''}</small>${record?.sessionId||chatLink?`<div class="analysis-actions">${record?.sessionId?`<button class="rp-secondary" data-real-cancel ${status==='stopping'?'disabled':''}>Остановить</button>`:''}${chatLink}</div>`:''}</div>`:`${step!==0||!ready?`<p class="analysis-purpose">${ready?'Материалы подготовлены. ':''}${esc(purposes[step])}</p>`:''}
+      ${step!==0&&step!==2&&(record?.filesystemIsolation==='windows-compatible-read'||/Win/i.test(navigator.platform))?'<p role="note">Windows: запись ограничена рабочей областью; полная изоляция чтения вне проекта не гарантируется.</p>':''}
+      ${working?`<div class="analysis-thinking" role="status"><img src="analysis-wheel.png" alt="" class="analysis-wheel" style="animation-delay:${wheelDelay}s"><p>${status==='stopping'?'Останавливаем сессию…':step===2?'Ищем аналоги и проверяем источники…':'Составляются материалы этапа'}</p><small>${esc(expected)}${record?.lastCheckedAt?' · проверено '+esc(new Date(record.lastCheckedAt).toLocaleTimeString()):''}</small>${record?.sessionId||chatLink?`<div class="analysis-actions">${record?.sessionId?`<button class="rp-secondary" data-real-cancel ${status==='stopping'?'disabled':''}>Остановить</button>`:''}${chatLink}</div>`:''}</div>`:`${!hasComparison&&(step!==0||!ready)?`<p class="analysis-purpose">${ready?'Материалы подготовлены. ':''}${esc(purposes[step])}</p>`:''}
       ${main&&step!==0?`<button class="analysis-file" data-real-file="${esc(main)}"><span class="analysis-file-mark">${paths.length===1?'MD':'▤'}</span><span><strong>${paths.length===1?esc(fileTitle(main)):'Материалы этапа'}</strong><small>${paths.length===1?esc(main):paths.length+' файлов · документы, схемы и данные'}</small></span><span aria-hidden="true">↗</span></button>`:''}
       ${step===0&&ready&&main?`<section class="brief-explanation">${markdown(files[main].replace(/^#[ \t]+Простое объяснение[^\S\n]*\n+/i,''))}</section>`:''}
       ${status==='unconfirmed'?`<p role="status">Ответ агента пока не подтверждён. Проверьте состояние; повторная отправка не выполняется.</p>${record?.sessionId?'<button class="rp-secondary" data-real-cancel>Остановить сессию</button>':''}`:''}
 
       ${record?.skillManifest?.length?`<details><summary>Навыки и проверки выполнения</summary><ul>${record.skillManifest.map(skill=>`<li>${esc(skill.name)} · версия ${esc((skill.packageSha256||skill.sha256||'').slice(0,12))}</li>`).join('')}</ul><p>${record.nativeSkillStatus==='accepted'?'API подтвердил приём навыков.':'Подключение навыков ещё не подтверждено.'} ${record.methodologyStatus==='structure_checked'?'Структурные проверки выполнены; это не доказательство полноты методики.':'Результат методических проверок ещё не получен.'}</p></details>`:''}
-      ${record?.error?`<p data-real-error role="alert">${esc(typeof record.error==='string'?record.error:'Не удалось выполнить запрос агента. Проверьте состояние.')}</p>`:''}
-      <div class="analysis-actions"><button class="rp-secondary" data-analysis-edit ${status==='unconfirmed'?'disabled':''} ${!record?'data-real-run':''}>${record?'Пересоздать с уточнениями':step===0?'Объяснить задание →':'Начать анализ →'}</button>${ready?`<button class="rp-primary" ${step===0||status==='approved'?'data-real-next':'data-real-approve'}>${step===4?(status==='approved'?'К мок-данным →':'Утвердить весь план →'):step===0?'К анализу задания →':'Продолжить →'}</button>`:''}${['failed','unconfirmed'].includes(status)?'<button class="rp-text-button" data-real-refresh>Проверить состояние ↻</button>':''}${chatLink}</div>`}
+      ${record?.error&&hasComparison?`<details class="competitor-checks"><summary>Что не прошло проверку</summary><p>${esc(record.error)}</p></details>`:record?.error?`<p data-real-error role="alert">${esc(typeof record.error==='string'?record.error:'Не удалось выполнить запрос агента. Проверьте состояние.')}</p>`:''}
+      <div class="analysis-actions"><button class="rp-secondary" data-analysis-edit ${status==='unconfirmed'?'disabled':''} ${!record?'data-real-run':''}>${record?'Пересоздать с уточнениями':step===0?'Объяснить задание →':'Начать анализ →'}</button>${ready?`<button class="rp-primary" ${step===0||status==='approved'?'data-real-next':'data-real-approve'}>${step===4?(status==='approved'?'К мок-данным →':'Утвердить весь план →'):step===0?'К анализу задания →':step===2?'Перейти к идее →':'Продолжить →'}</button>`:''}${['failed','unconfirmed'].includes(status)?'<button class="rp-text-button" data-real-refresh>Проверить состояние ↻</button>':''}${chatLink}</div>`}
       <div data-real-approvals></div></div><article class="analysis-reader" data-real-document data-phase="${esc(status)}" hidden></article>`;
     const show=path=>{
       if(!files[path])return;file=path;content.querySelector('.analysis-summary').hidden=true;
       const doc=content.querySelector('[data-real-document]');doc.hidden=false;
       const checks=record?.checks||[],questions=record?.questions||[],limits=record?.limitations||[];
       doc.innerHTML=`<header class="analysis-reader-header"><button class="rp-text-button" data-analysis-close data-rp-back>← К результату</button><span>${String(step+1).padStart(2,'0')} / ${esc(names[step])}</span><a download="${esc(path.split('/').pop())}">Скачать файл ↓</a></header><div class="artifact-reader-layout"><aside class="artifact-files" aria-label="Файлы этапа">${paths.map(p=>`<button data-real-file="${esc(p)}" class="${p===path?'active':''}" ${p===path?'aria-current="page"':''}><strong>${esc(fileTitle(p))}</strong><small>${esc(p)}</small></button>`).join('')}${checks.length?`<details class="artifact-checks"><summary>Проверки · ${checks.filter(c=>c.status==='passed').length}/${checks.length}</summary>${checks.map(c=>`<p>${c.status==='passed'?'✓':c.status==='not_checked'?'?':'×'} ${esc(c.name)}${c.detail?`<br><small>${esc(c.detail)}</small>`:''}</p>`).join('')}<small>Проверки артефактов. Тесты приложения выполняются при разработке.</small></details>`:''}${record?.requirementCoverage?.length?`<details><summary>Покрытие требований</summary>${record.requirementCoverage.map(row=>`<p>${esc(row.requirementId)} · ${esc(row.disposition)} · ${esc(row.reason||(row.artifacts||[]).join(', '))}</p>`).join('')}</details>`:''}${questions.length?`<details><summary>Открытые вопросы · ${questions.length}</summary><ul>${questions.map(q=>`<li>${esc(q)}</li>`).join('')}</ul></details>`:''}${limits.length?`<details><summary>Ограничения · ${limits.length}</summary><ul>${limits.map(q=>`<li>${esc(q)}</li>`).join('')}</ul></details>`:''}</aside><div class="analysis-paper"><p class="analysis-filename">${esc(path)}</p>${/\.md$/i.test(path)?markdown(files[path]):/\.mmd$/i.test(path)?markdown('```mermaid\n'+files[path]+'\n```'):`<h1>${esc(fileTitle(path))}</h1><pre class="case-source"><code>${esc(files[path])}</code></pre>`}</div></div>${ready?`<footer class="artifact-approval"><div><strong>${status==='approved'?'Этап уже утверждён':step===4?'Подтверждение плана разработки':'Подтверждение результата'}</strong><p>${status==='approved'?'Материалы сохранены и доступны следующему этапу.':`Утверждение относится ко всем ${paths.length} файлам этапа. Каждый файл отдельно подтверждать не нужно.`}</p></div><div><button class="rp-secondary" data-reader-edit>Нужны правки</button><button class="rp-primary" data-reader-approve>${status==='approved'?'Перейти дальше →':step===4?'Утвердить весь план →':'Утвердить и продолжить →'}</button></div></footer>`:''}`;
-      doc.querySelector('[data-reader-approve]')?.addEventListener('click',()=>action(async()=>{if(status!=='approved')state=await api(`/api/preparation/${step}/approve`,{note:step===2?competitorDecision():feedbacks[step]||'',...(step===2?{decisions:{...(state.competitorDecisions||{}),...(feedbacks.competitorDecisions||{})}}:{})});file=null;await open(step+1)}));
+      doc.querySelector('[data-reader-approve]')?.addEventListener('click',approve);
       doc.querySelector('[data-reader-edit]')?.addEventListener('click',()=>{file=null;paint();root()?.querySelector('[data-analysis-edit]')?.click()});
       if(doc.dataset.downloadUrl)URL.revokeObjectURL(doc.dataset.downloadUrl);doc.dataset.downloadUrl=URL.createObjectURL(new Blob([files[path]],{type:'text/plain;charset=utf-8'}));doc.querySelector('a[download]').href=doc.dataset.downloadUrl;
       doc.querySelectorAll('[data-real-file]').forEach(b=>b.onclick=()=>show(b.dataset.realFile));
@@ -189,40 +200,119 @@
     content.querySelector('[data-analysis-edit]')?.addEventListener('click',()=>{
       const regenerate=feedback=>action(async()=>{window.makoraModelStatus?.preparation({status:'dispatching'});artifactView(scene,board,content,record,{},'launching',true,projectKey);try{state=await api(`/api/preparation/${step}/start`,{feedback,openInCodex:true});file=null;root()?.querySelector('.analysis-chat')?.remove();paint()}catch(e){try{state=await api('/api/preparation')}catch{}paint();throw e}});
       if(!record){regenerate(feedbacks[step]||'');return}
-      openRefinementChat({key:projectKey,step,title:step===2?'Каких конкурентов искать?':'Какие правки внесём?',description:`Расскажи, что поправить: ${names[step].toLowerCase()}. Я обновлю материалы этапа.`,submit:step===2?'Обновить поиск →':'Пересоздать материалы →',onSubmit:regenerate});
+      openRefinementChat({key:projectKey,step,title:step===2?'Какие аналоги искать?':'Какие правки внесём?',description:step===2?'Укажи, какие продукты добавить или что проверить в найденных аналогах.':`Расскажи, что поправить: ${names[step].toLowerCase()}. Я обновлю материалы этапа.`,submit:step===2?'Обновить поиск →':'Пересоздать материалы →',onSubmit:regenerate});
     });
-    content.querySelector('[data-real-approve]')?.addEventListener('click',()=>action(async()=>{state=await api(`/api/preparation/${step}/approve`,{note:step===2?competitorDecision():feedbacks[step]||'',...(step===2?{decisions:{...(state.competitorDecisions||{}),...(feedbacks.competitorDecisions||{})}}:{})});await open(step+1)}));
+    content.querySelector('[data-real-approve]')?.addEventListener('click',approve);
     content.querySelector('[data-real-next]')?.addEventListener('click',go);
     content.querySelector('[data-real-refresh]')?.addEventListener('click',()=>action(async()=>{state=await api(`/api/preparation/${step}/refresh`,{});paint()}));
-    if(step===2&&!working)competitorView(content,record,files,projectKey);
+    if(step===2&&!working)competitorView(content,record,competitors,projectKey);
     content.querySelector('[data-real-cancel]')?.addEventListener('click',()=>action(async()=>{state=await api(`/api/preparation/${step}/cancel`,{});paint()}));
     approvals(content);schedule();
   }
-  function competitorDecision(){return feedbacks.competitorDecision||state.competitorPreferences||''}
-  function competitorView(content,record,files,projectKey){
-    const summary=content.querySelector('.analysis-summary');
-    if(!summary)return;
-    if(record?.status==='unconfirmed'||record?.status==='failed'&&!files['02_competitors.json'])return;
-    const edit=summary.querySelector('[data-analysis-edit]');if(edit)edit.textContent=record?'Найти ещё или уточнить поиск':'Найти конкурентов →';
-    if(!files['02_competitors.json'])return;
-    let research;try{research=JSON.parse(files['02_competitors.json'])}catch{return}
-    const safeUrl=value=>{try{const url=new URL(value);return ['https:','http:'].includes(url.protocol)&&!url.username&&!url.password?url.href:null}catch{return null}};
-    const link=(url,label)=>safeUrl(url)?`<a href="${esc(safeUrl(url))}" target="_blank" rel="noopener noreferrer">${esc(label)} ↗</a>`:esc(label);
-    const panel=document.createElement('section');panel.className='competitor-review';panel.setAttribute('aria-label','Сравнение конкурентов');
-    panel.innerHTML=`<h3>Что уже существует и чему можно научиться</h3><p>Сравнение основано на источниках, перечисленных в карточках. Непроверенные возможности отмечены отдельно.</p>${esc(research.searchBrief||'')?`<p class="competitor-scope">${esc(research.searchBrief)}</p>`:''}${(research.competitors||[]).map(c=>`<article class="competitor-card"><header><h4>${link(c.url,c.name)}</h4><span>${(record.sourceEvidence||[]).some(source=>source.status==='passed'&&(c.sources||[]).some(ref=>ref.url===source.url&&(ref.quote||'')===(source.quote||'')))?'Цитата подтверждена проверкой':c.status==='verified'?'Заявлено агентом · проверка контроллера не подтверждена':'Не проверено'}</span></header><p>${esc(c.summary||'')}</p><div class="competitor-table"><table><caption>Сравнение с вашим продуктом</caption><thead><tr><th scope="col">Критерий</th><th scope="col">Ваш продукт</th><th scope="col">${esc(c.name)}</th></tr></thead><tbody>${(c.comparison||[]).map(r=>`<tr><th scope="row">${esc(r.criterion)}</th><td>${esc(r.ours)}</td><td>${esc(r.theirs)}</td></tr>`).join('')}</tbody></table></div>${c.ideasToBorrow?.length?`<p><strong>Что рассмотреть:</strong> ${esc(c.ideasToBorrow.join('; '))}</p>`:''}<label>Решение по ${esc(c.name)}<select data-competitor-choice="${esc(c.id)}"><option value="">Выберите решение</option><option value="research">Исследовать дальше</option><option value="borrow">Перенять</option><option value="adapt">Адаптировать</option><option value="avoid">Не использовать</option></select></label><label>Комментарий<textarea rows="2" data-competitor-note="${esc(c.id)}" placeholder="Какие механики и почему"></textarea></label><ul class="competitor-sources">${(c.sources||[]).map(source=>`<li>${link(source.url,source.title||source.url)} · ${esc(source.checkedAt)}</li>`).join('')}</ul></article>`).join('')}<label class="competitor-decision">Что перенять, чего избегать и чем отличаться<textarea data-competitor-decision rows="4" placeholder="Например: взять фильтры у первого продукта, упростить регистрацию; платёжные функции не нужны.">${esc(competitorDecision())}</textarea></label><p>Этот комментарий будет передан в разработку идеи и новых схем. Если ничего не подходит, укажите это.</p>`;
-    const board=root().querySelector('.board');
-    panel.hidden=!board.classList.contains('expanded');
-    const compare=document.createElement('button');compare.type='button';compare.className='analysis-file';compare.dataset.competitorOpen='';
-    compare.textContent=`Сравнить конкурентов и выбрать подходы · ${(research.competitors||[]).length}`;
-    compare.onclick=()=>{panel.hidden=false;panel.scrollIntoView({block:'start'})};
-    summary.querySelector('.analysis-actions')?.before(compare,panel);
+  const competitorActions={borrow:'Взять идею',adapt:'Переделать под нас',avoid:'Пропустить',research:'Изучить ещё'};
+  function readCompetitors(text){
+    if(!text)return [];
+    try{
+      const {competitors}=JSON.parse(text);
+      return Array.isArray(competitors)?competitors:[];
+    }catch{return []}
+  }
+  function competitorApproval(competitors){
+    const saved={...state.competitorDecisions,...feedbacks.competitorDecisions};
+    const missing=competitors.find(({id})=>!Object.hasOwn(competitorActions,saved[id]?.action));
+    if(missing){
+      if(file){file=null;paint()}
+      const choice=[...root().querySelectorAll('[data-competitor-choice]')].find(select=>select.dataset.competitorChoice===missing.id);
+      choice?.reportValidity();
+      return null;
+    }
+    const decisions=Object.fromEntries(competitors.map(({id})=>[id,saved[id]]));
+    const note=feedbacks.competitorDecision?.trim()||competitors.map(({id,name})=>{
+      const {action,comment}=decisions[id];
+      return `${name} — ${competitorActions[action]}${comment?.trim()?'. '+comment.trim():''}`;
+    }).join('\n');
+    return {note,decisions};
+  }
+  function competitorLink(value,label){
+    try{
+      const url=new URL(value);
+      if(['https:','http:'].includes(url.protocol)&&!url.username&&!url.password){
+        return `<a href="${esc(url.href)}" target="_blank" rel="noopener noreferrer">${esc(label)} ↗</a>`;
+      }
+    }catch{}
+    return esc(label);
+  }
+  function competitorView(content,record,competitors,projectKey){
+    const summary=content.querySelector('.analysis-summary'),edit=summary.querySelector('[data-analysis-edit]');
+    if(edit)edit.textContent=record?'Уточнить поиск':'Найти аналоги →';
+    if(!competitors.length||record?.status==='unconfirmed')return;
+    const editable=record.status==='review';
+    const decisions=editable?{...state.competitorDecisions,...feedbacks.competitorDecisions}:state.competitorDecisions||{};
+    const panel=document.createElement('section');
+    panel.className='competitor-review';
+    panel.setAttribute('aria-labelledby','competitor-heading');
+    panel.innerHTML=`
+      <header class="competitor-intro">
+        <h3 id="competitor-heading">Что нашли</h3>
+        ${editable?'<p>Выбери, что делать с каждым аналогом. Решения попадут в следующий этап.</p>':''}
+        ${record.status==='failed'?'<p role="status">Часть материалов ещё не прошла проверку. Можно посмотреть найденное и уточнить поиск.</p>':''}
+      </header>
+      ${competitors.map((item,index)=>{
+        const {id,name,summary:description,ideasToBorrow=[],comparison=[],sources=[]}=item;
+        const confirmed=sources.filter(ref=>(record.sourceEvidence||[]).some(source=>source.status==='passed'&&source.url===ref.url&&(source.quote||'')===(ref.quote||''))).length;
+        const sourceStatus=confirmed===0?'Источники пока не подтверждены':confirmed===sources.length?'Источники подтверждены':`Подтверждено источников ${confirmed} из ${sources.length}`;
+        const decision=decisions[id];
+        return `<article class="competitor-card" aria-labelledby="analog-title-${index}">
+          <header><span class="competitor-index" aria-hidden="true">${String(index+1).padStart(2,'0')}</span><h4 id="analog-title-${index}">${esc(name)}</h4></header>
+          ${description?`<p>${esc(description)}</p>`:''}
+          ${ideasToBorrow.length?`<div class="competitor-idea"><strong>Что можно взять</strong><ul>${ideasToBorrow.map(idea=>`<li>${esc(idea)}</li>`).join('')}</ul></div>`:''}
+          ${editable?`<label class="competitor-choice" for="analog-choice-${index}">Наше решение
+            <select id="analog-choice-${index}" aria-describedby="analog-title-${index}" data-competitor-choice="${esc(id)}" required>
+              <option value="">Выбери вариант</option>
+              ${Object.entries(competitorActions).map(([value,label])=>`<option value="${value}" ${decision?.action===value?'selected':''}>${label}</option>`).join('')}
+            </select>
+          </label>`:decision?`<p><strong>Наше решение</strong> · ${esc(competitorActions[decision.action])}</p>`:''}
+          <details>
+            <summary>Сравнение и источники</summary>
+            <dl class="competitor-comparison">${comparison.map(row=>`<div><dt>${esc(row.criterion)}</dt><dd><b>У аналога</b> ${esc(row.theirs)}</dd><dd><b>У нас</b> ${esc(row.ours)}</dd></div>`).join('')}</dl>
+            <p class="competitor-source-status">${sourceStatus}</p>
+            <ul class="competitor-sources">${sources.map(source=>`<li>${competitorLink(source.url,source.title||source.url)}</li>`).join('')}</ul>
+            <p>${competitorLink(item.url,'Открыть сайт аналога')}</p>
+          </details>
+          ${editable?`<details class="competitor-comment">
+            <summary>${decision?.comment?'Комментарий':'Добавить комментарий'}</summary>
+            <label class="sr-only" for="analog-note-${index}">Комментарий к аналогу ${esc(name)}</label>
+            <textarea id="analog-note-${index}" rows="2" data-competitor-note="${esc(id)}">${esc(decision?.comment||'')}</textarea>
+          </details>`:decision?.comment?`<p>${esc(decision.comment)}</p>`:''}
+        </article>`;
+      }).join('')}
+      ${editable?`<details class="competitor-comment"><summary>Общее пожелание к идее</summary><label class="sr-only" for="analog-note-all">Общее пожелание к идее</label><textarea id="analog-note-all" data-competitor-decision rows="2">${esc(feedbacks.competitorDecision||'')}</textarea></details>`:''}
+    `;
+    summary.prepend(panel);
+    if(record.status==='failed'){
+      const intro=panel.querySelector('.competitor-intro');
+      const checks=summary.querySelector('.competitor-checks');
+      if(checks)intro.append(checks);
+      if(edit)intro.append(edit);
+    }
+    const report=summary.querySelector('[data-real-file]');
+    if(report){
+      report.classList.add('competitor-report');
+      report.innerHTML='<span>Открыть полный отчёт</span><span aria-hidden="true">↗</span>';
+      summary.append(report);
+    }
+    const save=()=>localStorage.setItem(projectKey,JSON.stringify(feedbacks));
     panel.querySelectorAll('[data-competitor-choice]').forEach(select=>{
-      const id=select.dataset.competitorChoice,note=[...panel.querySelectorAll('[data-competitor-note]')].find(el=>el.dataset.competitorNote===id);
-      const saved=({...state.competitorDecisions,...feedbacks.competitorDecisions})[id];if(saved){select.value=saved.action;note.value=saved.comment||''}
-      const save=()=>{feedbacks.competitorDecisions={...(state.competitorDecisions||{}),...(feedbacks.competitorDecisions||{})};feedbacks.competitorDecisions[id]={action:select.value,comment:note.value};localStorage.setItem(projectKey,JSON.stringify(feedbacks))};select.onchange=save;note.oninput=save;
+      const note=select.closest('.competitor-card').querySelector('[data-competitor-note]');
+      const change=()=>{
+        (feedbacks.competitorDecisions||={})[select.dataset.competitorChoice]={action:select.value,comment:note.value};
+        save();
+      };
+      select.onchange=change;
+      note.oninput=change;
     });
-    if(record.comparisonChanges){const change=document.createElement('p');change.textContent=`Изменение выборки: добавлено ${record.comparisonChanges.added.length}, исключено ${record.comparisonChanges.removed.length}, обновлено ${record.comparisonChanges.updated.length}`;panel.prepend(change)}
-    panel.querySelector('[data-competitor-decision]').oninput=e=>{feedbacks.competitorDecision=e.target.value;localStorage.setItem(projectKey,JSON.stringify(feedbacks))};
+    const note=panel.querySelector('[data-competitor-decision]');
+    if(note)note.oninput=()=>{feedbacks.competitorDecision=note.value;save()};
   }
   function openRefinementChat({key=feedbackProject,step,title,description,submit,onSubmit}){
     window.makoraChat?.close();

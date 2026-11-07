@@ -37,7 +37,7 @@ async page => {
   await page.locator('.brief-explanation').getByRole('heading',{name:'Пример'}).waitFor();
   const navigation=page.getByRole('navigation',{name:'Переключение этапов'});
   assert(await navigation.getByRole('button').count()===8,'В полноэкранном режиме нет всех этапов');
-  await navigation.getByRole('button',{name:/Анализ конкурентов/}).click();
+  await navigation.getByRole('button',{name:/Разбор аналогов/}).click();
   await page.locator('.stage-locked').waitFor();
   await navigation.getByRole('button',{name:/Анализ задания/}).click();
   await page.locator('[data-real-run]').click();
@@ -53,20 +53,25 @@ async page => {
   await page.locator('.stage-grid').waitFor();
   assert(await page.locator('.board-content').isHidden(),'Перезагрузка открыла этап вместо доски');
   await page.locator('[data-real-stage="1"]').click();
-  await page.locator('[data-real-approve]').click();await page.waitForFunction(()=>document.querySelector('.board-bar h2')?.textContent==='Анализ конкурентов');await page.locator('[data-real-run]').waitFor();
+  await page.locator('[data-real-approve]').click();await page.waitForFunction(()=>document.querySelector('.board-bar h2')?.textContent==='Разбор аналогов');await page.locator('[data-real-run]').waitFor();
   assert(state.stages[1].status==='approved','Нет явного утверждения');
   await page.locator('[data-real-run]').click();await page.locator('.analysis-thinking').waitFor();
   await page.locator('[data-real-approve]').waitFor();
-  assert(await page.locator('[data-competitor-decision]').count()===1,'Нет решения по конкурентам');
-  assert(await page.locator('.competitor-sources a').getAttribute('href')==='https://example.com/features','Нет ссылки на источник');
-  await page.locator('[data-competitor-open]').click();
+  assert(await page.locator('.competitor-card').count()===1,'Нет карточки аналога');
+  const sources=page.locator('.competitor-sources a');
+  assert(await sources.isHidden(),'Технические детали открыты сразу');
+  await page.getByText('Сравнение и источники',{exact:true}).click();
+  assert(await sources.getAttribute('href')==='https://example.com/features','Нет ссылки на источник');
+  await page.getByText('Сравнение и источники',{exact:true}).click();
+  await page.locator('[data-real-approve]').click();
+  assert(state.stages[2].status==='review','Этап утверждён без решения');
   await page.screenshot({path:'output/browser/competitors-review.png'});
   await page.setViewportSize({width:390,height:844});
   assert(await page.locator('.board-content').evaluate(e=>e.scrollWidth<=e.clientWidth+1),'Сравнение выходит за экран телефона');
   await page.setViewportSize({width:1280,height:900});
   await page.locator('[data-competitor-choice="one"]').selectOption('adapt');
+  await page.getByText('Добавить комментарий',{exact:true}).click();
   await page.locator('[data-competitor-note="one"]').fill('Адаптировать фильтры');
-  await page.locator('[data-competitor-decision]').fill('Перенять фильтры, упростить вход');
   await page.locator('[data-real-approve]').click();await page.getByRole('heading',{name:'Разработка идеи',exact:true}).waitFor();
   assert(state.competitorPreferences.includes('фильтры'),'Решение не передано при утверждении');
   await page.locator('.stage-board-back').click();
@@ -92,7 +97,7 @@ async page => {
   }
   await page.locator('.stage-board-back').click();
   await page.locator('.stage-grid').waitFor();
-  await page.goto(new URL('/?new=1',page.url()).href);
+  await page.goto(new URL('/?new=1',page.url()).href,{waitUntil:'domcontentloaded'});
   await page.locator('.stage-grid').waitFor();
   assert(await page.locator('.first-form').isHidden(),'Параметр URL сбросил текущий проект');
   assert(errors.length===0,errors.join('; '));
