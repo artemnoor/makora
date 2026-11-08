@@ -109,10 +109,19 @@ class ProjectWorkflow(Preparation):
             constraints = result.get('constraints', [])
             if not isinstance(constraints, list):
                 raise ValueError('constraints должен быть списком цитат ограничений из кейса.')
+            verified = []
             for item in constraints:
-                if not isinstance(item, dict) or not isinstance(item.get('quote'), str) or not item['quote'].strip() or item['quote'] not in self.state['brief']:
+                if not isinstance(item, dict) or not isinstance(item.get('quote'), str) or not item['quote'].strip():
                     raise ValueError('Каждое ограничение должно быть точной цитатой исходного кейса.')
-            record['caseConstraints'] = constraints
+                # PDF extraction inserts line breaks and non-breaking spaces.
+                # Ignore only whitespace differences, never words or numbers,
+                # and retain the actual source span as the displayed evidence.
+                pattern = r'\s+'.join(re.escape(word) for word in item['quote'].split())
+                match = re.search(pattern, self.state['brief'])
+                if match is None:
+                    raise ValueError('Не удалось найти цитату ограничения в кейсе. Слова и числа должны совпадать с исходником; переносы строк учитываются автоматически.')
+                verified.append({**item, 'quote': match.group(0)})
+            record['caseConstraints'] = verified
         if stage == 3:
             history = self.runtime.provider.history(record['threadId'])
             finished = record.get('brainstormReadyObserved', False)

@@ -67,6 +67,24 @@ class WorkflowTests(unittest.TestCase):
         self.assertEqual(quote, record['caseConstraints'][0]['quote'])
         with self.assertRaises(ValueError): self.pipeline.result_ready(0, {'constraints': [{'quote': 'Проект обязательно должен использовать Python.'}]}, record)
 
+    def test_pdf_line_wraps_and_nonbreaking_spaces_preserve_source_quote(self):
+        source = 'В состав задачи не входят: вакансии\u00a0и стажировки,\nрейтинги студентов и\n баллы.'
+        self.pipeline.state['brief'] = 'Описание проекта.\n' + source
+        record = {}
+        quote = 'В состав задачи не входят: вакансии и стажировки, рейтинги студентов и баллы.'
+        self.pipeline.result_ready(0, {'constraints': [{'quote': quote, 'locator': 'Страница 2'}]}, record)
+        self.assertEqual(source, record['caseConstraints'][0]['quote'])
+        self.assertEqual('Страница 2', record['caseConstraints'][0]['locator'])
+        previous = copy.deepcopy(record)
+        with self.assertRaises(ValueError):
+            self.pipeline.result_ready(0, {'constraints': [{'quote': quote.replace('не входят', 'входят обязательно')}]}, record)
+        self.assertEqual(previous, record)
+
+    def test_constraint_numbers_cannot_change_during_whitespace_matching(self):
+        self.pipeline.state['brief'] = 'Ограничение: не более\n 10 записей.'
+        with self.assertRaises(ValueError):
+            self.pipeline.result_ready(0, {'constraints': [{'quote': 'Ограничение: не более 100 записей.'}]}, {})
+
     def test_brainstorm_publishes_only_after_ready_and_separate_human_confirmation(self):
         self.approve_before(3)
         self.pipeline.start(3, {})
