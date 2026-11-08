@@ -1,11 +1,11 @@
 (() => {
   const root = document.createElement('section');
   root.id = 'first-stage';
-  root.setAttribute('aria-label', 'Анализ задания');
-  root.innerHTML = `<div class="first-top"><a class="first-logo" href="/" aria-label="Макора — главная">✳ <span>макора</span></a><div class="first-header-project"><span data-header-project>Новый проект</span><small data-header-stage>8 этапов</small></div><nav class="first-top-actions" aria-label="Действия проекта"></nav></div>
+  root.setAttribute('aria-label', 'Доска проекта');
+  root.innerHTML = `<div class="first-top"><a class="first-logo" href="/" aria-label="Макора — главная">✳ <span>макора</span></a><div class="first-header-project"><span data-header-project>Новый проект</span><small data-header-stage>7 этапов</small></div><nav class="first-top-actions" aria-label="Действия проекта"></nav></div>
   <div class="first-intro"><div class="mascot-area" tabindex="0" role="button" aria-label="Макора. Нажмите, чтобы подпрыгнуть; перетащите мышью или перемещайте стрелками." title="Нажмите для прыжка или перетащите Макору"><span class="mascot-fallback" aria-hidden="true">✳</span><iframe class="mascot-frame" src="mascot.html?v=stage-board-2" title="Персонаж Макоры" tabindex="-1"></iframe></div>
-  <form class="first-form"><div class="speech-label">ПЕРВЫЙ ШАГ <span>01 / 08</span></div><h1>Привет!<br>Объяснить задание?</h1><p>Пришли условие хакатона — соберём всё важное в одном месте.</p>
-  <label class="pixel-drop"><input type="file" accept=".pdf,.docx,.txt,.md" class="sr-only"><span class="pixel-plus" aria-hidden="true"><svg viewBox="0 0 24 24" width="28" height="28" shape-rendering="crispEdges"><path fill="currentColor" d="M2 5h8v2h12v14H2zm2 4v10h16V9z"/><path fill="currentColor" d="M11 11h2v2h2v2h-2v2h-2v-2H9v-2h2z"/></svg></span><strong class="file-label">Выбрать файл</strong><small>или перетащить сюда<br>PDF, DOCX, TXT, MD · до 20 МБ</small></label><div class="or-line"><span>ИЛИ ВСТАВЬ ТЕКСТ</span></div><label class="sr-only" for="first-text">Текст задания</label><textarea id="first-text" placeholder="Вставь условие задания сюда…"></textarea><div class="first-project-folder"><button type="button" data-choose-project-folder>▱ Выбрать папку проекта</button><small data-project-folder-label>Здесь будут условие, документы и код</small></div><p class="first-error" role="alert" hidden></p><button class="pixel-start" type="submit" disabled>Начать анализ <span aria-hidden="true">▶</span></button><p class="first-disclaimer">Модели агентов настраиваются для проекта. Результаты сохраняются локально и требуют утверждения.</p></form></div>
+  <form class="first-form"><div class="speech-label">ПЕРВЫЙ ШАГ <span>01 / 07</span></div><h1>Привет!<br>Объяснить задание?</h1><p>Пришли условие хакатона — соберём всё важное в одном месте.</p>
+  <label class="pixel-drop"><input type="file" accept=".pdf,.docx,.txt,.md" class="sr-only"><span class="pixel-plus" aria-hidden="true"><svg viewBox="0 0 24 24" width="28" height="28" shape-rendering="crispEdges"><path fill="currentColor" d="M2 5h8v2h12v14H2zm2 4v10h16V9z"/><path fill="currentColor" d="M11 11h2v2h2v2h-2v2h-2v-2H9v-2h2z"/></svg></span><strong class="file-label">Выбрать файл</strong><small>или перетащить сюда<br>PDF, DOCX, TXT, MD · до 20 МБ</small></label><div class="or-line"><span>ИЛИ ВСТАВЬ ТЕКСТ</span></div><label class="sr-only" for="first-text">Текст задания</label><textarea id="first-text" placeholder="Вставь условие задания сюда…"></textarea><div class="first-project-folder"><button type="button" data-choose-project-folder>▱ Выбрать папку проекта</button><small data-project-folder-label>Здесь будут условие, документы и код</small></div><p class="first-error" role="alert" hidden></p><button class="pixel-start" type="submit" disabled>Объяснить задание <span aria-hidden="true">▶</span></button><p class="first-disclaimer">Модели агентов настраиваются для проекта. Результаты сохраняются локально и требуют утверждения.</p></form></div>
   <div class="board-scene" hidden>
     <div class="board-stage">
       <section class="board rp-board stage-board" aria-label="Доска проекта">
@@ -251,7 +251,7 @@
     }catch(e){
       error.textContent=e.message;
       error.hidden=false;
-      start.textContent='Начать анализ';
+      start.textContent='Объяснить задание';
       update();
     }
   });

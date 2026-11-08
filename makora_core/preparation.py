@@ -33,6 +33,24 @@ STAGES = {
 
 
 class Preparation:
+    def stage_spec(self, stage):
+        return STAGES[stage]
+
+    def stage_number(self, stage):
+        return stage + 1
+
+    def required_stages(self, stage, continuing=False):
+        return list(range(1, 2) if continuing else range(1, stage))
+
+    def downstream_stages(self, stage):
+        return [i for i in range(8) if i > stage]
+
+    def development_context(self):
+        return self.context(6)
+
+    def result_ready(self, stage, result, record):
+        return True
+
     @staticmethod
     def extract(name, data):
         extension = Path(name).suffix.lower()
@@ -540,14 +558,14 @@ class Preparation:
                 raise AgentRuntimeError('INVALID_STAGE', 'Неизвестный этап.')
             user_idea = stage == 3 and payload.get('userIdea') is True
             existing = self.state['stages'].get('3', {})
-            if (user_idea and existing.get('interactionMode') == 'user_idea'
+            if (user_idea and not payload.get('feedback') and existing.get('interactionMode') == 'user_idea'
                     and existing.get('status') not in ('stale', 'cancelled')
                     and (existing.get('threadId') or existing.get('status') != 'failed')):
                 return self.snapshot()
             if any(s.get('status') in ('launching', 'running', 'unconfirmed', 'stopping') for s in self.state['stages'].values()):
                 raise AgentRuntimeError('PREPARATION_BUSY', 'Предыдущая операция ещё выполняется или её доставка не подтверждена.', 409)
             continuing = user_idea and payload.get('continueAnalogs') is True
-            required = range(1, 2) if continuing else range(1, stage)
+            required = self.required_stages(stage, continuing)
             if any(not self.stage_complete(self.state, previous) for previous in required):
                 raise AgentRuntimeError('PREVIOUS_STAGE_REQUIRED', 'Сначала утверди предыдущий этап.', 409)
             analogs = self.state['stages'].get('2', {})
@@ -601,11 +619,13 @@ class Preparation:
             (folder / 'INPUT.json').write_text(json.dumps({'brief': self.state['brief'], 'artifacts': context, 'decisions': decisions, 'previousChecks': self.state['stages'].get(str(stage), {}).get('checks', []), 'previousError': self.state['stages'].get(str(stage), {}).get('error'), 'previousResult': self.state['stages'].get(str(stage), {}).get('files', {}), 'feedback': payload.get('feedback', ''), 'competitorPreferences': self.state.get('competitorPreferences', ''), 'competitorDecisions': self.state.get('competitorDecisions', {}), 'artifactDecisions': self.state.get('artifactDecisions', [])}, ensure_ascii=False), 'utf-8')
             skills_root = Path(__file__).resolve().parent.parent / 'skills'
             task = {
-                'stage': stage, 'title': STAGES[stage][0],
+                'stage': stage, 'title': self.stage_spec(stage)[0],
+                'workflowVersion': self.state.get('workflowVersion', 2),
+                'displayNumber': self.stage_number(stage),
                 'input': str(folder / 'INPUT.json'),
                 'output': str(folder / 'result.json'),
-                'requiredFiles': STAGES[stage][2],
-                'skills': [str(skills_root / name / 'SKILL.md') for name in STAGES[stage][1]],
+                'requiredFiles': self.stage_spec(stage)[2],
+                'skills': [str(skills_root / name / 'SKILL.md') for name in self.stage_spec(stage)[1]],
                 'protocol': str(skills_root / 'preparation-session' / 'SKILL.md'),
             }
             if stage >= 3:
@@ -623,16 +643,20 @@ class Preparation:
             task['skills'] = [binding['path'] for binding in bindings[1:]]
             task['skillManifest'] = bindings
             (folder / 'TASK.json').write_text(json.dumps(task, ensure_ascii=False, indent=2), 'utf-8')
-            prompt = (f'{STAGES[stage][0]} (этап {stage + 1} на доске). Примени навык '
+            prompt = (f'{self.stage_spec(stage)[0]} (этап {self.stage_number(stage)} на доске). Примени навык '
                       f'{task["protocol"]}. Задание и пути: {folder / "TASK.json"}. '
                       'Прочитай только навыки и материалы этого этапа. Сохрани результат по указанному пути.')
             if user_idea:
-                prompt = (f'Этап 04 — Разработка идеи вместе с пользователем. Прочитай {folder / "TASK.json"} '
+                prompt = (f'Этап {self.stage_number(stage):02d} — Брейншторм вместе с пользователем. Прочитай {folder / "TASK.json"} '
                           f'и примени навык {task["protocol"]}. Сначала коротко попроси пользователя рассказать свою идею, '
                           'для кого она и что он хочет показать в демо. Выслушай ответ в этом чате, задай нужные уточнения. '
                           'Когда пользователь согласует идею и попросит оформить результат, создай документы и result.json '
                           'по TASK.json. До этого оставь результат незаполненным. Учитывай требования и аналогов из INPUT.json. '
-                          'Неподтверждённые источники аналогов считай гипотезами.')
+                          'Неподтверждённые источники аналогов считай гипотезами. '
+                          'Если workflowVersion=3: постепенно веди документ идеи пользователя. По слову «готово» '
+                          'предложи отдельный документ с версиями и всеми экранами каждой версии, порядком появления '
+                          'и переходами. Дождись отдельного подтверждения этого предложения. Только после него '
+                          'запиши userConfirmed=true и финальные files в result.json. Не заменяй идеи пользователя своими.')
             chat = self.state.setdefault('preparationChats', {}).get(group_key)
             if chat and chat.get('transport') != 'desktop':
                 chat = None
@@ -657,7 +681,7 @@ class Preparation:
             self.state['stages'][str(stage)] = record
             if stage != 0:
                 for key in self.state['stages']:
-                    if int(key) > stage:
+                    if int(key) in self.downstream_stages(stage):
                         self.state['stages'][key]['status'] = 'stale'
                 for key in ('prototype', 'returnedProject'):
                     if self.state.get(key):
@@ -676,7 +700,7 @@ class Preparation:
                     created = {**sent, 'id': chat['threadId'], **config,
                                'transport': chat.get('transport', 'app-server')}
                 else:
-                    title = f'Макора · {stage + 1:02d} — {STAGES[stage][0]}'
+                    title = f'Макора · {self.stage_number(stage):02d} — {self.stage_spec(stage)[0]}'
                     self.lock.release()
                     try:
                         project_root = Path(self.state['storageRoot']) if self.state.get('storageRoot') else session_root
@@ -704,7 +728,7 @@ class Preparation:
                 with self.runtime._lock:
                     self.runtime.state['sessions'][session_id] = session
                     self.runtime._save()
-                record.update(nativeSkillStatus=created.get('nativeSkillBinding','unconfirmed'), transport=created.get('transport', 'desktop'), status='running', sessionId=session_id, threadId=created['id'], turnId=created['turnId'], model=session['model'], reasoningEffort=session.get('reasoningEffort'))
+                record.update(displayNumber=self.stage_number(stage), nativeSkillStatus=created.get('nativeSkillBinding','unconfirmed'), transport=created.get('transport', 'desktop'), status='running', sessionId=session_id, threadId=created['id'], turnId=created['turnId'], model=session['model'], reasoningEffort=session.get('reasoningEffort'))
                 if user_idea:
                     self.state['lastStage'] = 3
             except Exception as exc:
@@ -1091,6 +1115,10 @@ class Preparation:
                     if path.is_symlink() or path.stat().st_size > 10 * 1024 * 1024:
                         raise ValueError('Недопустимый result.json')
                     result = json.loads(path.read_text('utf-8-sig'))
+                    if not self.result_ready(stage, result, record):
+                        record['status'] = 'awaiting_idea'
+                        self.save()
+                        return self.snapshot()
                     files = result['files']
                     if not isinstance(files, dict):
                         raise ValueError('files должен быть объектом')
@@ -1147,7 +1175,7 @@ class Preparation:
             record = self.state['stages'].get(str(stage), {})
             if record.get('status') != 'review':
                 raise AgentRuntimeError('STAGE_NOT_READY', 'Этап ещё не прошёл проверки.', 409)
-            if any(not self.stage_complete(self.state, previous) for previous in range(1, stage)):
+            if any(not self.stage_complete(self.state, previous) for previous in self.required_stages(stage)):
                 raise AgentRuntimeError('PREVIOUS_STAGE_REQUIRED', 'Сначала утвердите предыдущие этапы.', 409)
             if stage == 2:
                 note = str((payload or {}).get('note', '')).strip()
@@ -1207,7 +1235,7 @@ class Preparation:
     def archive(self):
         with self.lock:
             files = self.context(6)
-            if any(not self.stage_complete(self.state, stage) for stage in range(1,6)):
+            if any(not self.stage_complete(self.state, stage) for stage in self.required_stages(6)):
                 raise AgentRuntimeError('PREPARATION_NOT_APPROVED', 'Сначала утвердите все документы подготовки.', 409)
             files['artifact-change-decisions.json'] = json.dumps(self.state.get('artifactDecisions', []), ensure_ascii=False, indent=2)
             files['input/brief.txt'] = self.state['brief']
@@ -1230,6 +1258,12 @@ class Preparation:
                                   'и README.md с точными командами установки зависимостей и запуска. '
                                   'Проект должен запускаться после распаковки и установки зависимостей. '
                                   'Не включай установленные зависимости, кеши и секреты. Обязательно предоставь сам ZIP как скачиваемый файл.')
+            if self.state.get('workflowVersion', 0) >= 3:
+                files['PROMPT.md'] = files['PROMPT.md'].replace(
+                    'по приложенным требованиям, концепции, архитектуре и контрактам.',
+                    'по исходному кейсу, 02_user_idea.md, 02_versions_and_screens.md/json и мокам. '
+                    'Плана агентов и архитектуры в пакете ещё нет; не требуй их. '
+                    'Соблюдай согласованные границы версий: не смешивай поздние функции с начальной версией.')
             output = io.BytesIO()
             with zipfile.ZipFile(output, 'w', zipfile.ZIP_DEFLATED) as archive:
                 for name, text in files.items():
@@ -1342,7 +1376,7 @@ class Preparation:
             project = self.project_directory()
             if stage == 7 and not imported and (not project.exists() or self.runtime._run_git(project, 'rev-parse', 'HEAD').strip() != self.state['prototype'].get('commit')):
                 raise AgentRuntimeError('PROJECT_CHANGED', 'Git-проект изменился после утверждения прототипа. Повтори проверку.', 409)
-            files = self.context(6)
+            files = self.development_context()
             files['project-decisions.json'] = json.dumps({k:v.get('approvalNote', '') for k,v in self.state['stages'].items() if self.stage_complete(self.state, int(k))}, ensure_ascii=False, indent=2)
             digest = hashlib.sha256((json.dumps(files, sort_keys=True) + (self.state['returnedProject']['sha256'] if imported else '')).encode()).hexdigest()
             if not project.exists():

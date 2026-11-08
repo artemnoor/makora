@@ -1374,6 +1374,80 @@ class AgentRuntimeTests(unittest.TestCase):
         self.assertEqual('deferred', session['autoApplication'])
         self.assertNotIn('autopilotAppliedAt', session)
 
+    def test_laboratory_requires_current_human_acceptance_and_excludes_test_ui(self):
+        from makora_core.agents.acceptance import snapshot, _suite
+        run = self.create_run()
+        self.prepare_test_design(run['id'])
+        self.runtime.create_task_worktree(run['id'], 'T01')
+        stored = self.runtime._run(run['id'])
+        stored['execution'] = {'laboratories': [{'id': 'LAB', 'taskIds': ['T01'], 'uiRoot': 'labs/LAB/'}]}
+        task = stored['tasks'][0]
+        root = Path(task['worktree'])
+        (root/'feature.py').write_text('value = 1\n', 'utf-8')
+        (root/'labs/LAB').mkdir(parents=True)
+        (root/'labs/LAB/index.html').write_text('<h1>Human testing only</h1>', 'utf-8')
+        task['allowedPaths'] = ['feature.py', 'labs/LAB/index.html']
+        _, _, _, digest = snapshot(self.runtime, run['id'], 'T01', task['allowedPaths'])
+        _, _, _, suite = _suite(task)
+        task.update(status='review_completed', tests={'status': 'passed', 'independent': True, 'digest': digest, 'suiteDigest': suite},
+                    review={'verdict': 'pass', 'digest': digest, 'suiteDigest': suite})
+        with self.assertRaises(AgentRuntimeError) as failure:
+            self.runtime.integrate_task(run['id'], 'T01', True)
+        self.assertEqual('LAB_HUMAN_ACCEPTANCE_REQUIRED', failure.exception.code)
+        # Use the production acceptance method; the graph itself is validated
+        # separately in test_project_workflow.py.
+        stored['execution']['laboratories'][0].update(title='Feature', integrationTaskId='T01')
+        self.runtime.laboratory_action(run['id'], 'LAB', 'accept')
+        self.runtime.integrate_task(run['id'], 'T01', True)
+        self.assertTrue((self.project/'feature.py').is_file())
+        self.assertFalse((self.project/'labs/LAB/index.html').exists())
+        self.assertTrue((root/'labs/LAB/index.html').is_file())
+
+    def test_laboratory_preview_starts_real_local_test_interface(self):
+        run = self.create_run()
+        self.runtime.create_task_worktree(run['id'], 'T01')
+        stored = self.runtime._run(run['id'])
+        task = stored['tasks'][0]
+        root = Path(task['worktree'])
+        script = root/'labs/LAB/preview.py'
+        script.parent.mkdir(parents=True)
+        script.write_text('import os\nfrom http.server import HTTPServer, BaseHTTPRequestHandler\n'
+            'class Handler(BaseHTTPRequestHandler):\n'
+            ' def do_GET(self):\n'
+            '  self.send_response(200); self.end_headers(); self.wfile.write(b"preview-ok")\n'
+            'HTTPServer(("127.0.0.1", int(os.environ["PORT"])), Handler).serve_forever()\n', 'utf-8')
+        task['status'] = 'review_pending'
+        stored['execution'] = {'laboratories': [{'id': 'LAB', 'taskIds': ['T01'],
+            'previewCommand': ['python', 'labs/LAB/preview.py'], 'uiRoot': 'labs/LAB/'}]}
+        try:
+            result = self.runtime.laboratory_action(run['id'], 'LAB', 'preview')
+            import urllib.request
+            with urllib.request.urlopen(result['url'], timeout=3) as response:
+                self.assertEqual(b'preview-ok', response.read())
+        finally:
+            self.runtime.close()
+            for preview in getattr(self.runtime, '_laboratory_previews', {}).values():
+                preview['process'].wait(timeout=5)
+
+    def test_project_workflow_starts_exact_approved_graph_without_second_planner(self):
+        from makora_core.project_workflow import ProjectWorkflow
+        container = self.base
+        workflow = ProjectWorkflow(self.base/'workflow-state', self.runtime)
+        workflow.state.update(workflowVersion=3, storageRoot=str(container), brief='Развить согласованный каталог событий.',
+            returnedProject={'status': 'prepared', 'projectRoot': str(self.project), 'sha256': 'returned'},
+            stages={str(stage): {'status': 'approved', 'files': {}} for stage in (0, 2, 3, 5, 4)})
+        workflow.state['stages']['0']['caseConstraints'] = []
+        first, second = self.task('BASE'), self.task('FEATURE', ['BASE'])
+        first['allowedPaths'], second['allowedPaths'] = ['src/shell.py'], ['src/feature.py']
+        workflow.state['stages']['4']['files'] = {'03_tasks.json': json.dumps({'tasks': [first, second]}),
+            '03_execution.json': json.dumps({'skeletonTaskId': 'BASE', 'laboratories': []})}
+        project = workflow.development(7)
+        run = self.runtime._run(project['approvedRunId'])
+        self.assertEqual(['BASE', 'FEATURE'], [task['id'] for task in run['tasks']])
+        self.assertEqual('BASE', run['execution']['skeletonTaskId'])
+        self.assertFalse(any(s.get('role') == 'mahoraga_planner' for s in self.runtime.state['sessions'].values()))
+        self.assertEqual(project['approvedRunId'], workflow.development(7)['approvedRunId'])
+
     def test_integration_rejects_missing_test_and_review_evidence(self):
         run = self.create_run()
         tree = Path(self.runtime.create_task_worktree(run['id'], 'T01')['worktree'])

@@ -27,6 +27,8 @@ class ArtifactChanges:
         self.recover()
         files, owners = {}, {}
         for stage, record in self.preparation.state['stages'].items():
+            if self.preparation.state.get('workflowVersion', 0) >= 3 and int(stage) not in (0, 2, 3, 5, 6, 4, 7):
+                continue
             for name, content in record.get('files', {}).items():
                 path = PurePosixPath(name)
                 if path.is_absolute() or '..' in path.parts or '\\' in name or ':' in name:
@@ -221,9 +223,10 @@ class ArtifactChanges:
                             impact[target] = {'path': target, 'stage': context['owners'][target],
                                               'confidence': 'confirmed' if confirmed else 'possible', 'via': source, 'evidence': edge.get('evidence')}
                     queue.append((target, confirmed, distance + 1))
-            earliest = min(context['owners'][path] for path in targets)
+            stage_rank = getattr(self.preparation, 'stage_number', lambda value: value + 1)
+            earliest = min(stage_rank(context['owners'][path]) for path in targets)
             for path, stage in context['owners'].items():
-                if stage > earliest and path not in targets and path not in impact:
+                if stage_rank(stage) > earliest and path not in targets and path not in impact:
                     impact[path] = {'path': path, 'stage': stage, 'confidence': 'possible',
                                     'via': 'workflow', 'evidence': 'Более поздний этап; точная зависимость не установлена.'}
             changes = [{'path': path, 'before': context['files'][path], 'after': text,

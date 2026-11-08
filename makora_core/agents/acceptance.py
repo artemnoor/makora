@@ -292,6 +292,10 @@ def integrate(runtime, run_id, task_id, confirmed):
         run = runtime._run(run_id)
         task = next(t for t in run['tasks'] if t['id']==task_id)
         task, root, files, digest = snapshot(runtime,run_id,task_id,task.get('allowedPaths',[]))
+        from ..laboratories import task_laboratory
+        lab = task_laboratory(run, task_id)
+        if lab and task.get('laboratoryAcceptance', {}).get('digest') != digest:
+            raise AgentRuntimeError('LAB_HUMAN_ACCEPTANCE_REQUIRED', 'Сначала проверьте функцию в мини-интерфейсе и примите лабораторию.', 409)
         tests = task.get('tests',{})
         review = task.get('review',{})
         if (confirmed is not True or tests.get('status')!='passed' or tests.get('independent') is not True or
@@ -309,7 +313,14 @@ def integrate(runtime, run_id, task_id, confirmed):
             raise AgentRuntimeError('TASK_BASE_OUTDATED','База задачи устарела. Обнови ветку и повтори приёмку.',409)
         if task.get('worktreeBase') != run['baseCommit']:
             raise AgentRuntimeError('TASK_BASE_OUTDATED','Сначала обнови задачу на текущую базу и повтори тесты и ревью.',409)
-        runtime._run_git(root,'add','--',*files.keys())
+        production_files = [name for name in files if not lab or not name.startswith(lab['uiRoot'])]
+        if not production_files:
+            raise AgentRuntimeError('LAB_NO_FEATURE', 'Лаборатория не содержит рабочей функции вне тестового интерфейса.', 409)
+        if lab:
+            preview_files = [name for name in files if name.startswith(lab['uiRoot'])]
+            if preview_files:
+                runtime._run_git(root, 'reset', 'HEAD', '--', *preview_files)
+        runtime._run_git(root,'add','--',*production_files)
         runtime._run_git(root,'commit','-m',f'Makora: integrate {task_id}')
         revision = runtime._run_git(root,'rev-parse','HEAD')
         runtime._run_git(project,'merge','--ff-only',revision)

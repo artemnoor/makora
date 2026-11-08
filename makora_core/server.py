@@ -247,6 +247,10 @@ class MakoraHandler(SimpleHTTPRequestHandler):
                 self.end_headers();self.wfile.write(data);return
             if path == '/api/preparation/workflow/preserve-legacy':
                 value=self._read_json();self._agent_json(lambda:self.server.preparation.preserve_legacy_approvals(value));return
+            if path == '/api/preparation/planning/execution':
+                value=self._read_json();self._agent_json(lambda:self.server.preparation.save_execution(value));return
+            if path == '/api/preparation/planning/preferences':
+                value=self._read_json();self._agent_json(lambda:self.server.preparation.laboratory_preferences(value));return
             recovery_match=re.fullmatch(r'/api/preparation/changes/([a-f0-9]{32})/recovery',path)
             if recovery_match:
                 value=self._read_json();self._agent_json(lambda:ArtifactChanges(self.server.preparation).resolve_recovery(recovery_match.group(1),value));return
@@ -322,6 +326,9 @@ class MakoraHandler(SimpleHTTPRequestHandler):
             if match:self._agent_json(lambda:self.server.agent_runtime.approve_mahoraga_plan(match.group(1)),201);return
             if path == '/api/agents/runs':
                 self._agent_json(lambda:self.server.agent_runtime.create_run(self._read_json()),201);return
+            match=re.fullmatch(r'/api/agents/runs/([\w-]+)/laboratories/([\w-]+)/(preview|accept)',path)
+            if match:
+                self._agent_json(lambda:self.server.agent_runtime.laboratory_action(*match.groups()));return
             match=re.fullmatch(r'/api/agents/runs/([\w-]+)/autopilot',path)
             if match:
                 value=self._read_json()
@@ -416,7 +423,8 @@ def serve(workspace, static, host='127.0.0.1', port=8765, agent_roots=None, proj
     default_root=Path(__file__).parent.parent.resolve()
     roots=[Path(p).expanduser().resolve() for p in (agent_roots or [])]
     server.agent_runtime=AgentRuntime(workspace,default_root/'integrations'/'codex-desktop-local-api',roots or [default_root])
-    server.preparation=Preparation(workspace,server.agent_runtime)
+    from .project_workflow import ProjectWorkflow
+    server.preparation=ProjectWorkflow(workspace,server.agent_runtime)
     project = Path(project_root or server.preparation.state.get('storageRoot') or Path.cwd()).expanduser().resolve()
     project.mkdir(parents=True, exist_ok=True)
     saved = project / '.makora' / 'preparation' / 'state.json'
@@ -428,6 +436,7 @@ def serve(workspace, static, host='127.0.0.1', port=8765, agent_roots=None, proj
         server.preparation.save()
     elif server.preparation.state.get('storageRoot') != str(project):
         server.preparation._initialize_project(project)
+    server.preparation.upgrade_workflow()
     server.agent_runtime.register_project_storage(project / 'app', project)
     for root in (project / 'app', server.preparation.project_directory()):
         if root.resolve() not in server.agent_runtime.allowed_roots:

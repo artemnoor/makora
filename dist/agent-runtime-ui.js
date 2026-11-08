@@ -60,7 +60,7 @@
     view.dataset.agentSessions=JSON.stringify(projectSessions(ctx,run,state).map(s=>({id:s.id,role:s.role,task:s.taskId,status:s.status})));
     view.classList.add('rp-runtime');
     const completed=(run?.tasks||[]).filter(t=>t.status==='integrated').length,total=run?.tasks?.length||0,index=total&&completed===total?2:run?1:0;
-    const header=document.createElement('header');header.className='rp-summary';header.innerHTML=`<div class="rp-eyebrow"><span>ШАГ ${String(ctx.preparationStage+1).padStart(2,'0')} / 08</span><span>${run?`${completed} из ${total} задач готово`:'Сначала согласуем план'}</span></div><p>${ctx.preparationStage===6?'Соберём рабочую версию на ваших мок-данных. Вы проверяете план и принимаете результат.':'Продолжим разработку утверждённого прототипа. Изменения проходят тесты и независимую проверку.'}</p><ol class="rp-lifecycle">${['Согласовать план','Работа агентов','Принять результат'].map((text,i)=>`<li class="${i===index?'is-current':i<index?'is-done':''}"><b>${i<index?'✓':i+1}</b><span>${text}</span></li>`).join('')}</ol>`;view.prepend(header);
+    const header=document.createElement('header');header.className='rp-summary';header.innerHTML=`<div class="rp-eyebrow"><span>ШАГ ${ctx.project?.approvedRunId?'07 / 07':String(ctx.preparationStage+1).padStart(2,'0')+' / 08'}</span><span>${run?`${completed} из ${total} задач готово`:'Сначала согласуем план'}</span></div><p>${ctx.preparationStage===6?'Соберём рабочую версию на ваших мок-данных. Вы проверяете план и принимаете результат.':'Продолжим разработку утверждённого прототипа. Изменения проходят тесты и независимую проверку.'}</p><ol class="rp-lifecycle">${['Согласовать план','Работа агентов','Принять результат'].map((text,i)=>`<li class="${i===index?'is-current':i<index?'is-done':''}"><b>${i<index?'✓':i+1}</b><span>${text}</span></li>`).join('')}</ol>`;view.prepend(header);
     const fold=(nodes,title)=>{const items=nodes.filter(Boolean);if(!items.length)return;const details=document.createElement('details');details.className='rp-details';const summary=document.createElement('summary');summary.textContent=title;details.append(summary);const task=items[0].closest('.real-task')?.querySelector('header b')?.textContent||'';const key=ctx.project.projectRoot+'|'+ctx.preparationStage+'|'+title+'|'+task;details.dataset.panelKnown=preparationPanels.has(key)?'1':'0';details.open=preparationPanels.get(key)||false;details.addEventListener('toggle',()=>preparationPanels.set(key,details.open));items[0].before(details);items.forEach(el=>details.append(el));return details};
     const connection=view.querySelector('.real-status');if(connection){const connected=connection.classList.contains('online');const detail=fold([connection],connected?'Подключение к ИИ · есть связь':'Подключение к ИИ · нужна проверка');if(detail&&detail.dataset.panelKnown!=='1')detail.open=!connected}
     fold([...view.querySelectorAll(':scope > .real-caveat')],'Как Макора проверяет результат');
@@ -340,6 +340,23 @@
       }
       box.innerHTML=directorMarkup;
       content.querySelector('.real-task-list')?.before(box);
+    }
+    if(run?.execution?.laboratories?.length){
+      const section=document.createElement('section');section.className='runtime-laboratories';
+      section.innerHTML='<h3>Лаборатории</h3><p>Основная ветка использует моки, пока функция не принята и не подключена. Мини-интерфейсы не попадают в финальную ветку.</p>'+run.execution.laboratories.map(lab=>{
+        const connected=run.tasks.find(t=>t.id===lab.integrationTaskId)?.status==='integrated';
+        return `<article class="laboratory-card"><h4>${escapeHtml(lab.title)}</h4><p>${connected?'Функция подключена':'В основном приложении: моки'}</p><p>Задачи: ${escapeHtml(lab.taskIds.join(', '))}</p><div class="analysis-actions"><button type="button" data-lab-preview="${escapeHtml(lab.id)}">Запустить тестовый интерфейс</button><button type="button" data-lab-accept="${escapeHtml(lab.id)}">Принять проверенные задачи</button></div><p data-lab-result="${escapeHtml(lab.id)}" role="status"></p></article>`;
+      }).join('');
+      content.querySelector('.real-task-list')?.before(section);
+      section.querySelectorAll('[data-lab-preview],[data-lab-accept]').forEach(button=>button.onclick=async()=>{
+        button.disabled=true;
+        const id=button.dataset.labPreview||button.dataset.labAccept,action=button.dataset.labPreview?'preview':'accept';
+        try{
+          const result=await api(`/api/agents/runs/${run.id}/laboratories/${id}/${action}`,{method:'POST',body:'{}'});
+          if(result.url){const link=document.createElement('a');link.href=result.url;link.target='_blank';link.rel='noopener';link.textContent='Открыть тестовый интерфейс ↗';section.querySelector(`[data-lab-result="${id}"]`).replaceChildren(link)}
+          else {announce('Проверенные задачи приняты. Подключение функции выполняется отдельной задачей.');await render(ctx)}
+        }catch(error){announce(error.message)}finally{button.disabled=false}
+      });
     }
     content.querySelector('[data-mahoraga-plan]')?.addEventListener('click',async event=>{const button=event.currentTarget;button.disabled=true;showRuntimeWaiting(ctx,'Отправляем задание Махораге…');try{await api('/api/agents/plans',{method:'POST',body:JSON.stringify({projectRoot:content.querySelector('[data-project-root]').value.trim(),brief:content.querySelector('[data-mahoraga-brief]').value,context:content.querySelector('[data-mahoraga-context]').value,artifactPaths:ctx.project?.artifactPaths||[],includeSource:!!ctx.project})});announce('Махорага готовит декомпозицию.');await render(ctx)}catch(error){await render(ctx);announce(error.message);button.disabled=false}});
     content.querySelectorAll('[data-mahoraga-approve]').forEach(button=>button.addEventListener('click',async()=>{button.disabled=true;try{const created=await api(`/api/agents/plans/${button.dataset.mahoragaApprove}/approve`,{method:'POST',body:'{}'});selectedRun=created.id;localStorage.setItem('makora.agent-real-run',selectedRun);if(ctx.project)boardNavigation.delete(ctx.project.projectRoot+'|'+ctx.preparationStage);announce('План проверен контроллером и утверждён.');await render(ctx)}catch(error){announce(error.message);await render(ctx)}}));
