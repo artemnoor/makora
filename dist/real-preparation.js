@@ -237,8 +237,8 @@
       section.innerHTML='<h3>Ограничения из кейса</h3><ul>'+record.caseConstraints.map(item=>'<li>'+esc(item.quote)+(item.locator?' <small>'+esc(item.locator)+'</small>':'')+'</li>').join('')+'</ul>';
       content.querySelector('.analysis-summary')?.append(section);
     }
-    if(modern()&&step===4&&record?.files?.['03_tasks.json'])planningView(content,record);
-    if(modern()&&step===4&&!record?.files?.['03_tasks.json']){
+    if(modern()&&step===4&&record?.files?.['03_execution.json'])planningView(content,record);
+    if(modern()&&step===4&&!record?.files?.['03_execution.json']){
       const box=document.createElement('section');box.className='laboratory-preferences';
       box.innerHTML='<label>Какие функции вынести в лаборатории? <small>Необязательно. Одна функция на строку.</small><textarea rows="4" data-lab-preferences></textarea></label><button type="button" data-save-lab-preferences>Сохранить пожелания</button>';
       content.prepend(box);box.querySelector('textarea').value=(state.laboratoryPreferences||[]).join('\n');
