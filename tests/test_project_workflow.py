@@ -67,6 +67,41 @@ class WorkflowTests(unittest.TestCase):
         self.assertEqual(quote, record['caseConstraints'][0]['quote'])
         with self.assertRaises(ValueError): self.pipeline.result_ready(0, {'constraints': [{'quote': 'Проект обязательно должен использовать Python.'}]}, record)
 
+    def test_pdf_line_wraps_and_nonbreaking_spaces_preserve_source_quote(self):
+        source = 'В состав задачи не входят: вакансии\u00a0и стажировки,\nрейтинги студентов и\n баллы.'
+        self.pipeline.state['brief'] = 'Описание проекта.\n' + source
+        record = {}
+        quote = 'В состав задачи не входят: вакансии и стажировки, рейтинги студентов и баллы.'
+        self.pipeline.result_ready(0, {'constraints': [{'quote': quote, 'locator': 'Страница 2'}]}, record)
+        self.assertEqual(source, record['caseConstraints'][0]['quote'])
+        self.assertEqual('Страница 2', record['caseConstraints'][0]['locator'])
+        previous = copy.deepcopy(record)
+        with self.assertRaises(ValueError):
+            self.pipeline.result_ready(0, {'constraints': [{'quote': quote.replace('не входят', 'входят обязательно')}]}, record)
+        self.assertEqual(previous, record)
+
+    def test_constraint_numbers_cannot_change_during_whitespace_matching(self):
+        self.pipeline.state['brief'] = 'Ограничение: не более\n 10 записей.'
+        with self.assertRaises(ValueError):
+            self.pipeline.result_ready(0, {'constraints': [{'quote': 'Ограничение: не более 100 записей.'}]}, {})
+
+    def test_existing_pdf_result_with_file_list_recovers_without_resending(self):
+        self.pipeline.state['brief'] = 'Создать каталог. Не более\n10 записей.'
+        self.pipeline.start(0, {})
+        record = self.pipeline.state['stages']['0']
+        record['status'] = 'failed'
+        result = {'constraints': [{'quote': 'Не более 10 записей.'}], 'files': [
+            {'path': '00_brief_explanation.md', 'content': '# Что сделать\nКаталог.\n\n## Пример\nДопустим, ищем событие.'}]}
+        (Path(record['folder'])/'result.json').write_text(json.dumps(result), 'utf-8')
+        self.pipeline.refresh(0, recheck=True)
+        self.assertEqual('review', record['status'])
+        self.assertIn('00_brief_explanation.md', record['files'])
+        self.assertEqual('Не более\n10 записей.', record['caseConstraints'][0]['quote'])
+        self.assertEqual(1, self.provider.create_thread.call_count)
+        self.provider.send.assert_not_called()
+        with self.assertRaises(ValueError):
+            self.pipeline.artifact_files([{'path': 'same.md', 'content': 'a'}, {'path': 'same.md', 'content': 'b'}])
+
     def test_brainstorm_publishes_only_after_ready_and_separate_human_confirmation(self):
         self.approve_before(3)
         self.pipeline.start(3, {})
