@@ -929,6 +929,12 @@ class AgentRuntime:
             for task in run['tasks']:
                 item = {k:task.get(k) for k in ('id','title','goal','acceptance','dependsOn','contracts','mocks','allowedPaths','status','worktree','worktreeBase','testDesignStatus','tests','review','repairAttempts')}
                 item['controllerAllowedActions'] = self._mahoraga_allowed_actions(run,task)
+                from ..laboratories import task_laboratory
+                lab = task_laboratory(run, task['id'])
+                if lab:
+                    item['laboratory'] = {'id': lab['id'], 'title': lab.get('title'),
+                        'humanAcceptanceRequired': task.get('status') == 'review_completed' and
+                            (not task.get('laboratoryAcceptance') or task['laboratoryAcceptance'].get('digest') != task.get('review', {}).get('digest'))}
                 item['waitingOn'] = [dependency for dependency in task['dependsOn']
                                      if next(candidate for candidate in run['tasks'] if candidate['id'] == dependency)['status'] != 'integrated']
                 task_view.append(item)
@@ -937,6 +943,7 @@ class AgentRuntime:
             prompt = (
                 'Ты — Махорага, главный агент-координатор разработки Макоры. Изучи приложенный актуальный план запуска и предложи следующий безопасный набор действий. '
                 'Ты не запускаешь инструменты и не меняешь файлы; контроллер исполнит только допустимые действия. '
+                'Лабораторию с humanAcceptanceRequired оставь ждать проверки человеком; пока есть допустимые действия в других ветвях, продолжай их, не останавливая основную ветку через ask_human. '
                 'Верни только JSON: {"summary":"...","actions":[{"action":"prepare_worktree|launch_test_designer|repair_test_design|launch_builder|run_tests|launch_reviewer|request_fixes|refresh_task_base|recommend_integration|escalate_mahoraga|ask_human","taskId":"T01","reason":"..."}],"openQuestions":[]}. '
                 'Если вывод тестов указывает на ошибку самого набора (например рекурсивный импорт или ошибка загрузки), предложи repair_test_design с обоснованием; если нарушен контракт продукта, выбирай request_fixes. '
                 'Действуй по зависимостям; одновременно допускай максимум двух Builder. Для run_tests поле allowedPaths не указывай: контроллер выведет список изменённых файлов сам. '
@@ -1352,7 +1359,7 @@ class AgentRuntime:
         status = task.get('status')
         from ..laboratories import task_laboratory
         if status == 'review_completed' and task_laboratory(run, task['id']) and (not task.get('laboratoryAcceptance') or task['laboratoryAcceptance'].get('digest') != task.get('review', {}).get('digest')):
-            return ['ask_human']
+            return []
         if status == 'mahoraga_required':
             specialist_exists = any(session.get('runId') == run['id'] and
                                     session.get('taskId') == task['id'] and

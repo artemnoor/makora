@@ -1391,6 +1391,7 @@ class AgentRuntimeTests(unittest.TestCase):
         _, _, _, suite = _suite(task)
         task.update(status='review_completed', tests={'status': 'passed', 'independent': True, 'digest': digest, 'suiteDigest': suite},
                     review={'verdict': 'pass', 'digest': digest, 'suiteDigest': suite})
+        self.assertEqual([], self.runtime._mahoraga_allowed_actions(stored, task))
         with self.assertRaises(AgentRuntimeError) as failure:
             self.runtime.integrate_task(run['id'], 'T01', True)
         self.assertEqual('LAB_HUMAN_ACCEPTANCE_REQUIRED', failure.exception.code)
