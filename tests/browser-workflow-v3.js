@@ -24,7 +24,7 @@ async page => {
         state.stages[stage]={status:'running',files:{}};
       }
       if(action==='refresh'&&stage===0)state.stages[0]={status:'review',caseConstraints:[],files:{'00_brief_explanation.md':'## Что сделать\nКаталог событий.\n\n## Пример\nДопустим, студент ищет встречу.'}};
-      if(action==='refresh'&&stage===2)state.stages[2]={status:'review',files:{'02_competitors.md':'# Аналоги','02_competitors.json':JSON.stringify({competitors:[{id:'one',name:'Пример',summary:'Каталог событий',url:'https://example.com',comparison:[],sources:[]}]})}};
+      if(action==='refresh'&&stage===2)state.stages[2]={status:'review',files:{'02_competitors.md':'# Аналоги','02_competitors.json':JSON.stringify({competitors:Array.from({length:8},(_,index)=>({id:`analog-${index+1}`,name:`Пример ${index+1}`,summary:'Каталог событий',url:'https://example.com',comparison:[],sources:[]}))})}};
       if(action==='approve')state.stages[stage].status='approved';
     }
     await route.fulfill({json:{ok:true,result:state}});
@@ -41,6 +41,9 @@ async page => {
   await page.locator('[data-real-approve]').click();
   await page.getByRole('heading',{name:'Поиск аналогов',exact:true}).waitFor();
   await page.locator('[data-real-run]').click();await page.locator('[data-begin-idea]').waitFor();
+  const analogNumbers=await page.locator('.competitor-index').allTextContents();
+  console.log('[FIX:analog-numbering]',analogNumbers.join(' '));
+  assert(analogNumbers.join(' ')==='01 02 03 04 05 06 07 08','Номера аналогов должны идти подряд независимо от порядка этапов');
   await page.locator('[data-begin-idea]').click();
   await page.getByRole('heading',{name:'Брейншторм',exact:true}).waitFor();
   assert((await page.locator('.idea-handoff').innerText()).includes('готово'),'Нет объяснения, как завершить сбор идей');

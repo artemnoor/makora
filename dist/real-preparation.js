@@ -405,7 +405,7 @@
         const sourceStatus=confirmed===0?'Источники пока не подтверждены':confirmed===sources.length?'Источники подтверждены':`Подтверждено источников ${confirmed} из ${sources.length}`;
         const decision=decisions[id];
         return `<article class="competitor-card" aria-labelledby="analog-title-${index}">
-          <header><span class="competitor-index" aria-hidden="true">${String(ordinal(index)).padStart(2,'0')}</span><h4 id="analog-title-${index}">${esc(name)}</h4></header>
+          <header><span class="competitor-index" aria-hidden="true">${String(index+1).padStart(2,'0')}</span><h4 id="analog-title-${index}">${esc(name)}</h4></header>
           ${description?`<p>${esc(description)}</p>`:''}
           ${ideasToBorrow.length?`<div class="competitor-idea"><strong>Что можно взять</strong><ul>${ideasToBorrow.map(idea=>`<li>${esc(idea)}</li>`).join('')}</ul></div>`:''}
           ${editable?`<label class="competitor-choice" for="analog-choice-${index}">Наше решение
