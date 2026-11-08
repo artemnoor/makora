@@ -226,6 +226,25 @@ class MakoraHandler(SimpleHTTPRequestHandler):
                 self._error(AgentRuntimeError('AUTH_REQUIRED','Нужен действующий токен этой страницы Макоры.',401),401);return
             if getattr(getattr(self.server,'preparation',None),'change_recovery_required',False) and not path.endswith('/recovery'):
                 self._error(AgentRuntimeError('CHANGE_RECOVERY_CONFLICT','Сначала разрешите незавершённое применение правки.',409),409);return
+            if path == '/api/preparation/2/pdf':
+                from .competitors_pdf import export_competitors
+                payload = self._read_json()
+                snapshot = self.server.preparation.snapshot()
+                decisions = payload.get('decisions', {})
+                note = payload.get('note', '')
+                if not isinstance(decisions, dict) or not isinstance(note, str):
+                    self._error(MakoraError('INVALID_PDF_OPTIONS', 'Некорректные решения или комментарий.'),400);return
+                try:
+                    data = export_competitors(snapshot.get('stages', {}).get('2', {}),
+                        decisions={**snapshot.get('competitorDecisions', {}), **decisions}, note=note)
+                except ValueError as exc:
+                    self._error(MakoraError('PDF_NOT_READY', str(exc)),409);return
+                self.send_response(200)
+                self.send_header('Content-Type', 'application/pdf')
+                self.send_header('Content-Disposition', 'attachment; filename="makora-competitors.pdf"')
+                self.send_header('Content-Length', str(len(data)))
+                self.send_header('Cache-Control', 'no-store')
+                self.end_headers();self.wfile.write(data);return
             if path == '/api/preparation/workflow/preserve-legacy':
                 value=self._read_json();self._agent_json(lambda:self.server.preparation.preserve_legacy_approvals(value));return
             recovery_match=re.fullmatch(r'/api/preparation/changes/([a-f0-9]{32})/recovery',path)

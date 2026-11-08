@@ -4,6 +4,12 @@ async page => {
   const errors=[];page.on('pageerror',e=>errors.push(e.message));
   let state={storageRoot:'C:/test-project',brief:'',stages:{}},submitted='',lastFeedback='',ideaRequests=0,chatOpens=0;
   await page.route('**/api/preparation**',async route=>{
+    if(new URL(route.request().url()).pathname==='/api/preparation/2/pdf'){
+      const body=route.request().postDataJSON();
+      assert(body.decisions.one.action==='adapt','В PDF не передано решение по аналогу');
+      assert(body.decisions.one.comment==='Адаптировать фильтры','В PDF не передан текущий комментарий');
+      return route.fulfill({contentType:'application/pdf',body:'%PDF-1.4\n% browser download fixture'});
+    }
     if(new URL(route.request().url()).pathname==='/api/preparation/3/open-codex'){
       assert(route.request().method()==='POST','Открытие чата не использует API');
       chatOpens++;
@@ -85,6 +91,11 @@ async page => {
   await page.locator('[data-competitor-choice="one"]').selectOption('adapt');
   await page.getByText('Добавить комментарий',{exact:true}).click();
   await page.locator('[data-competitor-note="one"]').fill('Адаптировать фильтры');
+  const downloading=page.waitForEvent('download');
+  await page.getByRole('button',{name:'Скачать PDF ↓',exact:true}).click();
+  const downloaded=await downloading;
+  assert(downloaded.suggestedFilename()==='makora-competitors.pdf','Неверное имя выгрузки');
+  assert(state.stages[2].status==='review','Выгрузка изменила состояние этапа');
   // Continue even when source checks fail, without declaring those sources verified.
   state.stages[2].status='failed';
   await page.evaluate(()=>window.makoraPreparation.open(2));

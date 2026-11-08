@@ -298,10 +298,34 @@
     }catch{}
     return esc(label);
   }
+  function bindCompetitorsPdf(host){
+    const button=host.querySelector('[data-competitors-pdf]');
+    if(!button)return;
+    button.onclick=async event=>{
+      const button=event.currentTarget;
+      button.disabled=true;button.textContent='Готовим PDF…';
+      try{
+        const auth=await(await fetch('/api/agents/token',{headers:{'X-Makora-Request':'token'}})).json();
+        const response=await fetch('/api/preparation/2/pdf',{method:'POST',headers:{'Content-Type':'application/json','X-Makora-Token':auth.result.token},
+          body:JSON.stringify({decisions:{...state.competitorDecisions,...feedbacks.competitorDecisions},note:feedbacks.competitorDecision||''})});
+        if(!response.ok){const result=await response.json();throw Error(result.error?.message||'Не удалось создать PDF')}
+        const url=URL.createObjectURL(await response.blob());
+        const link=document.createElement('a');link.href=url;link.download='makora-competitors.pdf';document.body.append(link);link.click();link.remove();
+        setTimeout(()=>URL.revokeObjectURL(url),60000);
+      }catch(e){error(e.message)}
+      finally{button.disabled=false;button.textContent='Скачать PDF ↓'}
+    };
+  }
   function competitorView(content,record,competitors,projectKey){
     const summary=content.querySelector('.analysis-summary'),edit=summary.querySelector('[data-analysis-edit]');
     if(edit)edit.textContent=record?'Уточнить поиск':'Найти аналоги →';
-    if(!competitors.length||record?.status==='unconfirmed')return;
+    if(!competitors.length||record?.status==='unconfirmed'){
+      if(record?.status!=='unconfirmed'&&record?.files?.['02_competitors.md']){
+        summary.insertAdjacentHTML('beforeend','<button type="button" class="rp-secondary" data-competitors-pdf>Скачать PDF ↓</button>');
+        bindCompetitorsPdf(summary);
+      }
+      return;
+    }
     const editable=record.status==='review';
     const decisions=editable?{...state.competitorDecisions,...feedbacks.competitorDecisions}:state.competitorDecisions||{};
     const panel=document.createElement('section');
@@ -310,6 +334,7 @@
     panel.innerHTML=`
       <header class="competitor-intro">
         <h3 id="competitor-heading">Что нашли</h3>
+        <button type="button" class="rp-secondary" data-competitors-pdf>Скачать PDF ↓</button>
         ${editable?'<p>Выбери, что делать с каждым аналогом. Решения попадут в следующий этап.</p>':''}
         ${record.status==='failed'?'<p role="status">Часть материалов ещё не прошла проверку. Можно посмотреть найденное и уточнить поиск.</p>':''}
       </header>
@@ -370,6 +395,7 @@
       summary.append(report);
     }
     const save=()=>localStorage.setItem(projectKey,JSON.stringify(feedbacks));
+    bindCompetitorsPdf(panel);
     panel.querySelectorAll('[data-competitor-choice]').forEach(select=>{
       const note=select.closest('.competitor-card').querySelector('[data-competitor-note]');
       const change=()=>{
