@@ -85,6 +85,23 @@ class WorkflowTests(unittest.TestCase):
         with self.assertRaises(ValueError):
             self.pipeline.result_ready(0, {'constraints': [{'quote': 'Ограничение: не более 100 записей.'}]}, {})
 
+    def test_existing_pdf_result_with_file_list_recovers_without_resending(self):
+        self.pipeline.state['brief'] = 'Создать каталог. Не более\n10 записей.'
+        self.pipeline.start(0, {})
+        record = self.pipeline.state['stages']['0']
+        record['status'] = 'failed'
+        result = {'constraints': [{'quote': 'Не более 10 записей.'}], 'files': [
+            {'path': '00_brief_explanation.md', 'content': '# Что сделать\nКаталог.\n\n## Пример\nДопустим, ищем событие.'}]}
+        (Path(record['folder'])/'result.json').write_text(json.dumps(result), 'utf-8')
+        self.pipeline.refresh(0, recheck=True)
+        self.assertEqual('review', record['status'])
+        self.assertIn('00_brief_explanation.md', record['files'])
+        self.assertEqual('Не более\n10 записей.', record['caseConstraints'][0]['quote'])
+        self.assertEqual(1, self.provider.create_thread.call_count)
+        self.provider.send.assert_not_called()
+        with self.assertRaises(ValueError):
+            self.pipeline.artifact_files([{'path': 'same.md', 'content': 'a'}, {'path': 'same.md', 'content': 'b'}])
+
     def test_brainstorm_publishes_only_after_ready_and_separate_human_confirmation(self):
         self.approve_before(3)
         self.pipeline.start(3, {})

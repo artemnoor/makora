@@ -52,6 +52,20 @@ class Preparation:
         return True
 
     @staticmethod
+    def artifact_files(value):
+        if isinstance(value, list):
+            files = {}
+            for item in value:
+                if (not isinstance(item, dict) or not isinstance(item.get('path'), str)
+                        or not isinstance(item.get('content'), str) or item['path'] in files):
+                    raise ValueError('Каждому файлу нужны уникальный path и текст content.')
+                files[item['path']] = item['content']
+            return files
+        if not isinstance(value, dict):
+            raise ValueError('files должен быть объектом или списком файлов path/content.')
+        return value
+
+    @staticmethod
     def extract(name, data):
         extension = Path(name).suffix.lower()
         if extension in ('.txt', '.md'):
@@ -1119,9 +1133,7 @@ class Preparation:
                         record['status'] = 'awaiting_idea'
                         self.save()
                         return self.snapshot()
-                    files = result['files']
-                    if not isinstance(files, dict):
-                        raise ValueError('files должен быть объектом')
+                    files = self.artifact_files(result['files'])
                     if set(files) & set(self.context(stage)):
                         raise ValueError('Результат пытается заменить артефакт утверждённого предыдущего этапа')
                     record.update(files=files, checks=[])
