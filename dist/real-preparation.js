@@ -269,7 +269,7 @@
     const sync=()=>{taskInput.value=JSON.stringify(tasks,null,2);executionInput.value=JSON.stringify(execution,null,2)};
     const draw=()=>{
       const clean=value=>String(value).replace(/["<>\[\]{}]/g,' ').slice(0,100);
-      const code=['flowchart TD',...tasks.map(t=>`${t.id}["${clean(t.title)}"]`),...tasks.flatMap(t=>(t.dependsOn||[]).map(d=>`${d} --> ${t.id}`))];
+      const code=['flowchart TD',...tasks.map(t=>{const lab=(execution.laboratories||[]).find(l=>l.taskIds.includes(t.id));const role=t.id===execution.skeletonTaskId?'Каркас: ':lab?'Лаборатория '+lab.title+': ':'Основная ветка: ';return `${t.id}["${clean(role+t.title)}"]`}),...tasks.flatMap(t=>(t.dependsOn||[]).map(d=>`${d} --> ${t.id}`))];
       const graph=panel.querySelector('[data-execution-graph]');graph.innerHTML='<pre data-real-mermaid>'+esc(code.join('\n'))+'</pre>';diagrams(graph);
       const list=panel.querySelector('[data-lab-list]');list.innerHTML=(execution.laboratories||[]).map((lab,index)=>`<article class="laboratory-card"><h4>${esc(lab.title)}</h4><p>Параллельная ветка: ${esc(lab.taskIds.join(', '))} → ${esc(lab.integrationTaskId)}</p><p>До подключения: ${esc(lab.mockFixture)}</p><p>Тестовый интерфейс: ${esc(lab.uiRoot)}</p><button type="button" data-remove-lab="${index}">Убрать лабораторию</button></article>`).join('');
       list.querySelectorAll('[data-remove-lab]').forEach(b=>b.onclick=()=>{const [lab]=execution.laboratories.splice(Number(b.dataset.removeLab),1);for(const task of tasks.filter(t=>lab.taskIds.includes(t.id))){task.allowedPaths=task.allowedPaths.filter(p=>!p.startsWith(lab.uiRoot));task.builderPrompt+='\nЛаборатория отменена: функция реализуется в основном приложении, без тестового UI в '+lab.uiRoot;}sync();draw()});

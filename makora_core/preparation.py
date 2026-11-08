@@ -615,7 +615,7 @@ class Preparation:
             folder = session_root / uuid.uuid4().hex
             folder.mkdir()
             context = self.context(stage)
-            decisions = {k: v.get('approvalNote', '') for k, v in self.state['stages'].items() if 1 <= int(k) < stage and self.stage_complete(self.state, int(k))}
+            decisions = {k: v.get('approvalNote', '') for k, v in self.state['stages'].items() if int(k) in self.required_stages(stage) and self.stage_complete(self.state, int(k))}
             (folder / 'INPUT.json').write_text(json.dumps({'brief': self.state['brief'], 'artifacts': context, 'decisions': decisions, 'previousChecks': self.state['stages'].get(str(stage), {}).get('checks', []), 'previousError': self.state['stages'].get(str(stage), {}).get('error'), 'previousResult': self.state['stages'].get(str(stage), {}).get('files', {}), 'feedback': payload.get('feedback', ''), 'competitorPreferences': self.state.get('competitorPreferences', ''), 'competitorDecisions': self.state.get('competitorDecisions', {}), 'artifactDecisions': self.state.get('artifactDecisions', [])}, ensure_ascii=False), 'utf-8')
             skills_root = Path(__file__).resolve().parent.parent / 'skills'
             task = {

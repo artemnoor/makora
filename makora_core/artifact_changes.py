@@ -289,7 +289,7 @@ class ArtifactChanges:
             for stage in touched:
                 proposed['stages'][stage]['changeRequestId'] = ident
                 proposed['stages'][stage]['methodologyStatus'] = 'requires_review'
-            proposed['lastStage'] = min(map(int, touched))
+            proposed['lastStage'] = min(map(int, touched), key=getattr(self.preparation, 'stage_number', lambda value: value + 1))
             if proposed.get('prototype'):
                 proposed['prototype']['status'] = 'stale'
             if proposed.get('returnedProject'):
