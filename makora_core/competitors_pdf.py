@@ -58,7 +58,7 @@ def export_competitors(record, *, decisions=None, note=''):
             if title and title != url:
                 paragraph(url)
 
-    paragraph('МАКОРА / ЭТАП 03', 'label')
+    paragraph(f'МАКОРА / ЭТАП {record.get("displayNumber", 3):02d}', 'label')
     paragraph('Разбор аналогов', 'title')
     paragraph('Похожие продукты, полезные идеи и сравнение с нашим проектом.')
     if record.get('status') != 'approved':

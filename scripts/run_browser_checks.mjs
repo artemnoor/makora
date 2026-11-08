@@ -5,7 +5,7 @@ import vm from 'node:vm';
 await mkdir('output/browser', { recursive: true });
 const browser = await chromium.launch({ headless: true, ...(process.env.MAKORA_BROWSER_CHANNEL ? { channel: process.env.MAKORA_BROWSER_CHANNEL } : {}) });
 try {
-  for (const name of ['browser-preparation', 'browser-stage-layout', 'browser-single-project']) {
+  for (const name of ['browser-preparation', 'browser-stage-layout', 'browser-single-project', 'browser-workflow-v3']) {
     const context = await browser.newContext({ viewport: { width: 1280, height: 900 } });
     const page = await context.newPage();
     page.setDefaultTimeout(10000);

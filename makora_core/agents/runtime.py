@@ -583,6 +583,10 @@ class AgentRuntime:
         if clean:
             raise AgentRuntimeError("PROJECT_DIRTY", "В основной рабочей папке есть незакоммиченные изменения. Сначала сохрани их, чтобы worktree строился от однозначной версии.", 409)
         tasks = payload.get("tasks")
+        execution = payload.get('execution')
+        if execution is not None:
+            from ..laboratories import validate_execution
+            validate_execution(tasks, execution)
         if not isinstance(tasks, list) or not 1 <= len(tasks) <= MAX_TASKS:
             raise AgentRuntimeError("INVALID_TASKS", f"Передай список из 1–{MAX_TASKS} задач.")
         seen: set[str] = set()
@@ -633,6 +637,8 @@ class AgentRuntime:
                "createdAt": _now(), "maxParallel": 2, "tasks": normalized,
                "mahoragaAutopilot": {"enabled": False, "status": "manual", "actions": 0,
                                       "decisions": 0, "seenQueueFingerprints": [], "lastError": None}}
+        if execution is not None:
+            run['execution'] = json.loads(json.dumps(execution))
         with self._lock:
             self.state["runs"][run_id] = run
             self._event("run_created", f"План {run_id} создан для {root}", run_id)
@@ -1344,6 +1350,9 @@ class AgentRuntime:
         if any(by_id[dependency]['status'] != 'integrated' for dependency in task['dependsOn']):
             return []
         status = task.get('status')
+        from ..laboratories import task_laboratory
+        if status == 'review_completed' and task_laboratory(run, task['id']) and (not task.get('laboratoryAcceptance') or task['laboratoryAcceptance'].get('digest') != task.get('review', {}).get('digest')):
+            return ['ask_human']
         if status == 'mahoraga_required':
             specialist_exists = any(session.get('runId') == run['id'] and
                                     session.get('taskId') == task['id'] and
@@ -2262,6 +2271,71 @@ class AgentRuntime:
         from .acceptance import integrate
         return integrate(self, run_id, task_id, confirmed)
 
+    def laboratory_action(self, run_id, lab_id, action):
+        from ..laboratories import laboratory_state
+        from .acceptance import snapshot
+        with self._lock:
+            run = self._run(run_id)
+            lab = next((v for v in run.get('execution', {}).get('laboratories', []) if v['id'] == lab_id), None)
+            if not lab:
+                raise AgentRuntimeError('LAB_NOT_FOUND', 'Лаборатория не найдена.', 404)
+            tasks = [t for t in run['tasks'] if t['id'] in lab['taskIds']]
+            if action == 'accept':
+                ready = [t for t in tasks if t['status'] == 'review_completed' and t.get('tests', {}).get('status') == 'passed' and t.get('review', {}).get('verdict') == 'pass']
+                if not ready:
+                    raise AgentRuntimeError('LAB_NOT_READY', 'Дождитесь независимых тестов и ревью функции.', 409)
+                for task in ready:
+                    _, _, _, digest = snapshot(self, run_id, task['id'], task['allowedPaths'])
+                    if task['review'].get('digest') != digest:
+                        raise AgentRuntimeError('LAB_CHANGED', 'После проверки код изменился. Повторите тесты и ревью.', 409)
+                    task['laboratoryAcceptance'] = {'digest': digest, 'at': _now()}
+                self._save()
+                return {'laboratories': laboratory_state(run)}
+            if action == 'preview':
+                candidates = [t for t in tasks if t.get('worktree') and t['status'] not in ('pending', 'ready', 'implementing', 'unconfirmed')]
+                if not candidates:
+                    raise AgentRuntimeError('LAB_NOT_READY', 'Дождитесь реализации функции и мини-интерфейса.', 409)
+                task = candidates[-1]
+                root = Path(task['worktree']).resolve()
+                command = lab['previewCommand']
+                script = root / command[1]
+                if script.is_symlink() or not script.resolve().is_relative_to(root) or not script.is_file():
+                    raise AgentRuntimeError('LAB_PREVIEW_MISSING', 'Скрипт тестового интерфейса пока не создан.', 409)
+                previews = getattr(self, '_laboratory_previews', {})
+                key = run_id + ':' + lab_id
+                existing = previews.get(key)
+                if existing and existing['process'].poll() is None:
+                    return {'url': existing['url']}
+                import socket
+                with socket.socket() as probe:
+                    probe.bind(('127.0.0.1', 0))
+                    port = probe.getsockname()[1]
+                env = dict(os.environ, PORT=str(port), HOST='127.0.0.1', MAKORA_LABORATORY=lab_id)
+                log = self.workspace / 'laboratory-previews'
+                log.mkdir(parents=True, exist_ok=True)
+                logfile = log / f'{run_id}-{lab_id}.log'
+                with logfile.open('ab') as stream:
+                    process = subprocess.Popen(command, cwd=root, env=env, stdin=subprocess.DEVNULL,
+                        stdout=stream, stderr=subprocess.STDOUT, creationflags=getattr(subprocess, 'CREATE_NO_WINDOW', 0))
+                url = f'http://127.0.0.1:{port}'
+                previews[key] = {'process': process, 'url': url}
+                self._laboratory_previews = previews
+                self._lock.release()
+                try:
+                    for _ in range(60):
+                        if process.poll() is not None:
+                            raise AgentRuntimeError('LAB_PREVIEW_FAILED', f'Тестовый интерфейс завершился при запуске. Лог: {logfile}', 409)
+                        try:
+                            with socket.create_connection(('127.0.0.1', port), timeout=.1):
+                                return {'url': url, 'log': str(logfile)}
+                        except OSError:
+                            time.sleep(.1)
+                    process.terminate()
+                    raise AgentRuntimeError('LAB_PREVIEW_TIMEOUT', f'Интерфейс не открыл локальный порт. Лог: {logfile}', 409)
+                finally:
+                    self._lock.acquire()
+            raise AgentRuntimeError('INVALID_LAB_ACTION', 'Неизвестное действие лаборатории.', 400)
+
     def refresh_task_base(self, run_id: str, task_id: str, resolved_conflicts: list[str] | None = None,
                           allowed_paths: list[str] | None = None) -> dict:
         """Replay a task's approved diff onto the latest base with Git's three-way merge."""
@@ -2554,6 +2628,9 @@ class AgentRuntime:
         return result
 
     def close(self) -> None:
+        for preview in getattr(self, '_laboratory_previews', {}).values():
+            if preview['process'].poll() is None:
+                preview['process'].terminate()
         self._autopilot_stop.set()
         worker = self._autopilot_thread
         if worker and worker.is_alive() and worker is not threading.current_thread():

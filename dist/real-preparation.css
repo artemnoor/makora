@@ -1122,7 +1122,7 @@
   }
   #first-stage .stage-navigation {
     display:grid;
-    grid-template-columns:repeat(8,minmax(0,1fr));
+    grid-template-columns:repeat(var(--stage-count,8),minmax(0,1fr));
     gap:2px;
     padding:3px;
     overflow:visible;
@@ -1263,3 +1263,11 @@
   #first-stage .stage-board .analysis-paper .md-table-wrap {overflow:auto}
   #first-stage .stage-board .analysis-paper table {min-width:600px}
 }
+
+#first-stage .execution-editor,#first-stage .laboratory-preferences {padding:20px;border:1px solid #ffffff25;border-radius:12px;margin-bottom:20px;min-width:0}
+#first-stage .execution-editor label,#first-stage .laboratory-preferences label {display:grid;gap:6px;margin-block:12px}
+#first-stage .execution-editor :is(textarea,input,select),#first-stage .laboratory-preferences textarea {width:100%;box-sizing:border-box;min-width:0;background:#18191b;color:#f2eee7;border:1px solid #ffffff35;border-radius:7px;padding:10px}
+#first-stage .execution-editor textarea {font:12px/1.6 monospace;resize:vertical}
+#first-stage .execution-editor svg {max-width:100%;height:auto}
+#first-stage .laboratory-card {border-block-start:1px solid #ffffff20;padding-block:14px}
+#first-stage .case-constraints {border-inline-start:3px solid #c9b694;padding-inline-start:16px;margin-block:16px}
