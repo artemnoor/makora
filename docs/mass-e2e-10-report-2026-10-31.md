@@ -1,3 +1,7 @@
+> **Исторический материал.** Описывает прежнюю версию или отдельный прогон. Для текущей работы используйте [маршрут проекта](workflow.md).
+
+[← Архив](history.md) · [README](../README.md)
+
 # Массовое E2E-тестирование Макоры — 10 реальных проектов
 
 Дата: 31 октября 2026, UTC
@@ -85,3 +89,8 @@ Thread/turn ID, DAG, времена, тесты, решения Reviewer, commit
 Локальная контрольная проверка на чистом workspace `C:\m\browser-ci-fresh-20261031-04`, порт `8773`: `browser-flow.js`, `handoff-wait.js`, `handoff-new-mocks.js`, `example-case.js` — **4/4 PASS**. `browser-flow.js` прошёл все разделы, статусы симуляции, REAL → DEMO с ожиданием дольше интервала опроса, ZIP handoff, возврат файлов, версии и инвалидирование артефактов.
 
 После UI исправлений повторно выполнен `python -m unittest discover -s tests -v`: **187 тестов OK, 3 skipped**. Skipped проверки требуют настроенного Windows Codex sandbox. Проверки `node --check dist/agent-runtime-ui.js`, `node --check dist/agent-plan.js` и `git diff --check` прошли. GitHub Actions run [`41227124779`](https://github.com/artemnoor/makora/actions/runs/41227124779) на коммите `e5ad8ea` завершился успешно: jobs `checks` и `browser` — **PASS**. В журнале остались предупреждения GitHub о предстоящем переходе runner на Node.js 24 и Ubuntu 26; ошибки CI отсутствуют.
+
+## Смотрите также
+
+- [Архив и границы старых проверок](history.md)
+- [Текущие этапы](stages.md)
