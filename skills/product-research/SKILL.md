@@ -9,6 +9,8 @@ description: Research hackathon user problems, existing alternatives and technic
 
 Утверждённые требования, ограничения, сроки и доступные материалы организатора.
 
+В новом процессе Макоры (`workflowVersion=3`) входы — исходный кейс и утверждённое простое объяснение `00_brief_explanation.md`. Отдельного анализа задания нет: не требуй `01_case_analysis.md` и не запускай его. Ограничения и сроки учитывай только при прямом указании в кейсе. Сохраняй имена файлов из TASK.requiredFiles (`02_competitors.md/json`), а не примерные имена шаблона ниже. Пользовательская идея ещё не согласована: сравнивай с кейсом, не придумывая её за человека.
+
 ## Выходы
 
 `problem-research.md`, `competitors.md`, `patterns.md`, `technical-feasibility.md`, `research-summary.md`.

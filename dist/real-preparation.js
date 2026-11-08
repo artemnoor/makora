@@ -155,8 +155,8 @@
     if(stage===7){window.makoraModelStatus?.agents([]);development(content,board);return}
     const record=state.stages[stage],files=record?.files||{},status=record?.status||'not_started';
     window.makoraModelStatus?.preparation(record);
-    if(stage===3&&(!record||(record.interactionMode==='user_idea'&&['launching','running','awaiting_idea','unconfirmed'].includes(status)))){
-      ideaView(content,record);
+    if(stage===3&&(!record||(modern()&&status==='stale')||(record.interactionMode==='user_idea'&&['launching','running','awaiting_idea','unconfirmed'].includes(status)))){
+      ideaView(content,modern()&&status==='stale'?null:record);
       schedule();
       return;
     }
@@ -223,7 +223,7 @@
     if(file&&files[file])show(file);
     content.querySelector('[data-analysis-edit]')?.addEventListener('click',()=>{
       const regenerate=feedback=>action(async()=>{window.makoraModelStatus?.preparation({status:'dispatching'});artifactView(scene,board,content,record,{},'launching',true,projectKey);try{state=await api(`/api/preparation/${step}/start`,{feedback,openInCodex:true});file=null;root()?.querySelector('.analysis-chat')?.remove();paint()}catch(e){try{state=await api('/api/preparation')}catch{}paint();throw e}});
-      if(!record){regenerate(feedbacks[step]||'');return}
+      if(!record||(modern()&&status==='stale'&&(step===0||step===4))){regenerate(feedbacks[step]||'');return}
       openRefinementChat({key:projectKey,step,title:step===2?'Какие аналоги искать?':'Какие правки внесём?',description:step===2?'Укажи, какие продукты добавить или что проверить в найденных аналогах.':`Расскажи, что поправить: ${names[step].toLowerCase()}. Я обновлю материалы этапа.`,submit:step===2?'Обновить поиск →':'Пересоздать материалы →',onSubmit:regenerate});
     });
     content.querySelector('[data-real-approve]')?.addEventListener('click',approve);
@@ -237,8 +237,8 @@
       section.innerHTML='<h3>Ограничения из кейса</h3><ul>'+record.caseConstraints.map(item=>'<li>'+esc(item.quote)+(item.locator?' <small>'+esc(item.locator)+'</small>':'')+'</li>').join('')+'</ul>';
       content.querySelector('.analysis-summary')?.append(section);
     }
-    if(modern()&&step===4&&record?.files?.['03_tasks.json'])planningView(content,record);
-    if(modern()&&step===4&&!record?.files?.['03_tasks.json']){
+    if(modern()&&step===4&&record?.files?.['03_execution.json'])planningView(content,record);
+    if(modern()&&step===4&&!record?.files?.['03_execution.json']){
       const box=document.createElement('section');box.className='laboratory-preferences';
       box.innerHTML='<label>Какие функции вынести в лаборатории? <small>Необязательно. Одна функция на строку.</small><textarea rows="4" data-lab-preferences></textarea></label><button type="button" data-save-lab-preferences>Сохранить пожелания</button>';
       content.prepend(box);box.querySelector('textarea').value=(state.laboratoryPreferences||[]).join('\n');
