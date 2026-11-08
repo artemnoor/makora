@@ -46,6 +46,10 @@ async page => {
   assert((await page.locator('.idea-handoff').innerText()).includes('готово'),'Нет объяснения, как завершить сбор идей');
   assert((await page.locator('.idea-handoff').innerText()).includes('подтвердите'),'Нет отдельного подтверждения версий');
   assert(await page.locator('[data-real-file]').count()===0,'Черновики опубликованы до согласования');
+  state.stages[3]={status:'stale',interactionMode:'user_idea',files:{'02_solution_concept.md':'Old idea'}};
+  await page.evaluate(snapshot=>{window.makoraPreparation.mount(snapshot);window.makoraPreparation.open(3)},state);
+  await page.locator('[data-create-idea]').waitFor();
+  assert(await page.locator('[data-real-file]').count()===0,'Старая идея показана как результат нового брейншторма');
   for(const stage of [0,2,3,5])state.stages[stage]={status:'approved',files:{}};
   state.stages[5].files={'mocks/fixtures/data.json':'{}'};
   state.returnedProject={status:'prepared'};

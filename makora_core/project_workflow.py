@@ -127,7 +127,7 @@ class ProjectWorkflow(Preparation):
                     confirmed = False
                     if finished and re.search(r'^(да\b|подтверждаю\b|утверждаю\b|согласен\b|согласна\b)', text) and not re.search(r'\b(но|добавь|измени|поправь|не)\b', text):
                         confirmed = True
-                    if re.search(r'\bготово\b|идеи закончились|закончил.*идеи', text):
+                    if re.search(r'\bготово\b|идеи закончились|закончил.*идеи', text) and not re.search(r'\bне\s+(готово|закончил)', text):
                         finished = True
             record['brainstormReadyObserved'] = finished
             if not confirmed or result.get('userConfirmed') is not True:
@@ -204,7 +204,11 @@ class ProjectWorkflow(Preparation):
             raise AgentRuntimeError('EXPLANATION_UPDATE_REQUIRED', 'Пересоздайте пояснение: новый формат проверяет ограничения по цитатам кейса.', 409)
         if stage == 3 and not record.get('brainstormConfirmed'):
             raise AgentRuntimeError('BRAINSTORM_CONFIRMATION_REQUIRED', 'Сначала подтвердите версии и экраны в чате Codex.', 409)
-        return super().approve(stage, payload)
+        result = super().approve(stage, payload)
+        if stage == 0 and self.state.pop('workflowUpdate', None):
+            self.save()
+            return self.snapshot()
+        return result
 
     def save_execution(self, payload):
         from .laboratories import validate_execution
