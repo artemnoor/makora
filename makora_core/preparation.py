@@ -1114,7 +1114,8 @@ class Preparation:
                 try:
                     matches = []
                     candidates = [{'id': thread_id}] if thread_id else []
-                    if (not candidates and (Path(record['folder']) / 'result.json').is_file()
+                    if (not candidates and (record.get('interactionMode') == 'user_idea'
+                                           or (Path(record['folder']) / 'result.json').is_file())
                             and hasattr(self.runtime.provider, 'project_threads')):
                         project_root = Path(self.state.get('storageRoot') or Path(record['folder']).parent)
                         candidates = self.runtime.provider.project_threads(project_root)

@@ -624,6 +624,33 @@ class PreparationTests(unittest.TestCase):
         with self.assertRaises(AgentRuntimeError):
             self.pipeline.start(3, {'userIdea': True, 'continueAnalogs': True})
 
+    def test_idea_chat_recovers_without_result_before_user_conversation(self):
+        self.generate_analysis()
+        self.pipeline.approve(1)
+        self.pipeline.state['stages']['2'] = {'status':'failed','files':self.competitor_files()}
+        def uncertain(**kwargs):
+            self.calls.append(kwargs)
+            raise AgentRuntimeError('DELIVERY_UNKNOWN', 'Timed out after creating chat', 409)
+        self.runtime.provider.create_thread = uncertain
+        with self.assertRaises(AgentRuntimeError):
+            self.pipeline.start(3, {'userIdea':True,'continueAnalogs':True})
+        record = self.pipeline.state['stages']['3']
+        folder = Path(record['folder'])
+        self.assertFalse((folder / 'result.json').exists())
+        self.runtime.provider.project_threads = lambda _: [{'id':'idea-chat'}]
+        self.runtime.provider.history = lambda _: {'turns':[{'id':'idea-turn','status':'completed','items':[
+            {'role':'user','text':str(folder / 'TASK.json')},
+            {'role':'assistant','phase':'final_answer','text':'Расскажите свою идею.'}]}]}
+        before = len(self.calls)
+        restored = Preparation(Path(self.tmp.name), self.runtime)
+        result = restored.refresh(3)['stages']['3']
+        self.assertEqual('awaiting_idea', result['status'])
+        self.assertEqual('idea-chat', result['threadId'])
+        self.assertNotIn('error', result)
+        self.assertEqual({}, result['files'])
+        self.assertEqual(before, len(self.calls))
+        self.assertEqual([], self.sends)
+
     def test_changed_brief_starts_a_new_preparation_chat(self):
         self.pipeline.start(1, {'brief': 'Исходное условие проекта заметок.'})
         self.pipeline.state['stages']['1']['status'] = 'review'
