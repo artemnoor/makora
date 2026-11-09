@@ -729,6 +729,10 @@ class Preparation:
                         self.state['preparationChats'][group_key] = {
                             'threadId': created['id'], 'model': created.get('model', record['model']),
                             'reasoningEffort': created.get('reasoningEffort'), 'transport': created.get('transport', 'desktop')}
+                if created.get('id'):
+                    record.update(threadId=created['id'], transport=created.get('transport', 'desktop'))
+                if created.get('turnId'):
+                    record['turnId'] = created['turnId']
                 operation = created.get('operation') or {}
                 if not created.get('id') or not operation.get('id') or not created.get('turnId'):
                     raise AgentRuntimeError('UNCONFIRMED_DELIVERY', 'Codex не вернул thread/turn/operation ID.', 502)
@@ -746,6 +750,12 @@ class Preparation:
                 if user_idea:
                     self.state['lastStage'] = 3
             except Exception as exc:
+                if isinstance(exc, AgentRuntimeError) and exc.code == 'DELIVERY_UNKNOWN':
+                    for key in ('threadId', 'turnId'):
+                        if isinstance(exc.details.get(key), str) and exc.details[key]:
+                            record[key] = exc.details[key]
+                    if chat and not record.get('threadId'):
+                        record['threadId'] = chat['threadId']
                 confirmed_rejection = isinstance(exc, AgentRuntimeError) and exc.code in (
                     'MODEL_UNAVAILABLE', 'SESSION_BUSY', 'CODEX_API_ERROR', 'SANDBOX_UNAVAILABLE', 'NATIVE_SKILLS_UNAVAILABLE')
                 record.update(status='failed' if confirmed_rejection else 'unconfirmed', error=str(exc))
@@ -1097,26 +1107,38 @@ class Preparation:
             else:
                 group = record.get('groupKey') or self.state.get('projectId', '') + self.stage_group(stage)
                 thread_id = record.get('threadId') or self.state.get('preparationChats', {}).get(group, {}).get('threadId')
-                if not thread_id or not record.get('folder'):
+                if not record.get('folder'):
                     return self.snapshot()
                 task_path = str(Path(record['folder']) / 'TASK.json').replace('\\', '/').casefold()
+                self.lock.release()
                 try:
-                    history = self.runtime.provider.history(thread_id)
                     matches = []
-                    for turn in history.get('turns', []):
-                        items = turn.get('items', [])
-                        requested = any(item.get('role') == 'user' and task_path in str(item.get('text', '')).replace('\\', '/').casefold() for item in items if isinstance(item, dict))
-                        final = any(item.get('role') == 'assistant' and item.get('phase') == 'final_answer' and str(item.get('text', '')).strip() for item in items if isinstance(item, dict))
-                        if requested and final and turn.get('status') == 'completed' and turn.get('id'):
-                            matches.append(turn)
-                    if len(matches) != 1:
-                        return self.snapshot()
-                    record.update(threadId=thread_id, turnId=matches[0]['id'])
-                    logger.info('[FIX] Recovered completed preparation stage %s from matching thread history', stage)
-                    session = {'status': 'completed'}
+                    candidates = [{'id': thread_id}] if thread_id else []
+                    if (not candidates and (Path(record['folder']) / 'result.json').is_file()
+                            and hasattr(self.runtime.provider, 'project_threads')):
+                        project_root = Path(self.state.get('storageRoot') or Path(record['folder']).parent)
+                        candidates = self.runtime.provider.project_threads(project_root)
+                    for candidate_id in dict.fromkeys(item['id'] for item in candidates):
+                        history = self.runtime.provider.history(candidate_id)
+                        for turn in history.get('turns', []):
+                            items = turn.get('items', [])
+                            requested = any(item.get('role') == 'user' and task_path in str(item.get('text', '')).replace('\\', '/').casefold() for item in items if isinstance(item, dict))
+                            final = any(item.get('role') == 'assistant' and item.get('phase') == 'final_answer' and str(item.get('text', '')).strip() for item in items if isinstance(item, dict))
+                            if requested and final and turn.get('status') == 'completed' and turn.get('id'):
+                                matches.append((candidate_id, turn['id']))
                 except Exception:
                     logger.exception('[FIX] Could not recover preparation stage %s from thread history', stage)
+                    matches = []
+                finally:
+                    self.lock.acquire()
+                if self.state['stages'].get(str(stage)) is not record or len(matches) != 1:
                     return self.snapshot()
+                record.update(threadId=matches[0][0], turnId=matches[0][1], transport='desktop')
+                self.state.setdefault('preparationChats', {})[group] = {
+                    'threadId': record['threadId'], 'transport': 'desktop',
+                    'model': record.get('model'), 'reasoningEffort': record.get('reasoningEffort')}
+                logger.info('[FIX] Recovered completed preparation stage %s from matching thread history', stage)
+                session = {'status': 'completed'}
             record['agentStatus'] = session['status']
             if session['status'] == 'completed':
                 if record.get('interactionMode') == 'user_idea' and not (Path(record['folder']) / 'result.json').exists():
