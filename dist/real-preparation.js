@@ -315,10 +315,11 @@
     content.innerHTML=`<section class="idea-handoff">
       <span class="idea-handoff-mark" aria-hidden="true">✳</span>
       <h3>${record?.brainstormPhase==='reviewing_versions'?'Проверьте версии и экраны в Codex':record?'Расскажите свою идею в Codex':'Сформулируем вашу идею'}</h3>
-      <p>${record?'В отдельный чат отправлено задание выслушать вашу задумку и помочь её уточнить. Перейдите туда и напишите, что хотите создать.':'Создадим чат, где ИИ сначала выслушает вашу задумку и поможет оформить её.'}</p>
+      <p>${linked?'В отдельный чат отправлено задание выслушать вашу задумку и помочь её уточнить. Перейдите туда и напишите, что хотите создать.':record?'Создание чата пока не подтверждено. Проверим уже отправленный запрос без повторной отправки.':'Создадим чат, где ИИ сначала выслушает вашу задумку и поможет оформить её.'}</p>
       <ol><li>Расскажите, для кого продукт и какую задачу он решает.</li><li>Опишите, что хотите показать в демоверсии.</li><li>Когда закончите сбор идей, напишите «готово».</li><li>ИИ предложит версии и экраны. Обсудите их и отдельно подтвердите — после этого документы появятся здесь.</li></ol>
-      <div class="analysis-actions">${linked?`<button class="rp-primary idea-codex-link" data-open-codex>Открыть чат идеи в Codex ↗</button>`:record?'<p role="status">Ожидаем подтверждение чата…</p>':'<button class="rp-primary" data-create-idea>Создать чат в Codex →</button>'}
-      ${record?'<button class="rp-secondary" data-check-idea>Проверить готовность документов</button>':''}</div>
+      ${record&&!linked&&record.error?`<p role="status">${esc(record.error)}</p>`:''}
+      <div class="analysis-actions">${linked?`<button class="rp-primary idea-codex-link" data-open-codex>Открыть чат идеи в Codex ↗</button>`:!record?'<button class="rp-primary" data-create-idea>Создать чат в Codex →</button>':''}
+      ${record?`<button class="rp-secondary" data-check-idea>${linked?'Проверить готовность документов':'Проверить чат'}</button>`:''}</div>
       ${record?'<small role="status">Документы появятся здесь после подтверждения версий и экранов в Codex.</small>':''}
     </section>`;
     content.querySelector('[data-create-idea]')?.addEventListener('click',()=>action(beginIdea));

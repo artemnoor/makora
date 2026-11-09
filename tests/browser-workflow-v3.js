@@ -49,6 +49,11 @@ async page => {
   assert((await page.locator('.idea-handoff').innerText()).includes('готово'),'Нет объяснения, как завершить сбор идей');
   assert((await page.locator('.idea-handoff').innerText()).includes('подтвердите'),'Нет отдельного подтверждения версий');
   assert(await page.locator('[data-real-file]').count()===0,'Черновики опубликованы до согласования');
+  state.stages[3]={status:'unconfirmed',interactionMode:'user_idea',error:'Доставка не подтверждена',files:{}};
+  await page.evaluate(snapshot=>{window.makoraPreparation.mount(snapshot);window.makoraPreparation.open(3)},state);
+  await page.getByRole('button',{name:'Проверить чат',exact:true}).waitFor();
+  assert(!(await page.locator('.idea-handoff').innerText()).includes('В отдельный чат отправлено'),'Неподтверждённая доставка показана как успешная');
+  assert((await page.locator('.idea-handoff').innerText()).includes('Доставка не подтверждена'),'Ошибка создания чата скрыта');
   state.stages[3]={status:'stale',interactionMode:'user_idea',files:{'02_solution_concept.md':'Old idea'}};
   await page.evaluate(snapshot=>{window.makoraPreparation.mount(snapshot);window.makoraPreparation.open(3)},state);
   await page.locator('[data-create-idea]').waitFor();
