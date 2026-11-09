@@ -661,6 +661,64 @@ class PreparationTests(unittest.TestCase):
         self.assertEqual('review', self.pipeline.poll()['stages']['1']['status'])
         self.assertNotIn('error', record)
 
+    def test_unknown_creation_delivery_recovers_exact_task_without_resending(self):
+        def uncertain(**kwargs):
+            self.calls.append(kwargs)
+            raise AgentRuntimeError('DELIVERY_UNKNOWN', 'Timed out after dispatch', 409)
+        self.runtime.provider.create_thread = uncertain
+        with self.assertRaises(AgentRuntimeError):
+            self.pipeline.start(1, {'brief': 'Проект каталога с поиском'})
+        record = self.pipeline.state['stages']['1']
+        folder = Path(record['folder'])
+        (folder / 'result.json').write_text(json.dumps({'files': {'01_case_analysis.md': VALID_ANALYSIS},
+            'requirementsEvidence': [{'id':'REQ-1','quote':self.pipeline.state['brief'],'locator':'brief','acceptance':'Check'}]}), 'utf-8')
+        self.runtime.provider.project_threads = lambda _: [{'id': 'unrelated'}, {'id': 'late-thread'}]
+        def history(thread_id):
+            return {'turns': [{'id': 'late-turn', 'status': 'completed', 'items': [
+                {'role':'user','text':str(folder / 'TASK.json') if thread_id == 'late-thread' else 'Other task'},
+                {'role':'assistant','phase':'final_answer','text':'Done'}]}]}
+        self.runtime.provider.history = history
+        self.runtime.provider.project_threads = lambda _: [{'id': 'unrelated'}]
+        self.assertEqual('unconfirmed', self.pipeline.refresh(1)['stages']['1']['status'])
+        self.runtime.provider.project_threads = lambda _: [{'id': 'late-thread'}, {'id': 'duplicate'}]
+        self.runtime.provider.history = lambda _: history('late-thread')
+        self.assertEqual('unconfirmed', self.pipeline.refresh(1)['stages']['1']['status'])
+        incomplete = history('late-thread')
+        incomplete['turns'][0]['status'] = 'inProgress'
+        self.runtime.provider.project_threads = lambda _: [{'id': 'late-thread'}]
+        self.runtime.provider.history = lambda _: incomplete
+        self.assertEqual('unconfirmed', self.pipeline.refresh(1)['stages']['1']['status'])
+        self.runtime.provider.project_threads = lambda _: [{'id': 'unrelated'}, {'id': 'late-thread'}]
+        self.runtime.provider.history = history
+        result = self.pipeline.refresh(1)['stages']['1']
+        self.assertEqual('review', result['status'])
+        self.assertEqual('late-thread', result['threadId'])
+        self.assertEqual('late-turn', result['turnId'])
+        self.assertEqual(1, len(self.calls))
+        self.assertEqual([], self.sends)
+
+    def test_unknown_delivery_retains_thread_identity_from_bridge_error(self):
+        def uncertain(**kwargs):
+            raise AgentRuntimeError('DELIVERY_UNKNOWN', 'Timed out', 409,
+                                    {'threadId':'created-thread','turnId':'created-turn'})
+        self.runtime.provider.create_thread = uncertain
+        with self.assertRaises(AgentRuntimeError):
+            self.pipeline.start(1, {'brief':'Проект каталога с поиском'})
+        record = self.pipeline.state['stages']['1']
+        self.assertEqual('created-thread', record.get('threadId'))
+        self.assertEqual('created-turn', record.get('turnId'))
+
+    def test_recovery_catalog_only_returns_threads_in_exact_project(self):
+        from makora_core.agents.runtime import CodexLocalApi
+        api = CodexLocalApi.__new__(CodexLocalApi)
+        api.ensure_started = lambda: None
+        root = Path(self.tmp.name)
+        api._request = Mock(return_value={'threads': [
+            {'id':'match','cwd':str(root)},
+            {'id':'other','cwd':str(root / 'another-project')},
+            {'id':'no-folder'}]})
+        self.assertEqual(['match'], [thread['id'] for thread in api.project_threads(root)])
+
     def test_all_stage_errors_are_readable_including_saved_legacy_errors(self):
         for stage in range(1, 5):
             self.pipeline.state['stages'][str(stage)] = {'status': 'failed', 'error': {

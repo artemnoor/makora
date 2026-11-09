@@ -363,6 +363,15 @@ class CodexLocalApi:
         self.ensure_started()
         return self._request(f"/api/threads/{thread_id}?tail=1", timeout=15)
 
+    def project_threads(self, cwd: Path) -> list[dict]:
+        """Read bounded recovery candidates; never create or resend a chat."""
+        self.ensure_started()
+        catalog = self._request('/api/threads?scope=all&limit=100', timeout=15)
+        wanted = os.path.normcase(os.path.normpath(str(cwd)))
+        return [thread for thread in catalog.get('threads', [])
+                if isinstance(thread, dict) and thread.get('id') and thread.get('cwd')
+                and os.path.normcase(os.path.normpath(thread['cwd'])) == wanted]
+
     def approvals(self) -> list[dict]:
         self._schedule_metadata_refresh()
         with self._metadata_lock:
