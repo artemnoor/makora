@@ -9,6 +9,8 @@ description: Prepare and validate synthetic fixtures, scenario data and optional
 
 При workflowVersion=3 моки создаются после брейншторма, до пакета и планирования агентов. Используй утверждённые 02_user_idea.md и 02_versions_and_screens.json: создай схемы нужных этим экранам сущностей и синтетические состояния. Не требуй ещё не существующих 03_tasks.json или архитектуры. Проверки фикстур и локальных JSON Schema ниже сохраняются.
 
+Для этого процесса выходы: `mocks/fixtures/data.json`, `mocks/scenarios.json`, `mocks/screens.json`, локальные JSON Schema и `04_validation_report.md`. Каждая машинная проверка сценария содержит `fixture`, `schema` и boolean `expectedValid`; подробный формат и разделение UI-сценариев описаны в `preparation-session/references/workflow-v3.md` из снимка навыков TASK.json. Не подменяй машинные проверки только текстовыми ожиданиями `input/expected`. Общие имена выходов ниже относятся к методическим материалам и не заменяют пути TASK.requiredFiles.
+
 ## Входы
 
 Утверждённые контракты, модели, тест-план, пользовательские сценарии и задачи.
